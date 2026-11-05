@@ -1,0 +1,52 @@
+﻿* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #101d42, #3155a5);
+  font-family: Arial, sans-serif;
+  padding: 20px;
+}
+
+.card {
+  background: white;
+  max-width: 430px;
+  width: 100%;
+  padding: 40px 25px;
+  border-radius: 20px;
+  text-align: center;
+  box-shadow: 0 20px 60px #0005;
+}
+
+.logo {
+  width: 90px;
+  height: 90px;
+}
+
+h1 {
+  color: #173477;
+}
+
+p {
+  color: #667085;
+  line-height: 1.6;
+}
+
+button {
+  background: #2456c5;
+  color: white;
+  border: 0;
+  padding: 13px 25px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+footer {
+  margin-top: 30px;
+  color: #98a2b3;
+  font-size: 12px;
+}

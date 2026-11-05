@@ -1,0 +1,19 @@
+{
+  "name": "dsquare-platform",
+  "private": true,
+  "workspaces": [
+    "apps/*/client",
+    "apps/*/server",
+    "packages/*"
+  ],
+  "scripts": {
+    "check": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}
