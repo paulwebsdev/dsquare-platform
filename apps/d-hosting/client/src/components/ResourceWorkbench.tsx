@@ -1074,6 +1074,7 @@ export default function ResourceWorkbench({
       ) : (
         <>
           <WebsitePreview previewUrl={`${baseUrl}/preview`} />
+          <PublishingControls resourceUrl={baseUrl} initialStatus={resource.status} />
           <div className="wb-upload-panel panel">
             <div>
               <h2>Website files</h2>
