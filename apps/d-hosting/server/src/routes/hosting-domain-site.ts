@@ -51,4 +51,19 @@ router.get("/:fileName", (req, res) => {
   return serveDomainRequest(req, res, firstParam(req.params.fileName));
 });
 
+router.get(/.*/, (req, res) => {
+  let filePath: string;
+
+  try {
+    filePath = decodeURIComponent(req.path.replace(/^\\//, ""));
+  } catch {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid website file path.",
+    });
+  }
+
+  return serveDomainRequest(req, res, filePath);
+});
+
 export default router;
