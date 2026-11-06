@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeWebsiteFilePath } from "./website-file-path.js";
+import { normalizeWebsiteFilePath, normalizeWebsiteRequestPath } from "./website-file-path.js";
 
 test("accepts safe nested website paths", () => {
   assert.equal(normalizeWebsiteFilePath("assets/logo.svg"), "assets/logo.svg");
@@ -24,5 +24,23 @@ test("rejects unsafe website paths", () => {
   ];
   for (const value of invalid) {
     assert.equal(normalizeWebsiteFilePath(value), null);
+  }
+});
+
+test("accepts safe extensionless paths for frontend SPA routes", () => {
+  assert.equal(normalizeWebsiteRequestPath("dashboard"), "dashboard");
+  assert.equal(normalizeWebsiteRequestPath("account/profile"), "account/profile");
+});
+
+test("rejects unsafe extensionless website routes", () => {
+  const invalid = [
+    "../dashboard",
+    "/dashboard",
+    "account//profile",
+    "account" + String.fromCharCode(92) + "profile",
+    "account/" + String.fromCharCode(0) + "profile",
+  ];
+  for (const value of invalid) {
+    assert.equal(normalizeWebsiteRequestPath(value), null);
   }
 });
