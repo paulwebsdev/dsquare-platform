@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import "./style.css";
 import ProjectManager from "./components/ProjectManager";
 import AuthScreen, { type AuthUser } from "./components/AuthScreen";
+import HostingApproval from "./components/HostingApproval";
 
 type Theme = "light" | "dark" | "system";
 
@@ -123,6 +124,7 @@ export default function App() {
 
   if (authLoading) return <div className="auth-loading">Checking your session...</div>;
   if (!user) return <AuthScreen onAuthenticated={setUser} />;
+  if (window.location.pathname === "/integrations/hosting/approve") return <HostingApproval />;
 
   return (
     <div className="app-shell">
