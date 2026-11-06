@@ -15,14 +15,14 @@ export async function resolvePublishedDomain(
   requestHostname: string
 ): Promise<PublishedDomainTarget | null> {
   const hostname = domainToASCII(
-    requestHostname.trim().replace(/:\\d+$/, "").replace(/\\.$/, "")
+    requestHostname.trim().replace(/:\d+$/, "").replace(/\.$/, "")
   ).toLowerCase();
 
   if (
     !hostname ||
     hostname.length > 253 ||
     hostname === "localhost" ||
-    /^\\d{1,3}(\\.\\d{1,3}){3}$/.test(hostname) ||
+    /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname) ||
     hostname.split(".").length < 2
   ) {
     return null;
@@ -33,14 +33,14 @@ export async function resolvePublishedDomain(
     resource_id: string;
     domain: string;
   }>(
-    `SELECT d.project_id, d.resource_id, d.domain
+    \`SELECT d.project_id, d.resource_id, d.domain
      FROM hosting_custom_domains d
      INNER JOIN hosting_resources r
        ON r.id = d.resource_id AND r.project_id = d.project_id
      WHERE d.domain = $1
        AND d.status = 'verified'
        AND r.status = 'published'
-     LIMIT 1`,
+     LIMIT 1\`,
     [hostname]
   );
 
