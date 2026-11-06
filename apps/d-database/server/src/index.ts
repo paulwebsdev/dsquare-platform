@@ -12,7 +12,49 @@ import { requireProjectOwnership } from "./middleware/require-project-owner.js";
 
 const app = express();
 
-app.use(cors({ origin: ["http://127.0.0.1:5173"], credentials: true }));
+function getAllowedAppOrigin(): string {
+  const configured = process.env.D_DATABASE_APP_ORIGIN?.trim();
+  const value = configured || (
+    process.env.NODE_ENV === "production" ? "" : "http://127.0.0.1:5173"
+  );
+
+  if (!value) {
+    throw new Error("D_DATABASE_APP_ORIGIN must be set in production.");
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error("D_DATABASE_APP_ORIGIN must be a valid origin.");
+  }
+
+  const isLoopbackHttp =
+    parsed.protocol === "http:" &&
+    ["127.0.0.1", "localhost", "[::1]"].includes(parsed.hostname);
+
+  if (
+    parsed.origin !== value ||
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash ||
+    (process.env.NODE_ENV === "production"
+      ? parsed.protocol !== "https:"
+      : parsed.protocol !== "https:" && !isLoopbackHttp)
+  ) {
+    throw new Error("D_DATABASE_APP_ORIGIN must be a secure HTTPS origin (HTTP loopback is allowed only in development).");
+  }
+
+  return parsed.origin;
+}
+
+const APP_ORIGIN = getAllowedAppOrigin();
+
+app.use(cors({
+  origin: APP_ORIGIN,
+  credentials: true,
+}));
 app.use(express.json());
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/integrations/hosting", hostingIntegrationRouter);
