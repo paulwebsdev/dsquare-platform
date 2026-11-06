@@ -51,7 +51,7 @@ router.get("/:fileName", (req, res) => {
   return serveDomainRequest(req, res, firstParam(req.params.fileName));
 });
 
-router.get(/.*/, (req, res) => {
+router.get(/^\/(?!api(?:\/|$)).+/, (req, res) => {
   let filePath: string;
 
   try {
