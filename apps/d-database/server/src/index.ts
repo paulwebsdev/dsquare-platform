@@ -1,5 +1,5 @@
-import hostingIntegrationRouter from "./routes/hosting-integration.js";
 import "dotenv/config";
+import hostingIntegrationRouter from "./routes/hosting-integration.js";
 import express from "express";
 import cors from "cors";
 import { pool } from "./config/database.js";
