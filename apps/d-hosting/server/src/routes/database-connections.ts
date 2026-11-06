@@ -60,6 +60,28 @@ router.post("/complete", requireSameOrigin, limitConnectionComplete, async (req,
     return;
   }
 
+  let databaseApiUrl: URL;
+  try {
+    databaseApiUrl = new URL(DATABASE_API_URL);
+    const isLoopbackHttp =
+      databaseApiUrl.protocol === "http:" &&
+      ["127.0.0.1", "localhost", "[::1]"].includes(databaseApiUrl.hostname);
+    if (
+      databaseApiUrl.username ||
+      databaseApiUrl.password ||
+      databaseApiUrl.search ||
+      databaseApiUrl.hash ||
+      (process.env.NODE_ENV === "production"
+        ? databaseApiUrl.protocol !== "https:"
+        : databaseApiUrl.protocol !== "https:" && !isLoopbackHttp)
+    ) {
+      throw new Error("D Database API URL is not secure.");
+    }
+  } catch {
+    res.status(503).json({ success: false, message: "D Database API URL is not configured safely." });
+    return;
+  }
+
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -76,7 +98,7 @@ router.post("/complete", requireSameOrigin, limitConnectionComplete, async (req,
       return;
     }
 
-    const response = await fetch(new URL("/api/v1/integrations/hosting/redeem", DATABASE_API_URL), {
+    const response = await fetch(new URL("/api/v1/integrations/hosting/redeem", databaseApiUrl), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, code }),
