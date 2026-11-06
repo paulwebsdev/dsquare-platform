@@ -4,7 +4,7 @@ import path from "node:path";
 import { pool } from "../config/database.js";
 import { requireAuth } from "../middleware/require-auth.js";
 import { normalizeWebsiteRequestPath } from "../services/website-file-path.js";
-import { detectWebsiteRoot } from "../services/website-root.js";
+import { getWebsiteFileCandidates } from "../services/website-file-resolution.js";
 
 const router = Router({ mergeParams: true });
 
@@ -123,23 +123,15 @@ export async function serveResourceFile(
          WHERE project_id = $1 AND resource_id = $2`,
         [projectId, resourceId]
       );
-      const websiteRoot = detectWebsiteRoot(
+      const candidates = getWebsiteFileCandidates(
+        safeFileName,
         uploadedPaths.rows.map((row: { original_name: string }) => row.original_name)
       );
 
-      if (websiteRoot) {
-        const rootedPath = safeFileName === "index.html"
-          ? websiteRoot.homepagePath
-          : `${websiteRoot.rootPath}${safeFileName}`;
-
-        if (rootedPath !== safeFileName) {
-          fileResult = await findStoredFile(rootedPath);
-        }
-
-        // Extensionless paths belong to the frontend router when no real file exists.
-        if (fileResult.rowCount === 0 && !extension) {
-          fileResult = await findStoredFile(websiteRoot.homepagePath);
-        }
+      // The same resolver is used by preview, published URLs and custom domains.
+      for (const candidate of candidates.slice(1)) {
+        fileResult = await findStoredFile(candidate);
+        if (fileResult.rowCount > 0) break;
       }
     }
 
