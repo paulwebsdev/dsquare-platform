@@ -7,3 +7,6 @@ build/
 coverage/
 *.log
 apps/d-hosting/server/storage/
+
+# Local PostgreSQL backup archives
+/d-*.backup
