@@ -1,3 +1,4 @@
+import hostingIntegrationRouter from "./routes/hosting-integration.js";
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
@@ -14,6 +15,7 @@ const app = express();
 app.use(cors({ origin: ["http://127.0.0.1:5173"] }));
 app.use(express.json());
 app.use("/api/v1/auth", authRouter);
+app.use("/api/v1/integrations/hosting", hostingIntegrationRouter);
 app.use("/api/v1/projects", requireAuth, projectsRouter);
 app.use("/api/v1/projects/:projectId/resources", requireAuth, requireProjectOwnership, databaseResourcesRouter);
 app.use("/api/v1/projects/:projectId/resources", requireAuth, requireProjectOwnership, databaseTablesRouter);
