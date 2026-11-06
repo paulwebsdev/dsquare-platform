@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { FormEvent } from "react";
 
 type CustomDomain = {
   id: string;
@@ -42,7 +43,7 @@ export default function CustomDomains({ resourceUrl }: Props) {
     void loadDomains();
   }, [resourceUrl]);
 
-  async function addDomain(event: React.FormEvent<HTMLFormElement>) {
+  async function addDomain(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
     setError("");
