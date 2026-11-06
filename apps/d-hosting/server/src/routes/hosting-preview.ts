@@ -3,7 +3,8 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { pool } from "../config/database.js";
 import { requireAuth } from "../middleware/require-auth.js";
-import { normalizeWebsiteFilePath } from "../services/website-file-path.js";
+import { normalizeWebsiteRequestPath } from "../services/website-file-path.js";
+import { detectWebsiteRoot } from "../services/website-root.js";
 
 const router = Router({ mergeParams: true });
 
@@ -41,7 +42,7 @@ export async function serveResourceFile(
     });
   }
 
-  const safeFileName = normalizeWebsiteFilePath(fileName);
+  const safeFileName = normalizeWebsiteRequestPath(fileName);
   if (!safeFileName) {
     return res.status(400).json({
       success: false,
@@ -51,7 +52,7 @@ export async function serveResourceFile(
 
   const extension = path.extname(safeFileName).toLowerCase();
 
-  if (!ALLOWED_EXTENSIONS.has(extension)) {
+  if (extension && !ALLOWED_EXTENSIONS.has(extension)) {
     return res.status(415).json({
       success: false,
       message: "This file type cannot be previewed.",
@@ -102,20 +103,50 @@ export async function serveResourceFile(
       });
     }
 
-    const fileResult = await pool.query(
-      `SELECT storage_key, mime_type
-       FROM hosting_files
-       WHERE project_id = $1
-         AND resource_id = $2
-         AND original_name = $3
-       LIMIT 1`,
-      [projectId, resourceId, safeFileName]
-    );
+    const findStoredFile = async (storedPath: string) =>
+      pool.query(
+        `SELECT storage_key, mime_type
+         FROM hosting_files
+         WHERE project_id = $1
+           AND resource_id = $2
+           AND original_name = $3
+         LIMIT 1`,
+        [projectId, resourceId, storedPath]
+      );
+
+    let fileResult = await findStoredFile(safeFileName);
+
+    if (fileResult.rowCount === 0) {
+      const uploadedPaths = await pool.query(
+        `SELECT original_name
+         FROM hosting_files
+         WHERE project_id = $1 AND resource_id = $2`,
+        [projectId, resourceId]
+      );
+      const websiteRoot = detectWebsiteRoot(
+        uploadedPaths.rows.map((row: { original_name: string }) => row.original_name)
+      );
+
+      if (websiteRoot) {
+        const rootedPath = safeFileName === "index.html"
+          ? websiteRoot.homepagePath
+          : `${websiteRoot.rootPath}${safeFileName}`;
+
+        if (rootedPath !== safeFileName) {
+          fileResult = await findStoredFile(rootedPath);
+        }
+
+        // Extensionless paths belong to the frontend router when no real file exists.
+        if (fileResult.rowCount === 0 && !extension) {
+          fileResult = await findStoredFile(websiteRoot.homepagePath);
+        }
+      }
+    }
 
     if (fileResult.rowCount === 0) {
       return res.status(404).json({
         success: false,
-        message: "Preview file not found.",
+        message: "Website file not found. Upload an index.html homepage to publish this website.",
       });
     }
 
