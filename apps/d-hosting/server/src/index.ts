@@ -8,6 +8,7 @@ import projectsRouter from "./routes/projects.js";
 import hostingResourcesRouter from "./routes/hosting-resources.js";
 import hostingFilesRouter from "./routes/hosting-files.js";
 import hostingPreviewRouter from "./routes/hosting-preview.js";
+import hostingDomainsRouter from "./routes/hosting-domains.js";
 
 const app = express();
 
@@ -62,6 +63,7 @@ app.use("/api/v1/database-connections", databaseConnectionsRouter);
 
 // Public website routes must run before routers with global authentication middleware.
 app.use("/api/v1/projects/:projectId/resources", hostingPreviewRouter);
+app.use("/api/v1/projects/:projectId/resources", hostingDomainsRouter);
 app.use("/api/v1/projects/:projectId/resources", hostingResourcesRouter);
 app.use("/api/v1/projects/:projectId/resources", hostingFilesRouter);
 
