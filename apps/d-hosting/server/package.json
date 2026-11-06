@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/middleware/rate-limit.test.ts",
     "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
