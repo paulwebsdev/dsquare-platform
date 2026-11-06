@@ -6,6 +6,15 @@ import { requireAuth } from "../middleware/require-auth.js";
 const router = Router();
 router.use(requireAuth);
 
+const APP_ORIGIN = process.env.D_HOSTING_APP_ORIGIN || "http://127.0.0.1:5174";
+function requireSameOrigin(req: import("express").Request, res: import("express").Response, next: import("express").NextFunction) {
+  if (req.get("origin") !== APP_ORIGIN) {
+    res.status(403).json({ success: false, message: "Request origin is not allowed." });
+    return;
+  }
+  next();
+}
+
 const CLIENT_ID = process.env.D_HOSTING_INTEGRATION_CLIENT_ID || "dsquare-d-hosting";
 const CLIENT_SECRET = process.env.D_HOSTING_INTEGRATION_CLIENT_SECRET || "";
 const DATABASE_API_URL = process.env.D_DATABASE_API_URL || "http://127.0.0.1:5001";
@@ -13,7 +22,7 @@ const DATABASE_APP_URL = process.env.D_DATABASE_APP_URL || "http://127.0.0.1:517
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 const validId = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
-router.post("/start", async (_req, res) => {
+router.post("/start", requireSameOrigin, async (_req, res) => {
   if (!CLIENT_SECRET) {
     res.status(503).json({ success: false, message: "Database integration is not configured." });
     return;
@@ -35,7 +44,7 @@ router.post("/start", async (_req, res) => {
   }
 });
 
-router.post("/complete", async (req, res) => {
+router.post("/complete", requireSameOrigin, async (req, res) => {
   const state = typeof req.body?.state === "string" ? req.body.state : "";
   const code = typeof req.body?.code === "string" ? req.body.code : "";
   if (!/^[A-Za-z0-9_-]{43}$/.test(state) || !/^[A-Za-z0-9_-]{43}$/.test(code)) {
@@ -127,7 +136,7 @@ router.get("/", async (_req, res) => {
   }
 });
 
-router.delete("/:connectionId", async (req, res) => {
+router.delete("/:connectionId", requireSameOrigin, async (req, res) => {
   if (!validId(req.params.connectionId)) {
     res.status(400).json({ success: false, message: "Invalid connection ID." });
     return;
