@@ -2,6 +2,7 @@
 import "./style.css";
 import ProjectManager from "./components/ProjectManager";
 import AuthScreen, { type AuthUser } from "./components/AuthScreen";
+import DatabaseConnections from "./components/DatabaseConnections";
 type Theme = "light" | "dark" | "system";
 
 type ProjectSummary = {
@@ -16,6 +17,7 @@ const navigation = [
   { label: "Overview", icon: "" },
   { label: "Projects", icon: "" },
   { label: "Resources", icon: "" },
+  { label: "Database Connections", icon: "" },
   { label: "Usage & Billing", icon: "" },
   { label: "Activity", icon: "" },
   { label: "Settings", icon: "" }
@@ -121,6 +123,7 @@ export default function App() {
 
   if (authLoading) return <div className="auth-loading">Checking your session...</div>;
   if (!user) return <AuthScreen onAuthenticated={setUser} />;
+  if (window.location.pathname === "/integrations/database/callback") return <DatabaseConnections />;
 
   return (
     <div className="app-shell">
@@ -190,6 +193,8 @@ export default function App() {
         <div className="content">
           {activePage === "Projects" ? (
             <ProjectManager onProjectsChange={refreshProjectSummary} />
+          ) : activePage === "Database Connections" ? (
+            <DatabaseConnections />
           ) : (
             <>
           <section className="welcome-row">
