@@ -9,6 +9,7 @@ import hostingResourcesRouter from "./routes/hosting-resources.js";
 import hostingFilesRouter from "./routes/hosting-files.js";
 import hostingPreviewRouter from "./routes/hosting-preview.js";
 import hostingDomainsRouter from "./routes/hosting-domains.js";
+import hostingDomainSiteRouter from "./routes/hosting-domain-site.js";
 
 const app = express();
 
@@ -57,6 +58,9 @@ app.use(cors({
 }));
 
 app.use(express.json());
+
+// Custom-domain website delivery runs before the authenticated product API.
+app.use("/", hostingDomainSiteRouter);
 
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/database-connections", databaseConnectionsRouter);
