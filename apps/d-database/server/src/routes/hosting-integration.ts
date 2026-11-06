@@ -82,6 +82,34 @@ router.post("/authorize", async (req, res) => {
     return;
   }
 
+  if (!CLIENT_SECRET) {
+    res.status(503).json({ success: false, message: "Database integration is not configured." });
+    return;
+  }
+
+  let callback: URL;
+  try {
+    callback = new URL(CALLBACK_URL);
+    const isLocalCallback =
+      callback.protocol === "http:" &&
+      callback.hostname === "127.0.0.1" &&
+      callback.port === "5174";
+    const isSecureCallback = callback.protocol === "https:";
+    if (
+      callback.username ||
+      callback.password ||
+      callback.hash ||
+      callback.search ||
+      callback.pathname !== "/integrations/database/callback" ||
+      (process.env.NODE_ENV === "production" ? !isSecureCallback : !(isLocalCallback || isSecureCallback))
+    ) {
+      throw new Error("Callback URL is not an allowed callback address.");
+    }
+  } catch {
+    res.status(503).json({ success: false, message: "Database integration callback is not configured safely." });
+    return;
+  }
+
   try {
     const resource = await pool.query(
       `SELECT r.id FROM database_resources r
@@ -104,7 +132,6 @@ router.post("/authorize", async (req, res) => {
       [sha256(code), CLIENT_ID, res.locals.userId, projectId, resourceId],
     );
 
-    const callback = new URL(CALLBACK_URL);
     callback.searchParams.set("code", code);
     callback.searchParams.set("state", state);
     res.json({ success: true, redirectUrl: callback.toString() });
