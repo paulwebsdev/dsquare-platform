@@ -10,8 +10,6 @@ const CALLBACK_URL = process.env.D_HOSTING_CALLBACK_URL || "http://127.0.0.1:517
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 
-router.use(requireAuth);
-
 router.post("/authorize", async (req, res) => {
   const state = typeof req.body?.state === "string" ? req.body.state : "";
   const projectId = typeof req.body?.projectId === "string" ? req.body.projectId : "";
@@ -110,5 +108,7 @@ router.post("/redeem", async (req, res) => {
     client.release();
   }
 });
+
+router.use(requireAuth);
 
 export default router;
