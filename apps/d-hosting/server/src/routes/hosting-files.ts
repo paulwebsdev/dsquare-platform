@@ -5,6 +5,7 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pool } from "../config/database.js";
 import { requireAuth } from "../middleware/require-auth.js";
+import { normalizeWebsiteFilePath } from "../services/website-file-path.js";
 
 const router = Router({ mergeParams: true });
 
@@ -52,20 +53,11 @@ function getParams(req: { params: object }) {
 }
 
 function validFileName(name: string) {
-  if (
-    !name ||
-    name.length > 255 ||
-    name === "." ||
-    name === ".." ||
-    /[\/\\\x00-\x1F\x7F]/.test(name)
-  ) {
-    return false;
-  }
-
-  return Object.prototype.hasOwnProperty.call(
-    FILE_TYPES,
-    path.extname(name).toLowerCase()
-  );
+  return normalizeWebsiteFilePath(name) !== null &&
+    Object.prototype.hasOwnProperty.call(
+      FILE_TYPES,
+      path.extname(name).toLowerCase()
+    );
 }
 
 function getFilePath(resourceId: string, storageKey: string) {
@@ -319,7 +311,7 @@ router.patch("/:resourceId/files/:fileId", async (req, res) => {
   if (!validFileName(newName)) {
     return res.status(400).json({
       success: false,
-      message: "Enter a valid file name with a supported extension and no path separators.",
+      message: "Enter a valid website-relative path with a supported file extension.",
     });
   }
 
