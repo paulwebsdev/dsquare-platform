@@ -22,7 +22,45 @@ function requireSameOrigin(req: import("express").Request, res: import("express"
 const CLIENT_ID = process.env.D_HOSTING_INTEGRATION_CLIENT_ID || "dsquare-d-hosting";
 const CLIENT_SECRET = process.env.D_HOSTING_INTEGRATION_CLIENT_SECRET || "";
 const DATABASE_API_URL = process.env.D_DATABASE_API_URL || "http://127.0.0.1:5001";
-const DATABASE_APP_URL = process.env.D_DATABASE_APP_URL || "http://127.0.0.1:5173";
+
+function getDatabaseAppUrl(): URL {
+  const configured = process.env.D_DATABASE_APP_URL?.trim();
+  const value = configured || (
+    process.env.NODE_ENV === "production" ? "" : "http://127.0.0.1:5173"
+  );
+
+  if (!value) {
+    throw new Error("D_DATABASE_APP_URL must be set in production.");
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error("D_DATABASE_APP_URL must be a valid origin.");
+  }
+
+  const isLoopbackHttp =
+    parsed.protocol === "http:" &&
+    ["127.0.0.1", "localhost", "[::1]"].includes(parsed.hostname);
+
+  if (
+    parsed.origin !== value ||
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash ||
+    (process.env.NODE_ENV === "production"
+      ? parsed.protocol !== "https:"
+      : parsed.protocol !== "https:" && !isLoopbackHttp)
+  ) {
+    throw new Error("D_DATABASE_APP_URL must be a secure HTTPS origin (HTTP loopback is allowed only in development).");
+  }
+
+  return parsed;
+}
+
+const DATABASE_APP_URL = getDatabaseAppUrl();
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 const validId = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
