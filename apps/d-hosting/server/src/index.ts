@@ -1,4 +1,5 @@
 ﻿import "dotenv/config";
+import databaseConnectionsRouter from "./routes/database-connections.js";
 import express from "express";
 import cors from "cors";
 import { pool } from "./config/database.js";
@@ -18,6 +19,7 @@ app.use(cors({
 app.use(express.json());
 
 app.use("/api/v1/auth", authRouter);
+app.use("/api/v1/database-connections", databaseConnectionsRouter);
 app.use("/api/v1/projects", projectsRouter);
 app.use("/api/v1/projects/:projectId/resources", hostingResourcesRouter);
 app.use("/api/v1/projects/:projectId/resources", hostingFilesRouter);
