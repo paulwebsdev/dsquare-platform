@@ -54,7 +54,8 @@ router.post("/redeem", async (req, res) => {
       [sha256(code)],
     );
     if (approved.rowCount !== 1) {
-      await client.query("ROLLBACK");
+      // Keep the code consumed even if its project/resource was archived or removed.
+      await client.query("COMMIT");
       res.status(400).json({ success: false, message: "Approved resource is no longer available." });
       return;
     }
