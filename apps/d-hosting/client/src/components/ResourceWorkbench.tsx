@@ -440,7 +440,7 @@ export default function ResourceWorkbench({
       setSaving(false);
     }
   }
-  async function uploadFile(file: File) {
+  async function uploadFile(file: File, websitePath = file.name) {
     setError("");
 
     if (file.size === 0) {
@@ -460,7 +460,7 @@ export default function ResourceWorkbench({
         method: "POST",
         headers: {
           "Content-Type": "application/octet-stream",
-          "X-File-Name": encodeURIComponent(file.name),
+          "X-File-Name": encodeURIComponent(websitePath),
         },
         body: await file.arrayBuffer(),
       });
@@ -476,6 +476,16 @@ export default function ResourceWorkbench({
       setError(err instanceof Error ? err.message : "Could not upload file.");
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function uploadFolder(selectedFiles: FileList | null) {
+    if (!selectedFiles?.length) return;
+
+    const folderFiles = Array.from(selectedFiles);
+    for (const file of folderFiles) {
+      const relativePath = file.webkitRelativePath || file.name;
+      await uploadFile(file, relativePath);
     }
   }
 
@@ -1081,22 +1091,38 @@ export default function ResourceWorkbench({
             <div>
               <h2>Website files</h2>
               <p>
-                Upload static website assets. Maximum 10 MB per file.
+                Upload individual files or a complete folder structure. Maximum 10 MB per file.
               </p>
             </div>
-            <label className={`primary-button wb-upload-button ${uploading ? "disabled" : ""}`}>
-              {uploading ? "Uploading..." : "ï¼‹ Upload file"}
-              <input
-                type="file"
-                accept={ALLOWED_FILE_INPUT}
-                disabled={uploading}
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) void uploadFile(file);
-                  event.currentTarget.value = "";
-                }}
-              />
-            </label>
+            <div className="wb-upload-actions">
+              <label className={`primary-button wb-upload-button ${uploading ? "disabled" : ""}`}>
+                {uploading ? "Uploading..." : "ï¼‹ Upload file"}
+                <input
+                  type="file"
+                  accept={ALLOWED_FILE_INPUT}
+                  disabled={uploading}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void uploadFile(file);
+                    event.currentTarget.value = "";
+                  }}
+                />
+              </label>
+              <label className={`secondary-button wb-upload-button ${uploading ? "disabled" : ""}`}>
+                Upload folder
+                <input
+                  ref={(element) => element?.setAttribute("webkitdirectory", "")}
+                  type="file"
+                  multiple
+                  accept={ALLOWED_FILE_INPUT}
+                  disabled={uploading}
+                  onChange={(event) => {
+                    void uploadFolder(event.target.files);
+                    event.currentTarget.value = "";
+                  }}
+                />
+              </label>
+            </div>
           </div>
 
           {loading ? (
