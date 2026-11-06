@@ -16,8 +16,8 @@ export function normalizeWebsiteFilePath(value: string): string | null {
     value.length === 0 ||
     value.length > 255 ||
     value.startsWith("/") ||
-    value.includes("\\\\") ||
-    /[\\x00-\\x1f\\x7f]/.test(value)
+    value.includes("\\") ||
+    /[\x00-\x1f\x7f]/.test(value)
   ) return null;
 
   const segments = value.split("/");
