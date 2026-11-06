@@ -90,10 +90,12 @@ function sendError(error: unknown, res: Response) {
 
 async function getWebsite(projectId: string, resourceId: string, userId: string) {
   return pool.query(
-    `SELECT id, project_id, status
-     FROM hosting_resources
-     WHERE id = $1 AND project_id = $2`,
-    [resourceId, projectId]
+    `SELECT r.id, r.project_id, r.status
+     FROM hosting_resources r
+     INNER JOIN projects p ON p.id = r.project_id
+     WHERE r.id = $1 AND r.project_id = $2 AND p.owner_id = $3
+     LIMIT 1`,
+    [resourceId, projectId, userId]
   );
 }
 
@@ -254,6 +256,11 @@ router.get("/:resourceId/files/:fileId/download", async (req, res) => {
   }
 
   try {
+    const website = await getWebsite(projectId, resourceId, String(res.locals.userId || ""));
+    if (website.rowCount === 0) {
+      return res.status(404).json({ success: false, message: "Website resource not found." });
+    }
+
     const result = await pool.query(
       `SELECT original_name, storage_key
        FROM hosting_files
@@ -317,6 +324,11 @@ router.patch("/:resourceId/files/:fileId", async (req, res) => {
   }
 
   try {
+    const website = await getWebsite(projectId, resourceId, String(res.locals.userId || ""));
+    if (website.rowCount === 0) {
+      return res.status(404).json({ success: false, message: "Website resource not found." });
+    }
+
     const existing = await pool.query(
       `SELECT original_name
        FROM hosting_files
@@ -372,6 +384,11 @@ router.delete("/:resourceId/files/:fileId", async (req, res) => {
   }
 
   try {
+    const website = await getWebsite(projectId, resourceId, String(res.locals.userId || ""));
+    if (website.rowCount === 0) {
+      return res.status(404).json({ success: false, message: "Website resource not found." });
+    }
+
     const result = await pool.query(
       `SELECT storage_key
        FROM hosting_files
