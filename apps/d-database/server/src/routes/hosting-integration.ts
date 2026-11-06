@@ -4,6 +4,14 @@ import { pool } from "../config/database.js";
 import { requireAuth } from "../middleware/require-auth.js";
 
 const router = Router();
+const APP_ORIGIN = process.env.D_DATABASE_APP_ORIGIN || "http://127.0.0.1:5173";
+function requireSameOrigin(req: import("express").Request, res: import("express").Response, next: import("express").NextFunction) {
+  if (req.get("origin") !== APP_ORIGIN) {
+    res.status(403).json({ success: false, message: "Request origin is not allowed." });
+    return;
+  }
+  next();
+}
 const CLIENT_ID = process.env.D_HOSTING_INTEGRATION_CLIENT_ID || "dsquare-d-hosting";
 const CLIENT_SECRET = process.env.D_HOSTING_INTEGRATION_CLIENT_SECRET || "";
 const CALLBACK_URL = process.env.D_HOSTING_CALLBACK_URL || "http://127.0.0.1:5174/integrations/database/callback";
@@ -72,7 +80,7 @@ router.post("/redeem", async (req, res) => {
 
 router.use(requireAuth);
 
-router.post("/authorize", async (req, res) => {
+router.post("/authorize", requireSameOrigin, async (req, res) => {
   const state = typeof req.body?.state === "string" ? req.body.state : "";
   const projectId = typeof req.body?.projectId === "string" ? req.body.projectId : "";
   const resourceId = typeof req.body?.resourceId === "string" ? req.body.resourceId : "";
