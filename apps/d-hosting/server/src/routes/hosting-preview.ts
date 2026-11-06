@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { pool } from "../config/database.js";
 import { requireAuth } from "../middleware/require-auth.js";
+import { normalizeWebsiteFilePath } from "../services/website-file-path.js";
 
 const router = Router({ mergeParams: true });
 
@@ -21,7 +22,7 @@ const storageRoot = path.resolve(
 );
 
 function firstParam(value: string | string[] | undefined): string {
-  return Array.isArray(value) ? value[0] ?? "" : value ?? "";
+  return Array.isArray(value) ? value.join("/") : value ?? "";
 }
 
 export async function serveResourceFile(
@@ -40,20 +41,15 @@ export async function serveResourceFile(
     });
   }
 
-  if (
-    !fileName ||
-    fileName.length > 255 ||
-    fileName === "." ||
-    fileName === ".." ||
-    /[/\\\x00-\x1f]/.test(fileName)
-  ) {
+  const safeFileName = normalizeWebsiteFilePath(fileName);
+  if (!safeFileName) {
     return res.status(400).json({
       success: false,
-      message: "Invalid preview file name.",
+      message: "Invalid website file path.",
     });
   }
 
-  const extension = path.extname(fileName).toLowerCase();
+  const extension = path.extname(safeFileName).toLowerCase();
 
   if (!ALLOWED_EXTENSIONS.has(extension)) {
     return res.status(415).json({
@@ -113,7 +109,7 @@ export async function serveResourceFile(
          AND resource_id = $2
          AND original_name = $3
        LIMIT 1`,
-      [projectId, resourceId, fileName]
+      [projectId, resourceId, safeFileName]
     );
 
     if (fileResult.rowCount === 0) {
@@ -195,12 +191,20 @@ router.get("/:resourceId/preview/:fileName", requireAuth, (req, res) => {
   return servePreview(req, res, firstParam(req.params.fileName));
 });
 
+router.get("/:resourceId/preview/*filePath", requireAuth, (req, res) => {
+  return servePreview(req, res, firstParam(req.params.filePath));
+});
+
 router.get("/:resourceId/published", (req, res) => {
   return servePreview(req, res, "index.html", true);
 });
 
 router.get("/:resourceId/published/:fileName", (req, res) => {
   return servePreview(req, res, firstParam(req.params.fileName), true);
+});
+
+router.get("/:resourceId/published/*filePath", (req, res) => {
+  return servePreview(req, res, firstParam(req.params.filePath), true);
 });
 
 export default router;
