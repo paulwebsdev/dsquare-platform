@@ -346,3 +346,47 @@ button { font: inherit; cursor: pointer; }
   .wb-record-heading-actions { align-items: flex-end; flex-direction: column; }
   .wb-record-fields { grid-template-columns: 1fr; }
 }
+
+/* Authentication */
+.auth-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--bg, #f5f6fa);
+}
+.auth-card {
+  width: 100%;
+  max-width: 430px;
+  padding: 38px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 18px;
+  background: var(--surface, #fff);
+  box-shadow: 0 18px 55px rgba(20, 25, 45, .08);
+}
+.auth-brand { font-size: 18px; font-weight: 800; margin-bottom: 38px; }
+.auth-brand > span:first-child {
+  display: inline-grid; place-items: center; width: 34px; height: 34px;
+  margin-right: 9px; border-radius: 10px; background: #6558d3; color: white;
+}
+.auth-eyebrow { color: #6558d3; font-size: 11px; font-weight: 800; letter-spacing: 1.5px; }
+.auth-card h1 { margin: 10px 0; font-size: 28px; }
+.auth-description { margin: 0 0 28px; color: var(--muted, #777); line-height: 1.6; }
+.auth-card label { display: block; margin: 17px 0 8px; font-size: 13px; font-weight: 700; }
+.auth-card input {
+  box-sizing: border-box; width: 100%; padding: 13px 14px;
+  border: 1px solid var(--border, #ddd); border-radius: 9px;
+  background: var(--surface, #fff); color: inherit; font: inherit;
+}
+.auth-card input:focus { outline: 2px solid #6558d3; outline-offset: 1px; }
+.auth-submit {
+  width: 100%; margin-top: 24px; padding: 14px; border: 0;
+  border-radius: 9px; background: #6558d3; color: white;
+  font-weight: 700; cursor: pointer;
+}
+.auth-submit:disabled { opacity: .6; cursor: wait; }
+.auth-error { margin-top: 14px; color: #c0392b; font-size: 13px; }
+.auth-switch { margin-top: 22px; text-align: center; font-size: 13px; color: var(--muted, #777); }
+.auth-switch button { border: 0; background: none; color: #6558d3; font-weight: 700; cursor: pointer; }
+.auth-loading { min-height: 100vh; display: grid; place-items: center; }
+.logout-button { border: 0; background: transparent; color: #c0392b; cursor: pointer; font-size: 12px; }

@@ -25,17 +25,19 @@ function handleError(error: unknown, res: any) {
   });
 }
 
-// List projects. Archived projects are excluded by default.
+// List only the authenticated user's projects.
 router.get("/", async (req, res) => {
   try {
     const includeArchived = req.query.includeArchived === "true";
+    const userId = res.locals.userId as string;
 
     const result = await pool.query(
       `SELECT id, name, description, status, created_at, updated_at
        FROM projects
-       WHERE ($1::boolean OR status = 'active')
+       WHERE owner_id = $2
+         AND ($1::boolean OR status = 'active')
        ORDER BY created_at DESC`,
-      [includeArchived]
+      [includeArchived, userId]
     );
 
     return res.json({
@@ -48,7 +50,7 @@ router.get("/", async (req, res) => {
   }
 });
 
-// Create a project.
+// Create a project owned by the authenticated user.
 router.post("/", async (req, res) => {
   try {
     const body = req.body as Record<string, unknown>;
@@ -77,11 +79,13 @@ router.post("/", async (req, res) => {
       });
     }
 
+    const userId = res.locals.userId as string;
+
     const result = await pool.query(
-      `INSERT INTO projects (name, description)
-       VALUES ($1, $2)
+      `INSERT INTO projects (owner_id, name, description)
+       VALUES ($1, $2, $3)
        RETURNING id, name, description, status, created_at, updated_at`,
-      [name, description.trim()]
+      [userId, name, description.trim()]
     );
 
     return res.status(201).json({
@@ -94,17 +98,20 @@ router.post("/", async (req, res) => {
   }
 });
 
-// Open one project by ID.
+// Open only a project owned by the authenticated user.
 router.get("/:id", async (req, res) => {
   if (!validId(req.params.id)) {
     return res.status(400).json({ success: false, message: "Invalid project ID." });
   }
 
   try {
+    const userId = res.locals.userId as string;
+
     const result = await pool.query(
       `SELECT id, name, description, status, created_at, updated_at
-       FROM projects WHERE id = $1`,
-      [req.params.id]
+       FROM projects
+       WHERE id = $1 AND owner_id = $2`,
+      [req.params.id, userId]
     );
 
     if (result.rowCount === 0) {
@@ -117,7 +124,7 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// Rename, edit description, archive, or restore a project.
+// Update only a project owned by the authenticated user.
 router.patch("/:id", async (req, res) => {
   if (!validId(req.params.id)) {
     return res.status(400).json({ success: false, message: "Invalid project ID." });
@@ -162,13 +169,15 @@ router.patch("/:id", async (req, res) => {
       });
     }
 
+    const userId = res.locals.userId as string;
+
     const result = await pool.query(
       `UPDATE projects
        SET name = CASE WHEN $2::boolean THEN $3::varchar ELSE name END,
            description = CASE WHEN $4::boolean THEN $5::text ELSE description END,
            status = CASE WHEN $6::boolean THEN $7::varchar ELSE status END,
            updated_at = NOW()
-       WHERE id = $1
+       WHERE id = $1 AND owner_id = $8
        RETURNING id, name, description, status, created_at, updated_at`,
       [
         req.params.id,
@@ -178,6 +187,7 @@ router.patch("/:id", async (req, res) => {
         hasDescription ? (body.description as string).trim() : null,
         hasStatus,
         hasStatus ? body.status : null,
+        userId,
       ]
     );
 

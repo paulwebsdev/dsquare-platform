@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import "./style.css";
 import ProjectManager from "./components/ProjectManager";
+import AuthScreen, { type AuthUser } from "./components/AuthScreen";
 
 type Theme = "light" | "dark" | "system";
 
@@ -37,6 +38,8 @@ export default function App() {
   const [apiStatus, setApiStatus] = useState("Checking connection...");
   const [projectCount, setProjectCount] = useState(0);
   const [recentProjects, setRecentProjects] = useState<ProjectSummary[]>([]);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
 
   const refreshProjectSummary = async () => {
     try {
@@ -81,8 +84,45 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    void refreshProjectSummary();
+    let active = true;
+
+    fetch("/api/v1/auth/me", { credentials: "same-origin" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Not signed in.");
+        return response.json();
+      })
+      .then((data) => {
+        if (active && data.success && data.user) setUser(data.user);
+      })
+      .catch(() => {
+        if (active) setUser(null);
+      })
+      .finally(() => {
+        if (active) setAuthLoading(false);
+      });
+
+    return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    if (user) void refreshProjectSummary();
+  }, [user]);
+
+  async function handleLogout() {
+    try {
+      await fetch("/api/v1/auth/logout", {
+        method: "POST",
+        credentials: "same-origin"
+      });
+    } finally {
+      setUser(null);
+      setRecentProjects([]);
+      setProjectCount(0);
+    }
+  }
+
+  if (authLoading) return <div className="auth-loading">Checking your session...</div>;
+  if (!user) return <AuthScreen onAuthenticated={setUser} />;
 
   return (
     <div className="app-shell">
@@ -125,9 +165,9 @@ export default function App() {
             <div className="avatar">P</div>
             <div className="profile-info">
               <strong>My Account</strong>
-              <span>DSquare user</span>
+              <span>{user.email}</span>
             </div>
-            <span className="profile-menu">•••</span>
+            <button className="logout-button" onClick={handleLogout}>Sign out</button>
           </div>
         </div>
       </aside>

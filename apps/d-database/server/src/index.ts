@@ -5,14 +5,18 @@ import { pool } from "./config/database.js";
 import projectsRouter from "./routes/projects.js";
 import databaseResourcesRouter from "./routes/database-resources.js";
 import databaseTablesRouter from "./routes/database-tables.js";
+import authRouter from "./routes/auth.js";
+import { requireAuth } from "./middleware/require-auth.js";
+import { requireProjectOwnership } from "./middleware/require-project-owner.js";
 
 const app = express();
 
 app.use(cors({ origin: ["http://127.0.0.1:5173"] }));
 app.use(express.json());
-app.use("/api/v1/projects", projectsRouter);
-app.use("/api/v1/projects/:projectId/resources", databaseResourcesRouter);
-app.use("/api/v1/projects/:projectId/resources", databaseTablesRouter);
+app.use("/api/v1/auth", authRouter);
+app.use("/api/v1/projects", requireAuth, projectsRouter);
+app.use("/api/v1/projects/:projectId/resources", requireAuth, requireProjectOwnership, databaseResourcesRouter);
+app.use("/api/v1/projects/:projectId/resources", requireAuth, requireProjectOwnership, databaseTablesRouter);
 
 app.get("/api/v1/health", async (_req, res) => {
   try {
