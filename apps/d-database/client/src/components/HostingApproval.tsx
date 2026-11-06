@@ -7,6 +7,7 @@ export default function HostingApproval() {
   const params = new URLSearchParams(window.location.search);
   const state = params.get("state") || "";
   const clientId = params.get("client_id") || "";
+  const expectedClientId = import.meta.env.VITE_D_HOSTING_CLIENT_ID || "dsquare-d-hosting";
   const [projects, setProjects] = useState<Project[]>([]);
   const [resources, setResources] = useState<Resource[]>([]);
   const [projectId, setProjectId] = useState("");
@@ -16,7 +17,7 @@ export default function HostingApproval() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!/^[A-Za-z0-9_-]{43}$/.test(state) || clientId !== "dsquare-d-hosting") {
+    if (!/^[A-Za-z0-9_-]{43}$/.test(state) || clientId !== expectedClientId) {
       setError("This connection request is invalid. Return to D Hosting and try again.");
       setLoading(false);
       return;
@@ -88,7 +89,7 @@ export default function HostingApproval() {
             </select>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
               <button className="primary-button" disabled={!resourceId || saving || !!error} onClick={approve}>{saving ? "Approving..." : "Approve connection"}</button>
-              <button className="secondary-button" onClick={() => { window.location.href = "http://127.0.0.1:5174"; }}>Cancel</button>
+              <button className="secondary-button" onClick={() => { window.history.back(); }}>Cancel</button>
             </div>
           </>
         )}
