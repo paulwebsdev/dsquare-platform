@@ -131,7 +131,7 @@ export async function serveResourceFile(
       // The same resolver is used by preview, published URLs and custom domains.
       for (const candidate of candidates.slice(1)) {
         fileResult = await findStoredFile(candidate);
-        if (fileResult.rowCount > 0) break;
+        if (fileResult.rows.length > 0) break;
       }
     }
 
