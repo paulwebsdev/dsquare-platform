@@ -60,9 +60,10 @@ app.use(express.json());
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/database-connections", databaseConnectionsRouter);
 app.use("/api/v1/projects", projectsRouter);
+// Public website routes must run before routers with global authentication middleware.
+app.use("/api/v1/projects/:projectId/resources", hostingPreviewRouter);
 app.use("/api/v1/projects/:projectId/resources", hostingResourcesRouter);
 app.use("/api/v1/projects/:projectId/resources", hostingFilesRouter);
-app.use("/api/v1/projects/:projectId/resources", hostingPreviewRouter);
 
 app.get("/api/v1/health", async (_req, res) => {
   try {
