@@ -63,17 +63,25 @@ async function servePreview(
   }
 
   try {
-    const resourceResult = await pool.query(
-      `SELECT id, status
-       FROM hosting_resources
-       WHERE id = $1 AND project_id = $2
-         AND ($3::boolean = TRUE OR EXISTS (
-           SELECT 1 FROM projects p
-           WHERE p.id = hosting_resources.project_id AND p.owner_id = $4
-         ))
-       LIMIT 1`,
-      [resourceId, projectId, publishedOnly, String(res.locals.userId || "")]
-    );
+    const resourceResult = publishedOnly
+      ? await pool.query(
+          `SELECT id, status
+           FROM hosting_resources
+           WHERE id = $1 AND project_id = $2
+           LIMIT 1`,
+          [resourceId, projectId]
+        )
+      : await pool.query(
+          `SELECT id, status
+           FROM hosting_resources
+           WHERE id = $1 AND project_id = $2
+             AND EXISTS (
+               SELECT 1 FROM projects p
+               WHERE p.id = hosting_resources.project_id AND p.owner_id = $3
+             )
+           LIMIT 1`,
+          [resourceId, projectId, String(res.locals.userId)]
+        );
 
     if (resourceResult.rowCount === 0) {
       return res.status(404).json({
