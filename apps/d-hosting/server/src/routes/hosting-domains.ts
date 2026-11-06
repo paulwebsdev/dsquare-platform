@@ -57,14 +57,19 @@ function sendError(error: unknown, res: Response) {
   });
 }
 
+function getParams(req: { params: object }) {
+  return req.params as Record<string, string>;
+}
+
 function validIds(projectId: string, resourceId: string) {
   return UUID_PATTERN.test(projectId) && UUID_PATTERN.test(resourceId);
 }
 
 // List custom domains belonging to a website owned by the signed-in user.
 router.get("/:resourceId/domains", async (req, res) => {
-  const projectId = String(req.params.projectId || "");
-  const resourceId = String(req.params.resourceId || "");
+  const params = getParams(req);
+  const projectId = params.projectId || "";
+  const resourceId = params.resourceId || "";
   if (!validIds(projectId, resourceId)) {
     return res.status(400).json({ success: false, message: "Invalid project or website ID." });
   }
@@ -90,8 +95,9 @@ router.get("/:resourceId/domains", async (req, res) => {
 
 // Add a domain and issue a unique DNS TXT ownership challenge.
 router.post("/:resourceId/domains", async (req, res) => {
-  const projectId = String(req.params.projectId || "");
-  const resourceId = String(req.params.resourceId || "");
+  const params = getParams(req);
+  const projectId = params.projectId || "";
+  const resourceId = params.resourceId || "";
   if (!validIds(projectId, resourceId)) {
     return res.status(400).json({ success: false, message: "Invalid project or website ID." });
   }
@@ -136,8 +142,9 @@ router.post("/:resourceId/domains", async (req, res) => {
 
 // Verify ownership by looking up the exact DNS TXT challenge.
 router.post("/:resourceId/domains/:domainId/verify", async (req, res) => {
-  const projectId = String(req.params.projectId || "");
-  const resourceId = String(req.params.resourceId || "");
+  const params = getParams(req);
+  const projectId = params.projectId || "";
+  const resourceId = params.resourceId || "";
   const domainId = String(req.params.domainId || "");
   if (!validIds(projectId, resourceId) || !UUID_PATTERN.test(domainId)) {
     return res.status(400).json({ success: false, message: "Invalid project, website, or domain ID." });
@@ -214,8 +221,9 @@ router.post("/:resourceId/domains/:domainId/verify", async (req, res) => {
 
 // Remove a domain from this website.
 router.delete("/:resourceId/domains/:domainId", async (req, res) => {
-  const projectId = String(req.params.projectId || "");
-  const resourceId = String(req.params.resourceId || "");
+  const params = getParams(req);
+  const projectId = params.projectId || "";
+  const resourceId = params.resourceId || "";
   const domainId = String(req.params.domainId || "");
   if (!validIds(projectId, resourceId) || !UUID_PATTERN.test(domainId)) {
     return res.status(400).json({ success: false, message: "Invalid project, website, or domain ID." });
