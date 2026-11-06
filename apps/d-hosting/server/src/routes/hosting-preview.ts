@@ -1,4 +1,4 @@
-﻿import { Router, type Request, type Response } from "express";
+import { Router, type Request, type Response } from "express";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { pool } from "../config/database.js";
@@ -24,14 +24,14 @@ function firstParam(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] ?? "" : value ?? "";
 }
 
-async function servePreview(
+export async function serveResourceFile(
   req: Request,
   res: Response,
+  projectId: string,
+  resourceId: string,
   fileName: string,
   publishedOnly = false
 ) {
-  const projectId = firstParam(req.params.projectId);
-  const resourceId = firstParam(req.params.resourceId);
 
   if (!UUID_PATTERN.test(projectId) || !UUID_PATTERN.test(resourceId)) {
     return res.status(400).json({
@@ -169,6 +169,22 @@ async function servePreview(
       message: "Unable to load website preview.",
     });
   }
+}
+
+async function servePreview(
+  req: Request,
+  res: Response,
+  fileName: string,
+  publishedOnly = false
+) {
+  return serveResourceFile(
+    req,
+    res,
+    firstParam(req.params.projectId),
+    firstParam(req.params.resourceId),
+    fileName,
+    publishedOnly
+  );
 }
 
 router.get("/:resourceId/preview", requireAuth, (req, res) => {
