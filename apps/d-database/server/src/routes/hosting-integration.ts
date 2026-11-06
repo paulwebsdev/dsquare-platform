@@ -48,7 +48,9 @@ router.post("/redeem", async (req, res) => {
        FROM hosting_authorization_codes c
        JOIN projects p ON p.id = c.project_id AND p.owner_id = c.user_id
        JOIN database_resources r ON r.id = c.resource_id AND r.project_id = c.project_id
-       WHERE c.code_hash = $1`,
+       WHERE c.code_hash = $1
+         AND p.status = 'active'
+         AND r.status = 'active'`,
       [sha256(code)],
     );
     if (approved.rowCount !== 1) {
