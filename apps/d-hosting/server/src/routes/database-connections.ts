@@ -137,7 +137,8 @@ router.get("/", async (_req, res) => {
 });
 
 router.delete("/:connectionId", requireSameOrigin, async (req, res) => {
-  if (!validId(req.params.connectionId)) {
+  const connectionId = req.params.connectionId;
+  if (typeof connectionId !== "string" || !validId(connectionId)) {
     res.status(400).json({ success: false, message: "Invalid connection ID." });
     return;
   }
@@ -146,7 +147,7 @@ router.delete("/:connectionId", requireSameOrigin, async (req, res) => {
       `UPDATE database_connections SET status = 'revoked', revoked_at = COALESCE(revoked_at, NOW())
        WHERE id = $1 AND hosting_user_id = $2 AND status = 'active'
        RETURNING id, status, revoked_at`,
-      [req.params.connectionId, res.locals.userId],
+      [connectionId, res.locals.userId],
     );
     if (result.rowCount !== 1) {
       res.status(404).json({ success: false, message: "Active connection not found." });
