@@ -33,14 +33,14 @@ export async function resolvePublishedDomain(
     resource_id: string;
     domain: string;
   }>(
-    \`SELECT d.project_id, d.resource_id, d.domain
+    `SELECT d.project_id, d.resource_id, d.domain
      FROM hosting_custom_domains d
      INNER JOIN hosting_resources r
        ON r.id = d.resource_id AND r.project_id = d.project_id
      WHERE d.domain = $1
        AND d.status = 'verified'
        AND r.status = 'published'
-     LIMIT 1\`,
+     LIMIT 1`,
     [hostname]
   );
 
