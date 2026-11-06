@@ -10,48 +10,6 @@ const CALLBACK_URL = process.env.D_HOSTING_CALLBACK_URL || "http://127.0.0.1:517
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 
-router.post("/authorize", async (req, res) => {
-  const state = typeof req.body?.state === "string" ? req.body.state : "";
-  const projectId = typeof req.body?.projectId === "string" ? req.body.projectId : "";
-  const resourceId = typeof req.body?.resourceId === "string" ? req.body.resourceId : "";
-
-  if (!/^[A-Za-z0-9_-]{43}$/.test(state) || !uuidPattern.test(projectId) || !uuidPattern.test(resourceId)) {
-    res.status(400).json({ success: false, message: "Invalid authorization request." });
-    return;
-  }
-
-  try {
-    const resource = await pool.query(
-      `SELECT r.id FROM database_resources r
-       JOIN projects p ON p.id = r.project_id
-       WHERE r.id = $1 AND r.project_id = $2 AND p.owner_id = $3
-         AND p.status = 'active' AND r.status = 'active'`,
-      [resourceId, projectId, res.locals.userId],
-    );
-
-    if (resource.rowCount !== 1) {
-      res.status(404).json({ success: false, message: "Active database resource not found in your account." });
-      return;
-    }
-
-    const code = randomBytes(32).toString("base64url");
-    await pool.query(
-      `INSERT INTO hosting_authorization_codes
-       (code_hash, client_id, user_id, project_id, resource_id, expires_at)
-       VALUES ($1, $2, $3, $4, $5, NOW() + INTERVAL '5 minutes')`,
-      [sha256(code), CLIENT_ID, res.locals.userId, projectId, resourceId],
-    );
-
-    const callback = new URL(CALLBACK_URL);
-    callback.searchParams.set("code", code);
-    callback.searchParams.set("state", state);
-    res.json({ success: true, redirectUrl: callback.toString() });
-  } catch (error) {
-    console.error("D Hosting authorization error:", error instanceof Error ? error.message : error);
-    res.status(500).json({ success: false, message: "Unable to approve this connection." });
-  }
-});
-
 router.post("/redeem", async (req, res) => {
   const clientId = typeof req.body?.clientId === "string" ? req.body.clientId : "";
   const clientSecret = typeof req.body?.clientSecret === "string" ? req.body.clientSecret : "";
@@ -110,5 +68,47 @@ router.post("/redeem", async (req, res) => {
 });
 
 router.use(requireAuth);
+
+router.post("/authorize", async (req, res) => {
+  const state = typeof req.body?.state === "string" ? req.body.state : "";
+  const projectId = typeof req.body?.projectId === "string" ? req.body.projectId : "";
+  const resourceId = typeof req.body?.resourceId === "string" ? req.body.resourceId : "";
+
+  if (!/^[A-Za-z0-9_-]{43}$/.test(state) || !uuidPattern.test(projectId) || !uuidPattern.test(resourceId)) {
+    res.status(400).json({ success: false, message: "Invalid authorization request." });
+    return;
+  }
+
+  try {
+    const resource = await pool.query(
+      `SELECT r.id FROM database_resources r
+       JOIN projects p ON p.id = r.project_id
+       WHERE r.id = $1 AND r.project_id = $2 AND p.owner_id = $3
+         AND p.status = 'active' AND r.status = 'active'`,
+      [resourceId, projectId, res.locals.userId],
+    );
+
+    if (resource.rowCount !== 1) {
+      res.status(404).json({ success: false, message: "Active database resource not found in your account." });
+      return;
+    }
+
+    const code = randomBytes(32).toString("base64url");
+    await pool.query(
+      `INSERT INTO hosting_authorization_codes
+       (code_hash, client_id, user_id, project_id, resource_id, expires_at)
+       VALUES ($1, $2, $3, $4, $5, NOW() + INTERVAL '5 minutes')`,
+      [sha256(code), CLIENT_ID, res.locals.userId, projectId, resourceId],
+    );
+
+    const callback = new URL(CALLBACK_URL);
+    callback.searchParams.set("code", code);
+    callback.searchParams.set("state", state);
+    res.json({ success: true, redirectUrl: callback.toString() });
+  } catch (error) {
+    console.error("D Hosting authorization error:", error instanceof Error ? error.message : error);
+    res.status(500).json({ success: false, message: "Unable to approve this connection." });
+  }
+});
 
 export default router;
