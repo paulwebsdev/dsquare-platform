@@ -55,7 +55,7 @@ router.get(/^\/(?!api(?:\/|$)).+/, (req, res) => {
   let filePath: string;
 
   try {
-    filePath = decodeURIComponent(req.path.replace(/^\\//, ""));
+    filePath = decodeURIComponent(req.path.slice(1));
   } catch {
     return res.status(400).json({
       success: false,
