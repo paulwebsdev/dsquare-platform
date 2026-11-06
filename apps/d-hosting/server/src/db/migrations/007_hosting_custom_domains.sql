@@ -1,9 +1,12 @@
 BEGIN;
 
+CREATE UNIQUE INDEX IF NOT EXISTS hosting_resources_id_project_unique
+    ON hosting_resources (id, project_id);
+
 CREATE TABLE IF NOT EXISTS hosting_custom_domains (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
-    resource_id UUID NOT NULL REFERENCES hosting_resources(id) ON DELETE RESTRICT,
+    resource_id UUID NOT NULL,
     domain VARCHAR(253) NOT NULL,
     verification_token CHAR(64) NOT NULL,
     status VARCHAR(12) NOT NULL DEFAULT 'pending'
@@ -11,6 +14,9 @@ CREATE TABLE IF NOT EXISTS hosting_custom_domains (
     verified_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT hosting_custom_domains_resource_project_fk
+        FOREIGN KEY (resource_id, project_id)
+        REFERENCES hosting_resources(id, project_id) ON DELETE RESTRICT,
     CONSTRAINT hosting_custom_domains_domain_unique UNIQUE (domain),
     CONSTRAINT hosting_custom_domains_resource_domain_unique UNIQUE (resource_id, domain)
 );
