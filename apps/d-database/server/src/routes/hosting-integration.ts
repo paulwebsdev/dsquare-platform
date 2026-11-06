@@ -2,8 +2,11 @@ import { Router } from "express";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { pool } from "../config/database.js";
 import { requireAuth } from "../middleware/require-auth.js";
+import { createRateLimiter } from "../middleware/rate-limit.js";
 
 const router = Router();
+const limitCodeRedemption = createRateLimiter(20, 60_000);
+const limitAuthorization = createRateLimiter(10, 60_000);
 const APP_ORIGIN = process.env.D_DATABASE_APP_ORIGIN || "http://127.0.0.1:5173";
 function requireSameOrigin(req: import("express").Request, res: import("express").Response, next: import("express").NextFunction) {
   if (req.get("origin") !== APP_ORIGIN) {
@@ -18,7 +21,7 @@ const CALLBACK_URL = process.env.D_HOSTING_CALLBACK_URL || "http://127.0.0.1:517
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 
-router.post("/redeem", async (req, res) => {
+router.post("/redeem", limitCodeRedemption, async (req, res) => {
   const clientId = typeof req.body?.clientId === "string" ? req.body.clientId : "";
   const clientSecret = typeof req.body?.clientSecret === "string" ? req.body.clientSecret : "";
   const code = typeof req.body?.code === "string" ? req.body.code : "";
@@ -80,7 +83,7 @@ router.post("/redeem", async (req, res) => {
 
 router.use(requireAuth);
 
-router.post("/authorize", requireSameOrigin, async (req, res) => {
+router.post("/authorize", requireSameOrigin, limitAuthorization, async (req, res) => {
   const state = typeof req.body?.state === "string" ? req.body.state : "";
   const projectId = typeof req.body?.projectId === "string" ? req.body.projectId : "";
   const resourceId = typeof req.body?.resourceId === "string" ? req.body.resourceId : "";
