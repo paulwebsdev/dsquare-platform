@@ -7,10 +7,10 @@ const ALLOWED_EXTENSIONS = new Set([
 ]);
 
 /**
- * Accept a safe website-relative path while keeping storage files flat and UUID-keyed.
- * Forward slashes are the only path separator; traversal and absolute paths are rejected.
+ * Validate a safe website-relative request path.
+ * Extensionless paths are allowed so client-side SPA routes can reach index.html.
  */
-export function normalizeWebsiteFilePath(value: string): string | null {
+export function normalizeWebsiteRequestPath(value: string): string | null {
   if (
     typeof value !== "string" ||
     value.length === 0 ||
@@ -26,7 +26,15 @@ export function normalizeWebsiteFilePath(value: string): string | null {
   }
 
   if (path.posix.normalize(value) !== value) return null;
-  if (!ALLOWED_EXTENSIONS.has(path.posix.extname(value).toLowerCase())) return null;
-
   return value;
+}
+
+/**
+ * Accept a safe website file path with a supported static file extension.
+ */
+export function normalizeWebsiteFilePath(value: string): string | null {
+  const safePath = normalizeWebsiteRequestPath(value);
+  if (!safePath) return null;
+  if (!ALLOWED_EXTENSIONS.has(path.posix.extname(safePath).toLowerCase())) return null;
+  return safePath;
 }
