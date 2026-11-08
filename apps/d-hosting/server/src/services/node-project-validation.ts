@@ -12,7 +12,7 @@ export type NodeProjectValidation =
   | { valid: true; entrypoint: string; startCommand: "npm start"; nodeMajor: 22 }
   | { valid: false; error: string };
 
-const SAFE_ENTRYPOINT = /^(?![\\/])(?:[A-Za-z0-9_-]+\\/)*[A-Za-z0-9_-]+\\.(?:js|mjs|cjs)$/;
+const SAFE_ENTRYPOINT = /^[A-Za-z0-9_./-]+$/;
 
 export function validateNodeProject(
   packageJson: string,
@@ -43,7 +43,11 @@ export function validateNodeProject(
     }
     const nodeRange = (engines as Record<string, unknown>).node;
     if (nodeRange !== undefined &&
-        (typeof nodeRange !== "string" || !/(^|[\\s|])(?:22|>=22|\\^22|~22)(?:\\.|$)/.test(nodeRange))) {
+        (typeof nodeRange !== "string" || !(
+          nodeRange === "22" || nodeRange.startsWith("22.") ||
+          nodeRange.startsWith("^22") || nodeRange.startsWith("~22") ||
+          nodeRange.startsWith(">=22 <23")
+        ))) {
       return { valid: false, error: "D Hosting currently supports Node.js 22 projects only." };
     }
   }
@@ -52,7 +56,13 @@ export function validateNodeProject(
     ? manifest.main.trim()
     : "server.js";
 
-  if (!SAFE_ENTRYPOINT.test(entrypoint) || path.posix.normalize(entrypoint) !== entrypoint) {
+  const entrypointParts = entrypoint.split("/");
+  if (
+    !SAFE_ENTRYPOINT.test(entrypoint) || entrypoint.startsWith("/") ||
+    entrypoint.includes("\\\\") || entrypointParts.some(part => !part || part === "." || part === "..") ||
+    ![".js", ".mjs", ".cjs"].includes(path.posix.extname(entrypoint).toLowerCase()) ||
+    path.posix.normalize(entrypoint) !== entrypoint
+  ) {
     return { valid: false, error: "The Node.js entrypoint must be a safe relative .js, .mjs, or .cjs path." };
   }
 
