@@ -139,7 +139,7 @@ router.post("/complete", requireSameOrigin, limitConnectionComplete, async (req,
     const response = await fetch(new URL("/api/v1/integrations/hosting/redeem", databaseApiUrl), {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, code }),
+      body: JSON.stringify({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, code, state }),
       signal: AbortSignal.timeout(10000),
     });
     const payload = await response.json() as {
