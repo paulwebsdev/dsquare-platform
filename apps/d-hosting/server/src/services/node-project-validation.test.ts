@@ -17,9 +17,9 @@ test("accepts a Node 22 project with package.json and its entrypoint", () => {
 });
 
 test("requires a valid package.json and start script", () => {
-  assert.match(validateNodeProject("{", ["package.json", "server.js"]).error, /invalid JSON/);
+  assert.match(validateNodeProject("{", ["package.json", "server.js"]).error ?? "", /invalid JSON/);
   assert.match(
-    validateNodeProject(JSON.stringify({ main: "server.js" }), ["package.json", "server.js"]).error,
+    validateNodeProject(JSON.stringify({ main: "server.js" }), ["package.json", "server.js"]).error ?? "",
     /scripts.start/,
   );
 });
@@ -30,7 +30,7 @@ test("rejects unsupported Node engine ranges", () => {
     scripts: { start: "node server.js" },
     engines: { node: ">=20" },
   });
-  assert.match(validateNodeProject(manifest, ["package.json", "server.js"]).error, /Node.js 22/);
+  assert.match(validateNodeProject(manifest, ["package.json", "server.js"]).error ?? "", /Node.js 22/);
 });
 
 test("rejects unsafe or missing entrypoints", () => {
@@ -39,14 +39,14 @@ test("rejects unsafe or missing entrypoints", () => {
     assert.equal(validateNodeProject(manifest, ["package.json", "server.js"]).valid, false);
   }
   assert.match(
-    validateNodeProject(validManifest, ["package.json"]).error,
+    validateNodeProject(validManifest, ["package.json"]).error ?? "",
     /Upload the configured Node.js entrypoint/,
   );
 });
 
 test("requires package.json at the project root", () => {
   assert.match(
-    validateNodeProject(validManifest, ["app/package.json", "server.js"]).error,
+    validateNodeProject(validManifest, ["app/package.json", "server.js"]).error ?? "",
     /package.json at the website root/,
   );
 });
