@@ -63,7 +63,7 @@ router.get("/:resourceId/deployments", async (req, res) => {
   }
 });
 
-// Validate the uploaded static website and save an immutable file-reference manifest.
+// Validate the uploaded static website and save a file-reference manifest.
 router.post("/:resourceId/deployments", async (req, res) => {
   const { projectId = "", resourceId = "" } = params(req);
   if (!UUID_PATTERN.test(projectId) || !UUID_PATTERN.test(resourceId)) {
@@ -71,8 +71,6 @@ router.post("/:resourceId/deployments", async (req, res) => {
   }
 
   const client = await pool.connect();
-  let deploymentId: string | null = null;
-
   try {
     await client.query("BEGIN");
 
@@ -138,13 +136,12 @@ router.post("/:resourceId/deployments", async (req, res) => {
         resourceId,
         deploymentNumber,
         failure ? "failed" : "succeeded",
-        JSON.stringify(failure ? [] : manifest),
+        JSON.stringify(manifest),
         failure || null,
         String(res.locals.userId || ""),
       ]
     );
 
-    deploymentId = inserted.rows[0].id;
     await client.query("COMMIT");
 
     return res.status(failure ? 422 : 201).json({
