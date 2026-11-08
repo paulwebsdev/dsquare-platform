@@ -1,6 +1,7 @@
 ﻿import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import VisualQueryBuilder from "./VisualQueryBuilder";
+import TableStructureManager from "./TableStructureManager";
 
 type WorkResource = {
   id: string;
@@ -987,6 +988,12 @@ export default function ResourceWorkbench({
               </article>
 
               <VisualQueryBuilder
+                baseUrl={baseUrl}
+                tableName={selectedTable}
+                columns={columns}
+              />
+
+              <TableStructureManager
                 baseUrl={baseUrl}
                 tableName={selectedTable}
                 columns={columns}
