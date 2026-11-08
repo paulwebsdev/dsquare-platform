@@ -65,7 +65,7 @@ const DB_TYPES: DbType[] = [
 ];
 
 const ALLOWED_FILE_INPUT =
-  ".html,.htm,.css,.js,.mjs,.json,.txt,.md,.xml,.svg,.png,.jpg,.jpeg,.gif,.webp,.avif,.ico,.woff,.woff2,.ttf,.otf,.mp4,.webm,.mp3,.pdf";
+  ".html,.htm,.css,.js,.mjs,.cjs,.json,.txt,.md,.xml,.svg,.png,.jpg,.jpeg,.gif,.webp,.avif,.ico,.woff,.woff2,.ttf,.otf,.mp4,.webm,.mp3,.pdf";
 
 export default function ResourceWorkbench({
   projectId,
