@@ -1,5 +1,6 @@
 ﻿import { Router, type Response } from "express";
 import { pool } from "../config/database.js";
+import { withReadSnapshot } from "../db/read-snapshot.js";
 import {
   buildSafeSelectQueries,
   QueryBuilderValidationError,
@@ -441,23 +442,24 @@ router.get("/:resourceId/tables/:tableName/rows", async (req, res) => {
     const qualifiedTable =
       `${quoteIdentifier(resource.schema_name)}.${quoteIdentifier(tableName)}`;
 
-    const [rows, total] = await Promise.all([
-      pool.query(
+    const page = await withReadSnapshot(pool, async (client) => {
+      const rows = await client.query(
         `SELECT * FROM ${qualifiedTable} LIMIT $1 OFFSET $2`,
         [limit, offset]
-      ),
-      pool.query(
+      );
+      const total = await client.query(
         `SELECT COUNT(*)::text AS total FROM ${qualifiedTable}`
-      ),
-    ]);
+      );
+      return { rows: rows.rows, total: total.rows[0].total };
+    });
 
     return res.json({
       success: true,
       table: tableName,
       limit,
       offset,
-      total: total.rows[0].total,
-      rows: rows.rows,
+      total: page.total,
+      rows: page.rows,
     });
   } catch (error) {
     return sendError(error, res);
@@ -535,22 +537,23 @@ router.post("/:resourceId/tables/:tableName/query", async (req, res) => {
       input: req.body,
     });
 
-    const [rows, total] = await Promise.all([
-      pool.query(query.rowsSql, [
+    const page = await withReadSnapshot(pool, async (client) => {
+      const rows = await client.query(query.rowsSql, [
         ...query.values,
         query.limit,
         query.offset,
-      ]),
-      pool.query(query.countSql, query.values),
-    ]);
+      ]);
+      const total = await client.query(query.countSql, query.values);
+      return { rows: rows.rows, total: total.rows[0].total };
+    });
 
     return res.json({
       success: true,
       table: tableName,
       limit: query.limit,
       offset: query.offset,
-      total: total.rows[0].total,
-      rows: rows.rows,
+      total: page.total,
+      rows: page.rows,
     });
   } catch (error) {
     if (error instanceof QueryBuilderValidationError) {
