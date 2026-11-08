@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { Pool, PoolClient } from "pg";
+import type { Pool } from "pg";
 import { withReadSnapshot } from "./read-snapshot.js";
 
 function createMockPool(options?: { failOperation?: boolean }) {
