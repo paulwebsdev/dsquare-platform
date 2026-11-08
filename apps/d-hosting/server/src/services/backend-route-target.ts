@@ -30,8 +30,11 @@ export function isAllowedBackendPath(path: string): boolean {
       /[\u0000-\u001f\u007f]/.test(path)) return false;
   try {
     const decoded = decodeURIComponent(path);
+    const pathname = decoded.split(/[?#]/, 1)[0];
+    const segments = pathname.split("/");
     return !decoded.startsWith("//") && !decoded.includes("\\") &&
-      !/[\u0000-\u001f\u007f]/.test(decoded);
+      !/[\u0000-\u001f\u007f]/.test(decoded) &&
+      !segments.some((segment) => segment === "." || segment === "..");
   } catch {
     return false;
   }
