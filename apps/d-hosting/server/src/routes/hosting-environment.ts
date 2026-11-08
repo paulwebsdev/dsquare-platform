@@ -84,7 +84,7 @@ router.put("/:resourceId/environment", async (req, res) => {
       return res.status(404).json({ success: false, message: "Website resource not found." });
     }
 
-    const encrypted = encryptEnvironmentSecret(value);
+    const encrypted = encryptEnvironmentSecret(value, process.env, `${resourceId}:${name}`);
     await pool.query(
       `INSERT INTO hosting_environment_variables
          (resource_id, name, encrypted_value, encryption_iv, encryption_auth_tag)
