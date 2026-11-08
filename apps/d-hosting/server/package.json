@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/middleware/rate-limit.test.ts src/services/website-file-path.test.ts src/services/website-root.test.ts src/services/website-file-resolution.test.ts src/config/pool-options.test.ts src/services/environment-secrets.test.ts src/services/node-project-validation.test.ts",
+    "test": "tsx --test src/middleware/rate-limit.test.ts src/services/website-file-path.test.ts src/services/website-root.test.ts src/services/website-file-resolution.test.ts src/config/pool-options.test.ts src/services/environment-secrets.test.ts src/services/node-project-validation.test.ts src/services/runtime-limits.test.ts src/services/runtime-environment.test.ts src/services/node-runtime-policy.test.ts",
     "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
