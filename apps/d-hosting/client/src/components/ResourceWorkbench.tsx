@@ -9,6 +9,7 @@ type WorkResource = {
   id: string;
   name: string;
   status: string;
+  site_type?: "static" | "node";
 };
 
 type WorkbenchProps = {
@@ -39,6 +40,19 @@ type StoredFile = {
   mime_type: string;
   size_bytes: number | string;
   created_at: string;
+};
+
+type NodeValidationResponse = {
+  success: boolean;
+  message?: string;
+  runtimeAvailable?: boolean;
+  validation?: {
+    valid: boolean;
+    error?: string;
+    entrypoint?: string;
+    startCommand?: string;
+    nodeMajor?: number;
+  };
 };
 
 type DbType =
@@ -106,6 +120,8 @@ export default function ResourceWorkbench({
   // D Hosting state
   const [files, setFiles] = useState<StoredFile[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [validatingNode, setValidatingNode] = useState(false);
+  const [nodeValidation, setNodeValidation] = useState<NodeValidationResponse | null>(null);
 
   async function loadTables() {
     setLoading(true);
@@ -124,6 +140,24 @@ export default function ResourceWorkbench({
       setError(err instanceof Error ? err.message : "Could not load tables.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function validateNodeProjectFiles() {
+    setValidatingNode(true);
+    setError("");
+    setNodeValidation(null);
+    try {
+      const response = await fetch(`${baseUrl}/validate-node`, { method: "POST" });
+      const data = (await response.json()) as NodeValidationResponse;
+      setNodeValidation(data);
+      if (!response.ok && !data.validation) {
+        throw new Error(data.message || "Could not validate this Node.js project.");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not validate this Node.js project.");
+    } finally {
+      setValidatingNode(false);
     }
   }
 
@@ -1085,6 +1119,34 @@ export default function ResourceWorkbench({
         </>
       ) : (
         <>
+          {resource.site_type === "node" && (
+            <article className="panel wb-panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>Node.js project setup</h2>
+                  <p>Validate package.json, the start script and the uploaded entrypoint before runtime deployment.</p>
+                </div>
+                <span className="wb-count">Node.js 22</span>
+              </div>
+              <button
+                className="primary-button"
+                onClick={() => void validateNodeProjectFiles()}
+                disabled={validatingNode || uploading}
+              >
+                {validatingNode ? "Validating..." : "Validate Node.js project"}
+              </button>
+              {nodeValidation && (
+                <div className={nodeValidation.validation?.valid ? "pm-resource-notice" : "pm-error"} role="status">
+                  <strong>{nodeValidation.validation?.valid ? "Project configuration is valid" : "Project needs attention"}</strong>
+                  <p>{nodeValidation.message || nodeValidation.validation?.error}</p>
+                  {nodeValidation.validation?.valid && (
+                    <p>Entrypoint: {nodeValidation.validation.entrypoint} · Start: {nodeValidation.validation.startCommand}</p>
+                  )}
+                  <p>Backend execution is not enabled yet; deployment remains safely blocked until isolated runtime support is available.</p>
+                </div>
+              )}
+            </article>
+          )}
           <WebsitePreview previewUrl={`${baseUrl}/preview`} />
           <PublishingControls resourceUrl={baseUrl} initialStatus={resource.status} />
           <DeploymentHistory resourceUrl={baseUrl} />
