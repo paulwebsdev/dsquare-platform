@@ -75,7 +75,7 @@ router.post("/:resourceId/deployments", async (req, res) => {
     await client.query("BEGIN");
 
     const resource = await client.query(
-      `SELECT r.id, r.project_id, r.status
+      `SELECT r.id, r.project_id, r.status, r.site_type
        FROM hosting_resources r
        INNER JOIN projects p ON p.id = r.project_id
        WHERE r.id = $1 AND r.project_id = $2 AND p.owner_id = $3
@@ -86,6 +86,11 @@ router.post("/:resourceId/deployments", async (req, res) => {
     if (resource.rowCount === 0) {
       await client.query("ROLLBACK");
       return res.status(404).json({ success: false, message: "Website resource not found." });
+    }
+
+    if (resource.rows[0].site_type === "node") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ success: false, message: "Node.js execution is not enabled yet. This project can be configured, but cannot be deployed until isolated runtime support is available." });
     }
 
     if (resource.rows[0].status === "archived") {
