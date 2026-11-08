@@ -7,6 +7,7 @@ import authRouter from "./routes/auth.js";
 import projectsRouter from "./routes/projects.js";
 import hostingResourcesRouter from "./routes/hosting-resources.js";
 import hostingFilesRouter from "./routes/hosting-files.js";
+import hostingDeploymentsRouter from "./routes/hosting-deployments.js";
 import hostingPreviewRouter from "./routes/hosting-preview.js";
 import hostingDomainsRouter from "./routes/hosting-domains.js";
 import hostingDomainSiteRouter from "./routes/hosting-domain-site.js";
@@ -70,6 +71,7 @@ app.use("/api/v1/projects/:projectId/resources", hostingPreviewRouter);
 app.use("/api/v1/projects/:projectId/resources", hostingDomainsRouter);
 app.use("/api/v1/projects/:projectId/resources", hostingResourcesRouter);
 app.use("/api/v1/projects/:projectId/resources", hostingFilesRouter);
+app.use("/api/v1/projects/:projectId/resources", hostingDeploymentsRouter);
 
 // Project routes have global authentication and must follow the public website routes.
 app.use("/api/v1/projects", projectsRouter);
