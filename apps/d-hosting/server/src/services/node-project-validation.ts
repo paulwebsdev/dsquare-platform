@@ -59,7 +59,7 @@ export function validateNodeProject(
   const entrypointParts = entrypoint.split("/");
   if (
     !SAFE_ENTRYPOINT.test(entrypoint) || entrypoint.startsWith("/") ||
-    entrypoint.includes("\\\\") || entrypointParts.some(part => !part || part === "." || part === "..") ||
+    entrypoint.includes("\\") || entrypointParts.some(part => !part || part === "." || part === "..") ||
     ![".js", ".mjs", ".cjs"].includes(path.posix.extname(entrypoint).toLowerCase()) ||
     path.posix.normalize(entrypoint) !== entrypoint
   ) {
