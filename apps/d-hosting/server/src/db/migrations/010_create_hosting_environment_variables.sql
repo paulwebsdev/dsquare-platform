@@ -16,4 +16,6 @@ CREATE TABLE IF NOT EXISTS hosting_environment_variables (
 CREATE INDEX IF NOT EXISTS hosting_environment_variables_resource_idx
     ON hosting_environment_variables (resource_id, name);
 
+GRANT SELECT, INSERT, UPDATE, DELETE ON hosting_environment_variables TO d_hosting_app;
+
 COMMIT;
