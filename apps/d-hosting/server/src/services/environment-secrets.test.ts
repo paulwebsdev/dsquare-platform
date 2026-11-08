@@ -14,7 +14,7 @@ test("encrypts and decrypts a secret without storing plaintext", () => {
   const value = "private-value-123";
   const encrypted = encryptEnvironmentSecret(value, environment, "resource-1:SECRET");
   assert.notEqual(encrypted.ciphertext, value);
-  assert.equal(decryptEnvironmentSecret(encrypted, environment), value);
+  assert.equal(decryptEnvironmentSecret(encrypted, environment, "resource-1:SECRET"), value);
   assert.throws(() => decryptEnvironmentSecret(encrypted, environment, "another-resource:SECRET"), /authenticate|Unsupported state/i);
 });
 
