@@ -25,6 +25,7 @@ router.post("/redeem", limitCodeRedemption, async (req, res) => {
   const clientId = typeof req.body?.clientId === "string" ? req.body.clientId : "";
   const clientSecret = typeof req.body?.clientSecret === "string" ? req.body.clientSecret : "";
   const code = typeof req.body?.code === "string" ? req.body.code : "";
+  const state = typeof req.body?.state === "string" ? req.body.state : "";
   const expected = Buffer.from(CLIENT_SECRET);
   const supplied = Buffer.from(clientSecret);
   const secretValid = expected.length > 0 && expected.length === supplied.length && timingSafeEqual(expected, supplied);
@@ -33,7 +34,7 @@ router.post("/redeem", limitCodeRedemption, async (req, res) => {
     res.status(401).json({ success: false, message: "Invalid integration client." });
     return;
   }
-  if (!/^[A-Za-z0-9_-]{43}$/.test(code)) {
+  if (!/^[A-Za-z0-9_-]{43}$/.test(code) || !/^[A-Za-z0-9_-]{43}$/.test(state)) {
     res.status(400).json({ success: false, message: "Invalid authorization code." });
     return;
   }
@@ -43,10 +44,10 @@ router.post("/redeem", limitCodeRedemption, async (req, res) => {
     await client.query("BEGIN");
     const consumed = await client.query(
       `UPDATE hosting_authorization_codes SET consumed_at = NOW()
-       WHERE code_hash = $1 AND client_id = $2
+       WHERE code_hash = $1 AND client_id = $2 AND state_hash = $3
          AND consumed_at IS NULL AND expires_at > NOW()
        RETURNING user_id, project_id, resource_id`,
-      [sha256(code), CLIENT_ID],
+      [sha256(code), CLIENT_ID, sha256(state)],
     );
     if (consumed.rowCount !== 1) {
       await client.query("ROLLBACK");
@@ -138,9 +139,9 @@ router.post("/authorize", requireSameOrigin, limitAuthorization, async (req, res
     const code = randomBytes(32).toString("base64url");
     await pool.query(
       `INSERT INTO hosting_authorization_codes
-       (code_hash, client_id, user_id, project_id, resource_id, expires_at)
-       VALUES ($1, $2, $3, $4, $5, NOW() + INTERVAL '5 minutes')`,
-      [sha256(code), CLIENT_ID, res.locals.userId, projectId, resourceId],
+       (code_hash, client_id, user_id, project_id, resource_id, state_hash, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW() + INTERVAL '5 minutes')`,
+      [sha256(code), CLIENT_ID, res.locals.userId, projectId, resourceId, sha256(state)],
     );
 
     callback.searchParams.set("code", code);
