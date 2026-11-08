@@ -74,6 +74,11 @@ router.post("/", async (req, res) => {
   const body = req.body as Record<string, unknown>;
   const name = typeof body?.name === "string" ? body.name.trim() : "";
   const description = body?.description === undefined ? "" : body.description;
+  const siteType = body?.siteType === undefined ? "static" : body.siteType;
+
+  if (siteType !== "static" && siteType !== "node") {
+    return res.status(400).json({ success: false, message: "Website type must be static or node." });
+  }
 
   if (!name || name.length > 80) {
     return res.status(400).json({
@@ -92,11 +97,11 @@ router.post("/", async (req, res) => {
   try {
     const result = await pool.query(
       `INSERT INTO hosting_resources (project_id, name, description, site_type)
-       SELECT p.id, $2, $3, 'static'
+       SELECT p.id, $2, $3, $4
        FROM projects p
-       WHERE p.id = $1 AND p.owner_id = $4
+       WHERE p.id = $1 AND p.owner_id = $5
        RETURNING id, project_id, name, description, site_type, status, created_at, updated_at`,
-      [projectId, name, description.trim(), res.locals.userId]
+      [projectId, name, description.trim(), siteType, res.locals.userId]
     );
 
     if (result.rowCount === 0) {
@@ -105,7 +110,7 @@ router.post("/", async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: "Static website resource registered successfully.",
+      message: siteType === "node" ? "Node.js website resource registered successfully." : "Static website resource registered successfully.",
       resource: result.rows[0],
     });
   } catch (error) {
