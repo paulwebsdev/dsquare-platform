@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { Pool } from "pg";
+import { getDatabasePoolOptions } from "./pool-options.js";
 
 const requiredVariables = [
   "DB_NAME",
@@ -24,9 +25,7 @@ export const pool = new Pool({
   database: process.env.DB_NAME,
   user: process.env.DB_USER,
   password,
-  max: 10,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000,
+  ...getDatabasePoolOptions(process.env),
 });
 
 pool.on("error", (error) => {
