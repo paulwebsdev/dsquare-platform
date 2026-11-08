@@ -16,7 +16,7 @@ type Resource = {
   description?: string;
   engine?: string;
   schema_name?: string;
-  site_type?: string;
+  site_type?: "static" | "node";
   status: ResourceStatus;
   created_at: string;
   updated_at: string;
@@ -60,6 +60,7 @@ export default function ProjectResources({
   const [editingResource, setEditingResource] = useState<Resource | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [siteType, setSiteType] = useState<"static" | "node">("static");
 
   const baseUrl = `/api/v1/projects/${project.id}/resources`;
 
@@ -119,6 +120,7 @@ export default function ProjectResources({
     setEditingResource(null);
     setName("");
     setDescription("");
+    setSiteType("static");
     setError("");
     setShowForm(true);
   }
@@ -127,6 +129,7 @@ export default function ProjectResources({
     setEditingResource(resource);
     setName(resource.name);
     setDescription(resource.description || "");
+    setSiteType(resource.site_type === "node" ? "node" : "static");
     setSelectedResource(null);
     setError("");
     setShowForm(true);
@@ -137,6 +140,7 @@ export default function ProjectResources({
     setEditingResource(null);
     setName("");
     setDescription("");
+    setSiteType("static");
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -164,6 +168,7 @@ export default function ProjectResources({
 
       if (!isDatabase) {
         payload.description = description.trim();
+        if (!isEditing) payload.siteType = siteType;
       }
 
       const response = await fetch(url, {
@@ -348,7 +353,7 @@ export default function ProjectResources({
               <p>
                 {isDatabase
                   ? "Create a PostgreSQL schema inside this project."
-                  : "Register a static website resource. Deployment can be configured later."}
+                  : "Choose static hosting for frontend-only sites or Node.js for a backend project. Node execution will be enabled after the isolated runtime is ready."}
               </p>
             </div>
             <button
@@ -370,6 +375,23 @@ export default function ProjectResources({
             maxLength={80}
             required
           />
+
+          {!isDatabase && !editingResource && (
+            <>
+              <label htmlFor="resource-site-type">Website type</label>
+              <select
+                id="resource-site-type"
+                value={siteType}
+                onChange={(event) => setSiteType(event.target.value as "static" | "node")}
+              >
+                <option value="static">Static website (HTML/CSS/JS)</option>
+                <option value="node">Node.js backend website (Node 22)</option>
+              </select>
+              <p className="pm-help">
+                Node.js projects can be configured and validated now, but publishing stays disabled until secure isolated execution is available.
+              </p>
+            </>
+          )}
 
           {!isDatabase && (
             <>
