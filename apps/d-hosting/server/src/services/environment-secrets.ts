@@ -26,9 +26,11 @@ export type EncryptedSecret = {
 export function encryptEnvironmentSecret(
   value: string,
   environment: NodeJS.ProcessEnv = process.env,
+  context = "",
 ): EncryptedSecret {
   const iv = randomBytes(IV_LENGTH);
   const cipher = createCipheriv(ALGORITHM, getEncryptionKey(environment), iv);
+  cipher.setAAD(Buffer.from(context, "utf8"));
   const ciphertext = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
   return {
     ciphertext: ciphertext.toString("base64"),
@@ -40,12 +42,14 @@ export function encryptEnvironmentSecret(
 export function decryptEnvironmentSecret(
   secret: EncryptedSecret,
   environment: NodeJS.ProcessEnv = process.env,
+  context = "",
 ): string {
   const decipher = createDecipheriv(
     ALGORITHM,
     getEncryptionKey(environment),
     Buffer.from(secret.iv, "base64"),
   );
+  decipher.setAAD(Buffer.from(context, "utf8"));
   decipher.setAuthTag(Buffer.from(secret.authTag, "base64"));
   return Buffer.concat([
     decipher.update(Buffer.from(secret.ciphertext, "base64")),
