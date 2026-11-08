@@ -1,5 +1,6 @@
 ﻿import WebsitePreview from "./WebsitePreview";
 import PublishingControls from "./PublishingControls";
+import DeploymentHistory from "./DeploymentHistory";
 import CustomDomains from "./CustomDomains";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
@@ -1086,6 +1087,7 @@ export default function ResourceWorkbench({
         <>
           <WebsitePreview previewUrl={`${baseUrl}/preview`} />
           <PublishingControls resourceUrl={baseUrl} initialStatus={resource.status} />
+          <DeploymentHistory resourceUrl={baseUrl} />
           <CustomDomains resourceUrl={baseUrl} />
           <div className="wb-upload-panel panel">
             <div>
