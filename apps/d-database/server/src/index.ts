@@ -6,6 +6,7 @@ import { pool } from "./config/database.js";
 import projectsRouter from "./routes/projects.js";
 import databaseResourcesRouter from "./routes/database-resources.js";
 import databaseTablesRouter from "./routes/database-tables.js";
+import databaseStructureRouter from "./routes/database-structure.js";
 import authRouter from "./routes/auth.js";
 import { requireAuth } from "./middleware/require-auth.js";
 import { requireProjectOwnership } from "./middleware/require-project-owner.js";
@@ -61,6 +62,7 @@ app.use("/api/v1/integrations/hosting", hostingIntegrationRouter);
 app.use("/api/v1/projects", requireAuth, projectsRouter);
 app.use("/api/v1/projects/:projectId/resources", requireAuth, requireProjectOwnership, databaseResourcesRouter);
 app.use("/api/v1/projects/:projectId/resources", requireAuth, requireProjectOwnership, databaseTablesRouter);
+app.use("/api/v1/projects/:projectId/resources", requireAuth, requireProjectOwnership, databaseStructureRouter);
 
 app.get("/api/v1/health", async (_req, res) => {
   try {
