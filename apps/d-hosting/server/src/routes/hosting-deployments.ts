@@ -1,9 +1,11 @@
 import { Router } from "express";
 import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { pool } from "../config/database.js";
 import { requireAuth } from "../middleware/require-auth.js";
 import { getWebsiteFileCandidates } from "../services/website-file-resolution.js";
+import { validateNodeProject } from "../services/node-project-validation.js";
 
 const router = Router({ mergeParams: true });
 router.use(requireAuth);
@@ -24,7 +26,7 @@ function params(req: { params: object }) {
 
 async function ownedResource(projectId: string, resourceId: string, userId: string) {
   return pool.query(
-    `SELECT r.id, r.project_id, r.status
+    `SELECT r.id, r.project_id, r.status, r.site_type
      FROM hosting_resources r
      INNER JOIN projects p ON p.id = r.project_id
      WHERE r.id = $1 AND r.project_id = $2 AND p.owner_id = $3
@@ -60,6 +62,59 @@ router.get("/:resourceId/deployments", async (req, res) => {
   } catch (error) {
     console.error("Deployment history error:", error instanceof Error ? error.message : error);
     return res.status(500).json({ success: false, message: "Could not load deployment history." });
+  }
+});
+
+// Check a Node.js project's uploaded manifest without executing user code.
+router.post("/:resourceId/validate-node", async (req, res) => {
+  const { projectId = "", resourceId = "" } = params(req);
+  if (!UUID_PATTERN.test(projectId) || !UUID_PATTERN.test(resourceId)) {
+    return res.status(400).json({ success: false, message: "Invalid project or website ID." });
+  }
+
+  try {
+    const resource = await ownedResource(projectId, resourceId, String(res.locals.userId || ""));
+    if (resource.rowCount !== 1) {
+      return res.status(404).json({ success: false, message: "Website resource not found." });
+    }
+    if (resource.rows[0].site_type !== "node") {
+      return res.status(409).json({ success: false, message: "This validation is only available for Node.js websites." });
+    }
+    if (resource.rows[0].status === "archived") {
+      return res.status(409).json({ success: false, message: "Restore this website before validating it." });
+    }
+
+    const files = await pool.query(
+      `SELECT original_name, storage_key
+       FROM hosting_files
+       WHERE project_id = $1 AND resource_id = $2
+       ORDER BY original_name ASC`,
+      [projectId, resourceId]
+    );
+    const uploadedPaths = files.rows.map((file: { original_name: string }) => file.original_name);
+    const packageFile = files.rows.find((file: { original_name: string }) => file.original_name === "package.json");
+    let packageJson = "";
+
+    if (packageFile && UUID_PATTERN.test(packageFile.storage_key)) {
+      try {
+        packageJson = await readFile(path.join(storageRoot, resourceId, packageFile.storage_key), "utf8");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
+
+    const validation = validateNodeProject(packageJson, uploadedPaths);
+    return res.status(validation.valid ? 200 : 422).json({
+      success: validation.valid,
+      validation,
+      runtimeAvailable: false,
+      message: validation.valid
+        ? "Node.js project configuration is valid. Execution remains disabled until isolated runtime support is installed."
+        : validation.error,
+    });
+  } catch (error) {
+    console.error("Node project validation error:", error instanceof Error ? error.message : error);
+    return res.status(500).json({ success: false, message: "Could not validate this Node.js project." });
   }
 });
 
