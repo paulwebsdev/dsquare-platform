@@ -6,6 +6,7 @@ import { pool } from "./config/database.js";
 import authRouter from "./routes/auth.js";
 import projectsRouter from "./routes/projects.js";
 import hostingResourcesRouter from "./routes/hosting-resources.js";
+import hostingEnvironmentRouter from "./routes/hosting-environment.js";
 import hostingFilesRouter from "./routes/hosting-files.js";
 import hostingDeploymentsRouter from "./routes/hosting-deployments.js";
 import hostingPreviewRouter from "./routes/hosting-preview.js";
@@ -70,6 +71,7 @@ app.use("/api/v1/database-connections", databaseConnectionsRouter);
 app.use("/api/v1/projects/:projectId/resources", hostingPreviewRouter);
 app.use("/api/v1/projects/:projectId/resources", hostingDomainsRouter);
 app.use("/api/v1/projects/:projectId/resources", hostingResourcesRouter);
+app.use("/api/v1/projects/:projectId/resources", hostingEnvironmentRouter);
 app.use("/api/v1/projects/:projectId/resources", hostingFilesRouter);
 app.use("/api/v1/projects/:projectId/resources", hostingDeploymentsRouter);
 
