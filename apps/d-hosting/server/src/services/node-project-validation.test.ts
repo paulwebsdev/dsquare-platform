@@ -2,6 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { validateNodeProject } from "./node-project-validation.js";
 
+function validationError(result: ReturnType<typeof validateNodeProject>): string {
+  assert.equal(result.valid, false, "Expected Node project validation to fail");
+  if (result.valid) throw new Error("Expected Node project validation to fail");
+  return result.error;
+}
+
 const validManifest = JSON.stringify({
   name: "sample-backend",
   main: "server.js",
@@ -17,9 +23,9 @@ test("accepts a Node 22 project with package.json and its entrypoint", () => {
 });
 
 test("requires a valid package.json and start script", () => {
-  assert.match(validateNodeProject("{", ["package.json", "server.js"]).error ?? "", /invalid JSON/);
+  assert.match(validationError(validateNodeProject("{", ["package.json", "server.js"])), /invalid JSON/);
   assert.match(
-    validateNodeProject(JSON.stringify({ main: "server.js" }), ["package.json", "server.js"]).error ?? "",
+    validationError(validateNodeProject(JSON.stringify({ main: "server.js" }), ["package.json", "server.js"])),
     /scripts.start/,
   );
 });
@@ -30,7 +36,7 @@ test("rejects unsupported Node engine ranges", () => {
     scripts: { start: "node server.js" },
     engines: { node: ">=20" },
   });
-  assert.match(validateNodeProject(manifest, ["package.json", "server.js"]).error ?? "", /Node.js 22/);
+  assert.match(validationError(validateNodeProject(manifest, ["package.json", "server.js"])), /Node.js 22/);
 });
 
 test("rejects unsafe or missing entrypoints", () => {
@@ -39,14 +45,14 @@ test("rejects unsafe or missing entrypoints", () => {
     assert.equal(validateNodeProject(manifest, ["package.json", "server.js"]).valid, false);
   }
   assert.match(
-    validateNodeProject(validManifest, ["package.json"]).error ?? "",
+    validationError(validateNodeProject(validManifest, ["package.json"])),
     /Upload the configured Node.js entrypoint/,
   );
 });
 
 test("requires package.json at the project root", () => {
   assert.match(
-    validateNodeProject(validManifest, ["app/package.json", "server.js"]).error ?? "",
+    validationError(validateNodeProject(validManifest, ["app/package.json", "server.js"])),
     /package.json at the website root/,
   );
 });
