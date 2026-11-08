@@ -22,6 +22,7 @@ const FILE_TYPES: Record<string, string> = {
   ".css": "text/css",
   ".js": "text/javascript",
   ".mjs": "text/javascript",
+  ".cjs": "text/javascript",
   ".json": "application/json",
   ".txt": "text/plain",
   ".md": "text/markdown",
@@ -167,7 +168,7 @@ router.post(
     if (!validFileName(originalName)) {
       return res.status(400).json({
         success: false,
-        message: "This file type is not allowed. Upload a supported static website file.",
+        message: "This file type is not supported for website uploads.",
       });
     }
 
