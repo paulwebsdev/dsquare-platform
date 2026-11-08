@@ -28,29 +28,33 @@ function sendError(error: unknown, res: Response) {
   return res.status(500).json({ success: false, message: "Could not complete the table-structure operation." });
 }
 
-async function resolveTable(projectId: string, resourceId: string, tableName: string) {
+type TableResolution =
+  | { ok: true; schemaName: string; tableName: string }
+  | { ok: false; error: string; status: number };
+
+async function resolveTable(projectId: string, resourceId: string, tableName: string): Promise<TableResolution> {
   if (!UUID_PATTERN.test(projectId) || !UUID_PATTERN.test(resourceId) || !IDENTIFIER_PATTERN.test(tableName)) {
-    return { error: "Invalid project, resource or table identifier.", status: 400 as const };
+    return { ok: false, error: "Invalid project, resource or table identifier.", status: 400 };
   }
   const resourceResult = await pool.query(
     `SELECT schema_name, status FROM database_resources WHERE id = $1 AND project_id = $2 LIMIT 1`,
     [resourceId, projectId]
   );
-  if (resourceResult.rowCount === 0) return { error: "Database resource not found.", status: 404 as const };
+  if (resourceResult.rowCount === 0) return { ok: false, error: "Database resource not found.", status: 404 };
   const resource = resourceResult.rows[0] as { schema_name: string; status: string };
   if (!/^db_[a-f0-9]{32}$/.test(resource.schema_name)) {
-    return { error: "Invalid database schema configuration.", status: 500 as const };
+    return { ok: false, error: "Invalid database schema configuration.", status: 500 };
   }
   const tableResult = await pool.query(
     `SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2 AND table_type = 'BASE TABLE'`,
     [resource.schema_name, tableName]
   );
-  if (tableResult.rowCount === 0) return { error: "Table not found.", status: 404 as const };
-  if (resource.status !== "active") return { error: "Restore this database resource before changing its structure.", status: 409 as const };
-  return { schemaName: resource.schema_name, tableName };
+  if (tableResult.rowCount === 0) return { ok: false, error: "Table not found.", status: 404 };
+  if (resource.status !== "active") return { ok: false, error: "Restore this database resource before changing its structure.", status: 409 };
+  return { ok: true, schemaName: resource.schema_name, tableName };
 }
 
-function sendResolveError(result: { error: string; status: number }, res: Response) {
+function sendResolveError(result: Extract<TableResolution, { ok: false }>, res: Response) {
   return res.status(result.status).json({ success: false, message: result.error });
 }
 
@@ -59,7 +63,7 @@ router.get("/:resourceId/tables/:tableName/structure", async (req, res) => {
   const { projectId = "", resourceId = "", tableName = "" } = params(req);
   try {
     const table = await resolveTable(projectId, resourceId, tableName);
-    if ("error" in table) return sendResolveError(table, res);
+    if (!table.ok) return sendResolveError(table, res);
 
     const [indexes, constraints] = await Promise.all([
       pool.query(
@@ -111,7 +115,7 @@ router.post("/:resourceId/tables/:tableName/indexes", async (req, res) => {
 
   try {
     const table = await resolveTable(projectId, resourceId, tableName);
-    if ("error" in table) return sendResolveError(table, res);
+    if (!table.ok) return sendResolveError(table, res);
     const existingColumns = await pool.query(
       `SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2`,
       [table.schemaName, tableName]
@@ -138,7 +142,7 @@ router.delete("/:resourceId/tables/:tableName/indexes/:indexName", async (req, r
   }
   try {
     const table = await resolveTable(projectId, resourceId, tableName);
-    if ("error" in table) return sendResolveError(table, res);
+    if (!table.ok) return sendResolveError(table, res);
     const result = await pool.query(
       `SELECT idx.relname AS index_name
        FROM pg_class idx
@@ -171,7 +175,7 @@ router.post("/:resourceId/tables/:tableName/constraints", async (req, res) => {
 
   try {
     const table = await resolveTable(projectId, resourceId, tableName);
-    if ("error" in table) return sendResolveError(table, res);
+    if (!table.ok) return sendResolveError(table, res);
 
     if (type === "unique") {
       const columns = body.columns;
@@ -233,7 +237,7 @@ router.delete("/:resourceId/tables/:tableName/constraints/:constraintName", asyn
   }
   try {
     const table = await resolveTable(projectId, resourceId, tableName);
-    if ("error" in table) return sendResolveError(table, res);
+    if (!table.ok) return sendResolveError(table, res);
     const result = await pool.query(
       `SELECT con.conname
        FROM pg_constraint con
