@@ -4,6 +4,23 @@ import { serveResourceFile } from "./hosting-preview.js";
 
 const router = Router();
 
+// The Render product hostname and local development hosts must reach the
+// dashboard frontend, not the custom-domain website resolver.
+router.use((req, _res, next) => {
+  const renderHost = process.env.RENDER_EXTERNAL_HOSTNAME?.toLowerCase();
+  const hostname = req.hostname.toLowerCase();
+  const isRenderProductHost = Boolean(renderHost && hostname === renderHost);
+  const isLocalProductHost =
+    process.env.NODE_ENV !== "production" &&
+    ["127.0.0.1", "localhost", "[::1]"].includes(hostname);
+
+  if (isRenderProductHost || isLocalProductHost) {
+    return next("router");
+  }
+
+  return next();
+});
+
 function firstParam(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] ?? "" : value ?? "";
 }
