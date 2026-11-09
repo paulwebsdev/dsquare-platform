@@ -6,6 +6,7 @@ import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { pool } from "./config/database.js";
+import { runMigrations } from "./db/migrate.js";
 import projectsRouter from "./routes/projects.js";
 import databaseResourcesRouter from "./routes/database-resources.js";
 import databaseTablesRouter from "./routes/database-tables.js";
@@ -138,6 +139,7 @@ async function startServer() {
       throw new Error("D Database frontend build is missing. Build the client before starting the server.");
     }
 
+    await runMigrations(pool);
     await pool.query("SELECT 1");
 
     app.listen(PORT, "0.0.0.0", () => {
