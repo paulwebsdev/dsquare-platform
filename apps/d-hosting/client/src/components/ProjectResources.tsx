@@ -297,6 +297,10 @@ export default function ProjectResources({
     });
   }
 
+  const publishedUrl = selectedResource && selectedResource.status === "published" && !isDatabase
+    ? `${window.location.origin}/api/v1/projects/${project.id}/resources/${selectedResource.id}/published`
+    : "";
+
   const visibleResources = resources
     .filter((resource) =>
       showArchived
@@ -485,8 +489,23 @@ export default function ProjectResources({
           </div>
 
           {!isDatabase && selectedResource.status === "published" && (
-            <div className="pm-resource-notice">
-              This website is marked as published.
+            <div className="pm-resource-notice space-y-3">
+              <div>This website is published and available at its public URL:</div>
+              <a href={publishedUrl} target="_blank" rel="noreferrer" className="block break-all font-medium underline">
+                {publishedUrl}
+              </a>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => void navigator.clipboard.writeText(publishedUrl)}
+                >
+                  Copy public URL
+                </button>
+                <a href={publishedUrl} target="_blank" rel="noreferrer" className="secondary-button">
+                  Visit website
+                </a>
+              </div>
             </div>
           )}
 
