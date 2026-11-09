@@ -6,7 +6,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "tsx --test src/middleware/rate-limit.test.ts src/db/read-snapshot.test.ts src/config/pool-options.test.ts",
-    "dev": "tsx watch src/index.ts"
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts"
   },
   "dependencies": {
     "cors": "^2.8.6",

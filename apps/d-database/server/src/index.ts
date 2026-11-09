@@ -2,6 +2,9 @@ import "dotenv/config";
 import hostingIntegrationRouter from "./routes/hosting-integration.js";
 import express from "express";
 import cors from "cors";
+import { existsSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { pool } from "./config/database.js";
 import projectsRouter from "./routes/projects.js";
 import databaseResourcesRouter from "./routes/database-resources.js";
@@ -12,6 +15,19 @@ import { requireAuth } from "./middleware/require-auth.js";
 import { requireProjectOwnership } from "./middleware/require-project-owner.js";
 
 const app = express();
+app.set("trust proxy", 1);
+
+const clientDistPath = resolve(dirname(fileURLToPath(import.meta.url)), "../../client/dist");
+const clientIndexPath = resolve(clientDistPath, "index.html");
+
+function isProductHost(hostname: string): boolean {
+  if (process.env.RENDER_EXTERNAL_HOSTNAME) {
+    return hostname === process.env.RENDER_EXTERNAL_HOSTNAME;
+  }
+
+  return process.env.NODE_ENV !== "production" &&
+    ["127.0.0.1", "localhost", "[::1]"].includes(hostname);
+}
 
 function getAllowedAppOrigin(): string {
   const configured = process.env.D_DATABASE_APP_ORIGIN?.trim();
@@ -95,19 +111,42 @@ app.get("/api/v1/health", async (_req, res) => {
   }
 });
 
-const PORT = 5001;
+const serveClient = express.static(clientDistPath, { index: false, maxAge: "1h" });
+app.use((req, res, next) => {
+  if (!isProductHost(req.hostname)) return next();
+  serveClient(req, res, next);
+});
+app.use((req, res, next) => {
+  if (
+    !isProductHost(req.hostname) ||
+    !["GET", "HEAD"].includes(req.method) ||
+    req.path.startsWith("/api/")
+  ) {
+    return next();
+  }
+
+  res.sendFile(clientIndexPath, (error) => {
+    if (error) next(error);
+  });
+});
+
+const PORT = Number(process.env.PORT || 5001);
 
 async function startServer() {
   try {
+    if (process.env.NODE_ENV === "production" && !existsSync(clientIndexPath)) {
+      throw new Error("D Database frontend build is missing. Build the client before starting the server.");
+    }
+
     await pool.query("SELECT 1");
 
-    app.listen(PORT, "127.0.0.1", () => {
-      console.log(`D Database API running at http://127.0.0.1:${PORT}`);
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`D Database application running on port ${PORT}`);
       console.log("D Database PostgreSQL connection successful.");
     });
   } catch (error) {
     console.error(
-      "Could not connect to D Database:",
+      "Could not start D Database:",
       error instanceof Error ? error.message : "Unknown error"
     );
     process.exit(1);

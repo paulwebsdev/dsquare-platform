@@ -1,0 +1,48 @@
+services:
+  - type: web
+    name: dsquare-d-database
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build --workspace=@dsquare/d-database-client && npm run typecheck --workspace=@dsquare/d-database-server
+    startCommand: npm run start --workspace=@dsquare/d-database-server
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DB_SSL
+        value: "true"
+      - key: DB_POOL_MAX
+        value: "5"
+      - key: DATABASE_URL
+        sync: false
+      - key: D_DATABASE_APP_ORIGIN
+        sync: false
+      - key: D_HOSTING_INTEGRATION_CLIENT_SECRET
+        sync: false
+      - key: D_HOSTING_CALLBACK_URL
+        sync: false
+
+  - type: web
+    name: dsquare-d-hosting
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build --workspace=@dsquare/d-hosting-client && npm run typecheck --workspace=@dsquare/d-hosting-server
+    startCommand: npm run start --workspace=@dsquare/d-hosting-server
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DB_SSL
+        value: "true"
+      - key: DB_POOL_MAX
+        value: "5"
+      - key: DATABASE_URL
+        sync: false
+      - key: D_HOSTING_APP_ORIGIN
+        sync: false
+      - key: D_HOSTING_INTEGRATION_CLIENT_SECRET
+        sync: false
+      - key: D_DATABASE_API_URL
+        sync: false
+      - key: D_DATABASE_APP_URL
+        sync: false
