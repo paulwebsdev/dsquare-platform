@@ -69,6 +69,7 @@ export async function runMigrations(pool: Pool): Promise<void> {
         console.log(`D Hosting migration applied: ${file}`);
       } catch (error) {
         await client.query("ROLLBACK");
+        console.error(`D Hosting migration database error (${file}):`, error);
         throw new Error(`D Hosting migration failed (${file}).`, { cause: error });
       }
     }
