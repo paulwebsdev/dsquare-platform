@@ -7,7 +7,7 @@ import path from "node:path";
 import type { Pool } from "pg";
 import { test } from "node:test";
 import { signRuntimeAgentRequest } from "../../../d-hosting/server/src/services/runtime-agent-auth.js";
-import { createRuntimeAgentApp, isRuntimeCreateRequest, resolveRuntimeAgentHost } from "./index.js";
+import { createRuntimeAgentApp, isRuntimeCreateRequest, isTrustedRuntimeImage, resolveRuntimeAgentHost } from "./index.js";
 
 const SECRET = "runtime-agent-test-secret-with-at-least-32-bytes";
 
@@ -253,4 +253,11 @@ test("provides authenticated runtime capability status without enabling executio
     );
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("requires an explicitly configured trusted runtime image", () => {
+  assert.equal(isTrustedRuntimeImage("node:22-bookworm-slim", "node:22-bookworm-slim"), true);
+  assert.equal(isTrustedRuntimeImage("node:latest", "node:22-bookworm-slim"), false);
+  assert.equal(isTrustedRuntimeImage("node:22-bookworm-slim", undefined), false);
+  assert.equal(isTrustedRuntimeImage("node:22-bookworm-slim", "   "), false);
 });
