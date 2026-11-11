@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { requestRuntimeAgent } from "./runtime-agent-client.js";
+import { checkRuntimeAgentHealth, requestRuntimeAgent } from "./runtime-agent-client.js";
 
 const options = {
   baseUrl: "https://runtime.example.com",
@@ -94,4 +94,33 @@ test("rejects invalid artifact upload identifiers, sizes, and unconfirmed accept
   await assert.rejects(upload({ ...options, fetchImpl }, "123e4567-e89b-42d3-a456-426614174002", new Uint8Array()), /between 1 byte/);
   await assert.rejects(upload({ ...options, fetchImpl },
     "123e4567-e89b-42d3-a456-426614174002", Buffer.from("x")), /did not confirm/);
+});
+
+
+test("checks authenticated runtime health and validates capability fields", async () => {
+  const health = await checkRuntimeAgentHealth({
+    ...options,
+    fetchImpl: fakeFetch((_url, init) => {
+      assert.equal(init.method, "GET");
+      return Response.json({
+        status: "ready",
+        providerConfigured: false,
+        executionEnabled: false,
+      });
+    }),
+  });
+  assert.deepEqual(health, {
+    status: "ready",
+    providerConfigured: false,
+    executionEnabled: false,
+  });
+
+  await assert.rejects(checkRuntimeAgentHealth({
+    ...options,
+    fetchImpl: fakeFetch(() => Response.json({
+      status: "ready",
+      providerConfigured: true,
+      executionEnabled: "yes",
+    })),
+  }), /invalid health response/);
 });
