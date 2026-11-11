@@ -5,7 +5,9 @@ import {
 } from "./node-runtime-launch.js";
 import { buildRemoteRuntimeCreateRequest } from "./runtime-agent-contract.js";
 import {
-  requestRuntimeAgent,
+  createRuntimeAgentRuntime,
+  deleteRuntimeAgentArtifact,
+  deleteRuntimeAgentRuntime,
   uploadRuntimeAgentArtifact,
   type RuntimeAgentClientOptions,
 } from "./runtime-agent-client.js";
@@ -35,7 +37,7 @@ export type StartRemoteNodeRuntimeInput = {
  */
 export async function startRemoteNodeRuntime(
   input: StartRemoteNodeRuntimeInput,
-): Promise<{ containerId: string; artifactId: string; fileCount: number }> {
+): Promise<{ resourceId: string; deploymentId: string; artifactId: string; fileCount: number; state: "running" }> {
   const launch = await prepareNodeRuntimeLaunch(input);
   let artifactId: string | undefined;
   let artifactUploaded = false;
@@ -57,26 +59,21 @@ export async function startRemoteNodeRuntime(
       artifact: bundle.descriptor,
     });
 
-    const result = await requestRuntimeAgent<{ containerId?: unknown }>(
-      input.agent,
-      { method: "POST", path: "/v1/runtimes", body: request },
-    );
-
-    if (typeof result?.containerId !== "string" || !result.containerId.trim()) {
-      throw new Error("Runtime agent returned an invalid runtime identifier.");
-    }
+    const result = await createRuntimeAgentRuntime(input.agent, request);
 
     return {
-      containerId: result.containerId,
+      resourceId: result.resourceId,
+      deploymentId: result.deploymentId,
       artifactId,
       fileCount: launch.fileCount,
+      state: result.state,
     };
   } catch (error) {
     if (artifactUploaded && artifactId) {
-      await requestRuntimeAgent(
-        input.agent,
-        { method: "DELETE", path: `/v1/artifacts/${artifactId}` },
-      ).catch(() => undefined);
+      // A create response can be lost after the agent has already started the
+      // container. Attempt runtime cleanup first, then remove the uploaded bundle.
+      await deleteRuntimeAgentRuntime(input.agent, input.resourceId).catch(() => undefined);
+      await deleteRuntimeAgentArtifact(input.agent, artifactId).catch(() => undefined);
     }
     throw error;
   } finally {
