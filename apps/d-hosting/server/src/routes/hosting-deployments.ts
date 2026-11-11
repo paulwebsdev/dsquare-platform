@@ -7,6 +7,7 @@ import { pool } from "../config/database.js";
 import { requireAuth } from "../middleware/require-auth.js";
 import { getWebsiteFileCandidates } from "../services/website-file-resolution.js";
 import { validateNodeProject } from "../services/node-project-validation.js";
+import { checkRuntimeAgentHealth } from "../services/runtime-agent-client.js";
 
 const router = Router({ mergeParams: true });
 router.use(requireAuth);
@@ -35,6 +36,73 @@ async function ownedResource(projectId: string, resourceId: string, userId: stri
     [resourceId, projectId, userId]
   );
 }
+
+
+
+// Report private runtime-agent connectivity and execution capability for an owned website.
+// This diagnostic never starts a runtime or executes customer code.
+router.get("/:resourceId/runtime-status", async (req, res) => {
+  const { projectId = "", resourceId = "" } = params(req);
+  if (!UUID_PATTERN.test(projectId) || !UUID_PATTERN.test(resourceId)) {
+    return res.status(400).json({ success: false, message: "Invalid project or website ID." });
+  }
+
+  try {
+    const resource = await ownedResource(projectId, resourceId, String(res.locals.userId || ""));
+    if (resource.rowCount !== 1) {
+      return res.status(404).json({ success: false, message: "Website resource not found." });
+    }
+
+    const baseUrl = process.env.D_HOSTING_RUNTIME_AGENT_URL?.trim();
+    const secret = process.env.D_HOSTING_RUNTIME_AGENT_SECRET;
+    if (!baseUrl || !secret) {
+      return res.json({
+        success: true,
+        runtime: {
+          configured: false,
+          agentReachable: false,
+          providerConfigured: false,
+          executionEnabled: false,
+          runtimeAvailable: false,
+          message: "The private runtime agent is not configured. Customer backend code remains disabled.",
+        },
+      });
+    }
+
+    try {
+      const health = await checkRuntimeAgentHealth({ baseUrl, secret });
+      const runtimeAvailable = health.providerConfigured && health.executionEnabled;
+      return res.json({
+        success: true,
+        runtime: {
+          configured: true,
+          agentReachable: true,
+          providerConfigured: health.providerConfigured,
+          executionEnabled: health.executionEnabled,
+          runtimeAvailable,
+          message: runtimeAvailable
+            ? "The isolated runtime provider is ready."
+            : "The agent is reachable, but isolated execution is not enabled.",
+        },
+      });
+    } catch {
+      return res.status(503).json({
+        success: false,
+        runtime: {
+          configured: true,
+          agentReachable: false,
+          providerConfigured: false,
+          executionEnabled: false,
+          runtimeAvailable: false,
+          message: "The private runtime agent is unreachable or failed its health check.",
+        },
+      });
+    }
+  } catch (error) {
+    console.error("Runtime status check error:", error instanceof Error ? error.message : error);
+    return res.status(500).json({ success: false, message: "Could not check runtime status." });
+  }
+});
 
 // Return deployment attempts newest first, including the currently active version.
 router.get("/:resourceId/deployments", async (req, res) => {
