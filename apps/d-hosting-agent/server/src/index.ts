@@ -42,6 +42,9 @@ class PostgresNonceStore implements RuntimeAgentNonceStore {
   constructor(private readonly pool: Pool) {}
 
   async claim(nonce: string, expiresAt: number): Promise<boolean> {
+    if (!Number.isSafeInteger(expiresAt) || expiresAt <= Date.now()) {
+      return false;
+    }
     await this.pool.query(`
       DELETE FROM runtime_agent_nonces
       WHERE nonce IN (
@@ -165,3 +168,56 @@ export function createRuntimeAgentApp(input: {
 }
 
 
+
+export async function startRuntimeAgent(): Promise<void> {
+  const secret = requiredEnvironment("RUNTIME_AGENT_SHARED_SECRET");
+  if (Buffer.byteLength(secret, "utf8") < 32) {
+    throw new Error("RUNTIME_AGENT_SHARED_SECRET must contain at least 32 bytes.");
+  }
+  const databaseUrl = requiredEnvironment("RUNTIME_AGENT_DATABASE_URL");
+  const storageRoot = path.resolve(requiredEnvironment("RUNTIME_AGENT_STORAGE_ROOT"));
+  const pool = new Pool({
+    connectionString: databaseUrl,
+    ...(process.env.RUNTIME_AGENT_DB_SSL === "true"
+      ? { ssl: { rejectUnauthorized: true } }
+      : {}),
+    max: 5,
+    connectionTimeoutMillis: 5_000,
+    idleTimeoutMillis: 30_000,
+    application_name: "dsquare-hosting-runtime-agent",
+  });
+  pool.on("error", (error) => {
+    console.error("Runtime agent database pool error:", error.message);
+  });
+
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS runtime_agent_nonces (
+        nonce UUID PRIMARY KEY,
+        expires_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query("CREATE INDEX IF NOT EXISTS runtime_agent_nonces_expires_at_idx ON runtime_agent_nonces (expires_at)");
+    await pool.query("SELECT 1");
+  } catch (error) {
+    await pool.end();
+    throw error;
+  }
+
+  const app = createRuntimeAgentApp({ pool, secret, storageRoot });
+  const port = Number(process.env.RUNTIME_AGENT_PORT || 5003);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    await pool.end();
+    throw new Error("RUNTIME_AGENT_PORT must be a valid TCP port.");
+  }
+  const server = app.listen(port, "0.0.0.0", () => {
+    console.log(`D Hosting Runtime Agent listening on port ${port}`);
+    console.log("Runtime provider: disabled (customer code execution is blocked).");
+  });
+  const shutdown = () => {
+    server.close(() => void pool.end());
+  };
+  process.once("SIGINT", shutdown);
+  process.once("SIGTERM", shutdown);
+}
