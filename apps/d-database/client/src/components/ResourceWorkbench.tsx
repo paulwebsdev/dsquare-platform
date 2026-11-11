@@ -2,6 +2,7 @@
 import type { FormEvent } from "react";
 import VisualQueryBuilder from "./VisualQueryBuilder";
 import TableStructureManager from "./TableStructureManager";
+import DatabaseBackups from "./DatabaseBackups";
 
 type WorkResource = {
   id: string;
@@ -731,6 +732,8 @@ export default function ResourceWorkbench({
           </button>
         </div>
       )}
+
+      {isDatabase && <DatabaseBackups baseUrl={baseUrl} />}
 
       {isDatabase ? (
         <>
