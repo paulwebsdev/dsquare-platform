@@ -74,6 +74,14 @@ export function buildRemoteRuntimeCreateRequest(input: {
     throw new Error("Runtime resource limits are invalid.");
   }
   for (const [name, value] of Object.entries(input.spec.environment)) {
+    // PORT is reserved for the platform, but the platform-injected value is
+    // part of the trusted runtime spec and must be exactly 3000.
+    if (name === "PORT") {
+      if (value !== "3000") {
+        throw new Error("Runtime PORT must be platform-controlled.");
+      }
+      continue;
+    }
     if (!isValidEnvironmentName(name) || typeof value !== "string" || value.length > 16384) {
       throw new Error("Runtime environment contains an invalid variable.");
     }
