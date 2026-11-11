@@ -57,7 +57,10 @@ export function buildNodeContainerSpec(input: {
     image,
     workingDirectory: "/app",
     command: ["npm", "start"],
-    environment: { ...input.environment },
+    // PORT is platform-owned and deliberately overrides any caller-supplied value.
+    // The user-facing environment editor rejects PORT; this fixed value is injected
+    // only into the isolated website process.
+    environment: { ...input.environment, PORT: "3000" },
     memoryBytes: limits.memoryBytes,
     nanoCpus: limits.nanoCpus,
     pidsLimit: limits.pidsLimit,
