@@ -48,7 +48,7 @@ test("authenticates the full endpoint path and rejects a replayed nonce", async 
     const send = () => fetch(`http://127.0.0.1:${address.port}${pathname}`, {
       method: "POST",
       headers: { ...headers, "content-type": "application/json" },
-      body,
+      body: new Uint8Array(body),
     });
 
     const first = await send();
