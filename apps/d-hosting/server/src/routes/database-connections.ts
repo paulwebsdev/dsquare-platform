@@ -144,7 +144,13 @@ router.post("/complete", requireSameOrigin, limitConnectionComplete, async (req,
     });
     const payload = await response.json() as {
       success?: boolean;
-      connection?: { user_id: string; project_id: string; resource_id: string; resource_name: string };
+      connection?: {
+        user_id: string;
+        project_id: string;
+        resource_id: string;
+        resource_name: string;
+        schema_name: string;
+      };
     };
     if (!response.ok || !payload.success || !payload.connection) {
       await client.query("ROLLBACK");
