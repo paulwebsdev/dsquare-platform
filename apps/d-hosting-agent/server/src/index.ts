@@ -246,6 +246,26 @@ export function createRuntimeAgentApp(input: {
       response.status(503).json({ error: "Website execution is disabled pending Linux isolation acceptance." });
       return;
     }
+    const reserved = await registry.reserve({
+      resourceId: payload.resourceId,
+      deploymentId: payload.deploymentId,
+      artifactId: payload.artifact.artifactId,
+    });
+    if (!reserved) {
+      const existing = await registry.get(payload.resourceId);
+      if (existing?.deploymentId === payload.deploymentId &&
+          existing.state === "running" && existing.containerId) {
+        response.status(200).json({
+          resourceId: existing.resourceId,
+          deploymentId: existing.deploymentId,
+          state: "running",
+        });
+        return;
+      }
+      response.status(409).json({ error: "A runtime is already being created or exists for this resource or deployment." });
+      return;
+    }
+
     let created: { containerId: string; workspacePath: string };
     try {
       created = await input.provider.createAndStart({
@@ -255,25 +275,21 @@ export function createRuntimeAgentApp(input: {
         runtime: payload.runtime,
       });
     } catch {
-      response.status(502).json({ error: "Isolated runtime could not be created." });
+      await registry.delete(payload.resourceId).catch(() => undefined);
+      response.status(502).json({ error: "Isolated runtime could not be created; the reservation was released." });
       return;
     }
+
+    let persisted = false;
     try {
-      const saved = await registry.create({
-        resourceId: payload.resourceId,
-        deploymentId: payload.deploymentId,
-        artifactId: payload.artifact.artifactId,
-        containerId: created.containerId,
-        state: "running",
-      });
-      if (!saved) {
-        await input.provider.remove(created.containerId, payload.artifact.artifactId).catch(() => false);
-        response.status(409).json({ error: "A runtime already exists for this resource or deployment." });
-        return;
-      }
+      persisted = await registry.complete(payload.resourceId, created.containerId);
     } catch {
+      persisted = false;
+    }
+    if (!persisted) {
       await input.provider.remove(created.containerId, payload.artifact.artifactId).catch(() => false);
-      response.status(503).json({ error: "Runtime state could not be persisted; the container was rolled back." });
+      await registry.delete(payload.resourceId).catch(() => undefined);
+      response.status(503).json({ error: "Runtime state could not be finalized; the container rollback was attempted." });
       return;
     }
     response.status(201).json({
