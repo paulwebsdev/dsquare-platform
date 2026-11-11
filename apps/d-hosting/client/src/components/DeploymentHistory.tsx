@@ -75,6 +75,9 @@ export default function DeploymentHistory({ resourceUrl }: DeploymentHistoryProp
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.message || "Could not activate deployment.");
       setNotice(`Deployment #${deployment.deployment_number} is now the live version.`);
+      window.dispatchEvent(new CustomEvent("dsquare:hosting-status-change", {
+        detail: { status: data.resource?.status || "published" },
+      }));
       await loadDeployments();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not activate deployment.");
