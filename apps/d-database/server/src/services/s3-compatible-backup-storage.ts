@@ -82,7 +82,7 @@ export class S3CompatibleBackupStorage {
         authorization,
         ...(body ? { "content-type": "application/octet-stream" } : {}),
       },
-      ...(body ? { body } : {}),
+      ...(body ? { body: body as unknown as BodyInit } : {}),
     });
   }
 
