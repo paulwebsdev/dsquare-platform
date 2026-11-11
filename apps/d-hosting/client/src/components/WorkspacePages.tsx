@@ -102,3 +102,59 @@ export function WorkspaceSettings({ product, user, theme, onThemeChange, onSignO
     </section>
   );
 }
+
+export function WorkspaceActivity({ onOpenProjects }: { onOpenProjects: () => void }) {
+  const [items, setItems] = useState<Array<{ id: string; title: string; detail: string; at: string }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    async function load() {
+      setLoading(true);
+      setError("");
+      try {
+        const response = await fetch("/api/v1/projects", { credentials: "same-origin" });
+        const data = await response.json() as { projects?: Array<{ id: string; name: string; created_at: string; updated_at: string }> ; message?: string };
+        if (!response.ok) throw new Error(data.message || "Could not load activity.");
+        const projects = data.projects || [];
+        const groups = await Promise.all(projects.map(async (project) => {
+          const result = await fetch("/api/v1/projects/" + encodeURIComponent(project.id) + "/resources", { credentials: "same-origin" });
+          const body = await result.json() as { resources?: Array<{ id: string; name: string; created_at: string; updated_at: string }>; message?: string };
+          if (!result.ok) throw new Error(body.message || "Could not load resource activity.");
+          const events = [{ id: "project-created-" + project.id, title: "Project created", detail: project.name, at: project.created_at }];
+          if (new Date(project.updated_at).getTime() > new Date(project.created_at).getTime() + 1000) {
+            events.push({ id: "project-updated-" + project.id, title: "Project last updated", detail: project.name, at: project.updated_at });
+          }
+          for (const resource of body.resources || []) {
+            events.push({ id: "resource-created-" + resource.id, title: "Resource created", detail: resource.name + " · " + project.name, at: resource.created_at });
+            if (new Date(resource.updated_at).getTime() > new Date(resource.created_at).getTime() + 1000) {
+              events.push({ id: "resource-updated-" + resource.id, title: "Resource last updated", detail: resource.name + " · " + project.name, at: resource.updated_at });
+            }
+          }
+          return events;
+        }));
+        if (active) setItems(groups.flat().filter((item) => Number.isFinite(new Date(item.at).getTime())).sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()).slice(0, 50));
+      } catch (cause) {
+        if (active) setError(cause instanceof Error ? cause.message : "Could not load activity.");
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+    void load();
+    return () => { active = false; };
+  }, []);
+
+  return (
+    <section className="pm-page">
+      <div className="pm-heading"><div><div className="welcome-date">WORKSPACE HISTORY</div><h1>Activity</h1><p>Recent project and resource creation and last-update timestamps.</p></div><button className="secondary-button" onClick={onOpenProjects}>View projects</button></div>
+      {error && <div className="pm-error" role="alert">{error}</div>}
+      {loading ? <div className="pm-empty panel"><div className="pm-spinner" /><strong>Loading activity...</strong></div>
+        : items.length ? <div className="panel">{items.map((item) => (
+          <div className="system-row" key={item.id}><div><strong>{item.title}</strong><div className="pm-card-description">{item.detail}</div></div><span>{new Date(item.at).toLocaleString()}</span></div>
+        ))}</div>
+        : <div className="pm-empty panel"><div className="pm-empty-icon">◷</div><h2>No activity recorded yet</h2><p>Project and resource creation or updates will appear here.</p><button className="primary-button" onClick={onOpenProjects}>Go to projects</button></div>}
+      <p className="pm-card-description">This view uses saved creation and last-update timestamps. It is not a complete audit log of every action.</p>
+    </section>
+  );
+}
