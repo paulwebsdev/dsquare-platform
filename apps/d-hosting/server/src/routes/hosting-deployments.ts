@@ -7,7 +7,7 @@ import { pool } from "../config/database.js";
 import { requireAuth } from "../middleware/require-auth.js";
 import { getWebsiteFileCandidates } from "../services/website-file-resolution.js";
 import { validateNodeProject } from "../services/node-project-validation.js";
-import { checkRuntimeAgentHealth } from "../services/runtime-agent-client.js";
+import {\n  checkRuntimeAgentHealth,\n  getRuntimeAgentRuntime,\n  getRuntimeAgentLogs,\n  changeRuntimeAgentRuntimeState,\n} from "../services/runtime-agent-client.js";
 
 const router = Router({ mergeParams: true });
 router.use(requireAuth);
@@ -103,6 +103,95 @@ router.get("/:resourceId/runtime-status", async (req, res) => {
     return res.status(500).json({ success: false, message: "Could not check runtime status." });
   }
 });
+
+
+function runtimeAgentOptions() {
+  const baseUrl = process.env.D_HOSTING_RUNTIME_AGENT_URL?.trim();
+  const secret = process.env.D_HOSTING_RUNTIME_AGENT_SECRET;
+  if (!baseUrl || !secret) return null;
+  return { baseUrl, secret };
+}
+
+// Read the actual isolated runtime state for an owned Node.js website.
+router.get("/:resourceId/runtime", async (req, res) => {
+  const { projectId = "", resourceId = "" } = params(req);
+  if (!UUID_PATTERN.test(projectId) || !UUID_PATTERN.test(resourceId)) {
+    return res.status(400).json({ success: false, message: "Invalid project or website ID." });
+  }
+  try {
+    const owned = await ownedResource(projectId, resourceId, String(res.locals.userId || ""));
+    if (owned.rowCount !== 1) return res.status(404).json({ success: false, message: "Website resource not found." });
+    if (owned.rows[0].site_type !== "node") return res.status(409).json({ success: false, message: "Runtime controls are only available for Node.js websites." });
+    const agent = runtimeAgentOptions();
+    if (!agent) return res.status(503).json({ success: false, message: "The private runtime agent is not configured." });
+
+    const runtime = await getRuntimeAgentRuntime(agent, resourceId);
+    await pool.query(
+      `INSERT INTO hosting_runtime_instances (resource_id, provider, status, deployment_id, started_at, stopped_at, updated_at)
+       VALUES ($1, 'podman', $2, $3, CASE WHEN $2 = 'running' THEN NOW() ELSE NULL END,
+               CASE WHEN $2 = 'stopped' THEN NOW() ELSE NULL END, NOW())
+       ON CONFLICT (resource_id) DO UPDATE
+       SET provider = 'podman', status = EXCLUDED.status, deployment_id = EXCLUDED.deployment_id,
+           started_at = CASE WHEN EXCLUDED.status = 'running' THEN COALESCE(hosting_runtime_instances.started_at, NOW()) ELSE hosting_runtime_instances.started_at END,
+           stopped_at = CASE WHEN EXCLUDED.status = 'stopped' THEN NOW() ELSE hosting_runtime_instances.stopped_at END,
+           updated_at = NOW()`,
+      [resourceId, runtime.state, runtime.deploymentId],
+    );
+    return res.json({ success: true, runtime });
+  } catch (error) {
+    console.error("Runtime inspection failed:", error instanceof Error ? error.message : error);
+    return res.status(503).json({ success: false, message: "Runtime status is unavailable." });
+  }
+});
+
+// Runtime logs are owner-scoped and returned only after the private agent authenticates the request.
+router.get("/:resourceId/runtime/logs", async (req, res) => {
+  const { projectId = "", resourceId = "" } = params(req);
+  if (!UUID_PATTERN.test(projectId) || !UUID_PATTERN.test(resourceId)) {
+    return res.status(400).json({ success: false, message: "Invalid project or website ID." });
+  }
+  try {
+    const owned = await ownedResource(projectId, resourceId, String(res.locals.userId || ""));
+    if (owned.rowCount !== 1) return res.status(404).json({ success: false, message: "Website resource not found." });
+    if (owned.rows[0].site_type !== "node") return res.status(409).json({ success: false, message: "Runtime logs are only available for Node.js websites." });
+    const agent = runtimeAgentOptions();
+    if (!agent) return res.status(503).json({ success: false, message: "The private runtime agent is not configured." });
+    const result = await getRuntimeAgentLogs(agent, resourceId);
+    return res.json({ success: true, resourceId, logs: result.logs });
+  } catch (error) {
+    console.error("Runtime log retrieval failed:", error instanceof Error ? error.message : error);
+    return res.status(503).json({ success: false, message: "Runtime logs are unavailable." });
+  }
+});
+
+for (const action of ["stop", "restart"] as const) {
+  router.post(`/:resourceId/runtime/${action}`, async (req, res) => {
+    const { projectId = "", resourceId = "" } = params(req);
+    if (!UUID_PATTERN.test(projectId) || !UUID_PATTERN.test(resourceId)) {
+      return res.status(400).json({ success: false, message: "Invalid project or website ID." });
+    }
+    try {
+      const owned = await ownedResource(projectId, resourceId, String(res.locals.userId || ""));
+      if (owned.rowCount !== 1) return res.status(404).json({ success: false, message: "Website resource not found." });
+      if (owned.rows[0].site_type !== "node") return res.status(409).json({ success: false, message: "Runtime controls are only available for Node.js websites." });
+      if (owned.rows[0].status === "archived") return res.status(409).json({ success: false, message: "Restore this website before changing its runtime." });
+      const agent = runtimeAgentOptions();
+      if (!agent) return res.status(503).json({ success: false, message: "The private runtime agent is not configured." });
+      const runtime = await changeRuntimeAgentRuntimeState(agent, resourceId, action);
+      await pool.query(
+        `UPDATE hosting_runtime_instances
+         SET status = $2, started_at = CASE WHEN $2 = 'running' THEN NOW() ELSE started_at END,
+             stopped_at = CASE WHEN $2 = 'stopped' THEN NOW() ELSE stopped_at END, updated_at = NOW()
+         WHERE resource_id = $1`,
+        [resourceId, runtime.state],
+      );
+      return res.json({ success: true, runtime, message: action === "stop" ? "Website runtime stopped." : "Website runtime restarted." });
+    } catch (error) {
+      console.error(`Runtime ${action} failed:`, error instanceof Error ? error.message : error);
+      return res.status(503).json({ success: false, message: `Runtime ${action} is unavailable.` });
+    }
+  });
+}
 
 // Return deployment attempts newest first, including the currently active version.
 router.get("/:resourceId/deployments", async (req, res) => {
