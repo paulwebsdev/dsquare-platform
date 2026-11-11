@@ -63,6 +63,35 @@ export async function provisionResourceAccess(
   const client = await resourceProvisionerPool.connect();
   try {
     await client.query("BEGIN");
+
+    // The provisioner URL is configured separately from the application URL.
+    // Refuse to grant access if it points at a different database.
+    const provisionerDatabaseResult = await client.query(
+      "SELECT current_database() AS database_name",
+    );
+    const provisionerDatabaseName = String(
+      provisionerDatabaseResult.rows[0]?.database_name || "",
+    );
+    if (provisionerDatabaseName !== databaseName) {
+      throw new Error("Provisioner connection points to a different database.");
+    }
+
+    // Verify ownership on the provisioner connection itself, not only through
+    // the application pool, so grants cannot target a mismatched schema.
+    const provisionerOwnerResult = await client.query(
+      `SELECT owner.rolname AS schema_owner
+       FROM pg_namespace AS namespace
+       JOIN pg_roles AS owner ON owner.oid = namespace.nspowner
+       WHERE namespace.nspname = $1`,
+      [schemaName],
+    );
+    const provisionerSchemaOwner = String(
+      provisionerOwnerResult.rows[0]?.schema_owner || "",
+    );
+    if (provisionerSchemaOwner !== "d_database_app") {
+      throw new Error("Provisioner database resource schema ownership does not match.");
+    }
+
     await client.query("SET ROLE d_database_app");
     const existing = await client.query(
       "SELECT role_name, status FROM resource_access_grants WHERE resource_id = $1 FOR UPDATE",
