@@ -441,7 +441,7 @@ export async function startRuntimeAgent(): Promise<void> {
   if (podmanSocket && trustedImage && privateNetwork && runtimeRootValue && containerRuntimeRoot) {
     if (!podmanSocket.startsWith("/") || !runtimeRootValue.startsWith("/") ||
         !path.posix.isAbsolute(containerRuntimeRoot) ||
-        /[\\r\\n\\0:]/.test(containerRuntimeRoot)) {
+        /[\r\n\0:]/.test(containerRuntimeRoot)) {
       await pool.end();
       throw new Error("Podman socket and runtime workspace paths must be Linux absolute paths.");
     }
