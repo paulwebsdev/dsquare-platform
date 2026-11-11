@@ -15,8 +15,10 @@ export type RuntimeLogEntry = {
 };
 
 /**
- * Adapter contract for a future container provider (for example Docker Engine).
- * Implementations must enforce the supplied isolation spec and must not expose
+ * Engine-independent adapter contract for an OCI container provider.
+ * Podman is the preferred production engine; Docker-compatible adapters may be
+ * used for development. Implementations must enforce the supplied isolation spec
+ * and must not expose
  * the container socket or raw provider errors to website owners.
  */
 export interface RuntimeProvider {
