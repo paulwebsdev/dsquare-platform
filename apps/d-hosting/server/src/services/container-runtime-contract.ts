@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { NodeProjectValidation } from "./node-project-validation.js";
 import { isValidEnvironmentName } from "./environment-secrets.js";
 import { getRuntimeLimits } from "./runtime-limits.js";
@@ -6,6 +7,7 @@ export type ContainerRuntimeSpec = {
   name: string;
   image: string;
   workingDirectory: "/app";
+  mounts: [{ source: string; target: "/app"; readOnly: true }];
   command: ["npm", "start"];
   environment: Record<string, string>;
   memoryBytes: number;
@@ -30,6 +32,7 @@ const DEFAULT_NODE_IMAGE = "node:22-bookworm-slim";
 export function buildNodeContainerSpec(input: {
   resourceId: string;
   validation: NodeProjectValidation;
+  artifactDirectory: string;
   environment: Record<string, string>;
   processEnvironment?: NodeJS.ProcessEnv;
 }): ContainerRuntimeSpec {
@@ -46,6 +49,10 @@ export function buildNodeContainerSpec(input: {
     }
   }
 
+  if (!path.isAbsolute(input.artifactDirectory)) {
+    throw new Error("A prepared absolute runtime artifact directory is required.");
+  }
+
   const limits = getRuntimeLimits(input.processEnvironment);
   const configuredImage = input.processEnvironment?.HOSTING_NODE_RUNTIME_IMAGE?.trim();
   const image = configuredImage || DEFAULT_NODE_IMAGE;
@@ -57,6 +64,7 @@ export function buildNodeContainerSpec(input: {
     name: `dsquare-site-${input.resourceId}`,
     image,
     workingDirectory: "/app",
+    mounts: [{ source: input.artifactDirectory, target: "/app", readOnly: true }],
     command: ["npm", "start"],
     // PORT is platform-owned and deliberately injected only into the isolated process.
     environment: { ...input.environment, PORT: "3000" },
