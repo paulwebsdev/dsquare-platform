@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -8,6 +9,7 @@ import type { Pool } from "pg";
 import { test } from "node:test";
 import { signRuntimeAgentRequest } from "../../../d-hosting/server/src/services/runtime-agent-auth.js";
 import { createRuntimeAgentApp, isRuntimeCreateRequest, isTrustedRuntimeImage, resolveRuntimeAgentHost } from "./index.js";
+import { storeRuntimeArtifact } from "./artifact-store.js";
 
 const SECRET = "runtime-agent-test-secret-with-at-least-32-bytes";
 
@@ -306,6 +308,92 @@ test("keeps customer execution disabled by default even when a provider is confi
       providerConfigured: true,
       executionEnabled: false,
     });
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => error ? reject(error) : resolve()),
+    );
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+
+test("refuses runtime creation while execution is disabled, even with a trusted provider", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "dsquare-agent-execution-guard-"));
+  const resourceId = "11111111-1111-4111-8111-111111111111";
+  const deploymentId = "22222222-2222-4222-8222-222222222222";
+  const fileBytes = Buffer.from("console.log('safe')");
+  const file = { path: "index.js", sizeBytes: fileBytes.length, sha256: createHash("sha256").update(fileBytes).digest("hex") };
+  const manifest = { sha256: createHash("sha256").update(JSON.stringify([file])).digest("hex"), fileCount: 1, totalBytes: fileBytes.length, files: [file] };
+  const manifestBytes = Buffer.from(JSON.stringify({ version: 1, artifactId: deploymentId, manifest }));
+  const header = Buffer.alloc(4);
+  header.writeUInt32BE(manifestBytes.length, 0);
+  const bundle = Buffer.concat([Buffer.from("DSQART01"), header, manifestBytes, fileBytes]);
+  const stored = await storeRuntimeArtifact(root, deploymentId, bundle);
+  const claimedNonces = new Set<string>();
+  const fakePool = {
+    query: async (sql: string, values?: unknown[]) => {
+      if (sql.includes("INSERT INTO runtime_agent_nonces")) {
+        const nonce = String(values?.[0] ?? "");
+        if (claimedNonces.has(nonce)) return { rowCount: 0, rows: [] };
+        claimedNonces.add(nonce);
+        return { rowCount: 1, rows: [] };
+      }
+      return { rowCount: 0, rows: [] };
+    },
+  } as unknown as Pool;
+  let createCalls = 0;
+  const provider = {
+    createAndStart: async () => { createCalls += 1; throw new Error("must not execute"); },
+    reconcile: async () => ({ adopted: 0, removed: 0 }),
+    stop: async () => undefined,
+    restart: async () => undefined,
+    inspect: async () => ({}),
+    logs: async () => Buffer.alloc(0),
+    remove: async () => true,
+  };
+  const server = createServer(createRuntimeAgentApp({
+    pool: fakePool,
+    secret: SECRET,
+    storageRoot: root,
+    provider: provider as never,
+    trustedImage: "node:22-bookworm-slim",
+  }));
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const pathname = "/v1/runtimes";
+    const payload = {
+      resourceId,
+      deploymentId,
+      artifact: stored,
+      runtime: {
+        name: "dsquare-site-" + resourceId,
+        image: "node:22-bookworm-slim",
+        workingDirectory: "/app",
+        command: ["npm", "start"],
+        environment: { PORT: "3000", NODE_ENV: "production" },
+        memoryBytes: 256 * 1024 * 1024,
+        nanoCpus: 500_000_000,
+        pidsLimit: 128,
+        user: "10001:10001",
+        readOnlyRootFilesystem: true,
+        capDrop: ["ALL"],
+        securityOpt: ["no-new-privileges:true"],
+        tmpfs: { "/tmp": "rw,noexec,nosuid,size=64m" },
+      },
+    };
+    const body = Buffer.from(JSON.stringify(payload));
+    const headers = signRuntimeAgentRequest({ method: "POST", pathname, body, secret: SECRET });
+    const response = await fetch("http://127.0.0.1:" + address.port + pathname, {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: new Uint8Array(body),
+    });
+    assert.equal(response.status, 503);
+    assert.match((await response.json() as { error: string }).error, /disabled pending Linux isolation acceptance/);
+    assert.equal(createCalls, 0);
   } finally {
     await new Promise<void>((resolve, reject) =>
       server.close((error) => error ? reject(error) : resolve()),
