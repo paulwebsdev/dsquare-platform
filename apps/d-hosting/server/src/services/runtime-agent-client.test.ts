@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { changeRuntimeAgentRuntimeState, checkRuntimeAgentHealth, createRuntimeAgentRuntime, deleteRuntimeAgentArtifact, deleteRuntimeAgentRuntime, getRuntimeAgentRuntime, requestRuntimeAgent } from "./runtime-agent-client.js";
+import { changeRuntimeAgentRuntimeState, checkRuntimeAgentHealth, createRuntimeAgentRuntime, deleteRuntimeAgentArtifact, deleteRuntimeAgentRuntime, getRuntimeAgentLogs, getRuntimeAgentRuntime, requestRuntimeAgent } from "./runtime-agent-client.js";
 
 const options = {
   baseUrl: "https://runtime.example.com",
@@ -216,4 +216,21 @@ test("rejects invalid resource identifiers and unconfirmed lifecycle results", a
     artifact: { artifactId: DEPLOYMENT_ID, sha256: "a".repeat(64), sizeBytes: 128, fileCount: 1 },
     runtime: {} as never,
   }), /ID is invalid/);
+});
+
+test("retrieves bounded runtime logs through the typed authenticated client", async () => {
+  const logs = await getRuntimeAgentLogs({
+    ...options,
+    fetchImpl: fakeFetch((url, init) => {
+      assert.equal(url.pathname, `/v1/runtimes/${RESOURCE_ID}/logs`);
+      assert.equal(init.method, "GET");
+      return Response.json({ resourceId: RESOURCE_ID, logs: "server started\\nready" });
+    }),
+  }, RESOURCE_ID);
+  assert.equal(logs.logs, "server started\\nready");
+
+  await assert.rejects(getRuntimeAgentLogs({
+    ...options,
+    fetchImpl: fakeFetch(() => Response.json({ resourceId: RESOURCE_ID, logs: 42 })),
+  }, RESOURCE_ID), /invalid runtime logs/);
 });
