@@ -3,6 +3,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { pool } from "../config/database.js";
 import { requireAuth } from "../middleware/require-auth.js";
 import { createRateLimiter } from "../middleware/rate-limit.js";
+import { provisionResourceAccess, revokeResourceAccess } from "../services/resource-access-provisioner.js";
 
 const router = Router();
 const limitCodeRedemption = createRateLimiter(20, 60_000);
@@ -40,6 +41,7 @@ router.post("/redeem", limitCodeRedemption, async (req, res) => {
   }
 
   const client = await pool.connect();
+  let provisionedResourceId: string | null = null;
   try {
     await client.query("BEGIN");
     const consumed = await client.query(
@@ -71,10 +73,26 @@ router.post("/redeem", limitCodeRedemption, async (req, res) => {
       res.status(400).json({ success: false, message: "Approved resource is no longer available." });
       return;
     }
+    const resourceId = String(approved.rows[0].resource_id);
+    const access = await provisionResourceAccess(resourceId);
+    provisionedResourceId = resourceId;
     await client.query("COMMIT");
-    res.json({ success: true, connection: approved.rows[0] });
+    res.json({
+      success: true,
+      connection: {
+        ...approved.rows[0],
+        database_host: process.env.DB_HOST || "127.0.0.1",
+        database_port: Number(process.env.DB_PORT || 5432),
+        database_name: String((await pool.query("SELECT current_database() AS name")).rows[0]?.name || ""),
+        database_role: access.roleName,
+        database_password: access.password,
+      },
+    });
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
+    if (provisionedResourceId) {
+      await revokeResourceAccess(provisionedResourceId).catch(() => undefined);
+    }
     console.error("D Hosting code redemption error:", error instanceof Error ? error.message : error);
     res.status(500).json({ success: false, message: "Unable to redeem authorization code." });
   } finally {
