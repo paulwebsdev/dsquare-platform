@@ -7,6 +7,7 @@ import { encryptEnvironmentSecret } from "../services/environment-secrets.js";
 import { getDatabaseApiUrl } from "../services/database-api-url.js";
 import { isValidDatabaseConnectionCredentials } from "../services/database-connection-credentials.js";
 import { toPublicDatabaseConnection } from "../services/database-connection-view.js";
+import { requestDatabaseResourceRevocation } from "../services/database-connection-revocation.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -67,17 +68,6 @@ const DATABASE_APP_URL = getDatabaseAppUrl();
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 const validId = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
-async function revokeDatabaseResource(resourceId: string, apiUrl: URL): Promise<boolean> {
-  if (!CLIENT_SECRET) return false;
-  const response = await fetch(new URL("/api/v1/integrations/hosting/revoke", apiUrl), {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, resourceId }),
-    signal: AbortSignal.timeout(10000),
-  });
-  const payload = await response.json().catch(() => null) as { success?: boolean } | null;
-  return response.ok && payload?.success === true;
-}
 
 router.post("/start", requireSameOrigin, limitConnectionStart, async (_req, res) => {
   if (!CLIENT_SECRET) {
@@ -161,7 +151,7 @@ router.post("/complete", requireSameOrigin, limitConnectionComplete, async (req,
     if (!isValidDatabaseConnectionCredentials(payload.connection)) {
       await client.query("ROLLBACK");
       if (resourceIdToRevoke) {
-        const revoked = await revokeDatabaseResource(resourceIdToRevoke, databaseApiUrl).catch(() => false);
+        const revoked = await requestDatabaseResourceRevocation(resourceIdToRevoke, databaseApiUrl, CLIENT_ID, CLIENT_SECRET).catch(() => false);
         if (!revoked) {
           res.status(503).json({ success: false, message: "D Database issued credentials but they could not be safely revoked. Contact support." });
           return;
@@ -197,7 +187,7 @@ router.post("/complete", requireSameOrigin, limitConnectionComplete, async (req,
     if (saved.rowCount !== 1) {
       await client.query("ROLLBACK");
       const revoked = resourceIdToRevoke
-        ? await revokeDatabaseResource(resourceIdToRevoke, databaseApiUrl).catch(() => false)
+        ? await requestDatabaseResourceRevocation(resourceIdToRevoke, databaseApiUrl, CLIENT_ID, CLIENT_SECRET).catch(() => false)
         : false;
       if (!revoked) {
         res.status(503).json({ success: false, message: "The duplicate connection was not saved, and D Database credentials could not be safely revoked." });
@@ -213,7 +203,7 @@ router.post("/complete", requireSameOrigin, limitConnectionComplete, async (req,
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
     if (resourceIdToRevoke) {
-      const revoked = await revokeDatabaseResource(resourceIdToRevoke, databaseApiUrl).catch(() => false);
+      const revoked = await requestDatabaseResourceRevocation(resourceIdToRevoke, databaseApiUrl, CLIENT_ID, CLIENT_SECRET).catch(() => false);
       if (!revoked) console.error("Database credential compensation failed for resource:", resourceIdToRevoke);
     }
     console.error("Database connection completion error:", error instanceof Error ? error.message : error);
@@ -255,9 +245,11 @@ router.delete("/:connectionId", requireSameOrigin, async (req, res) => {
     }
 
     const databaseApiUrl = getDatabaseApiUrl();
-    const revoked = await revokeDatabaseResource(
+    const revoked = await requestDatabaseResourceRevocation(
       String(existing.rows[0].database_resource_id),
       databaseApiUrl,
+      CLIENT_ID,
+      CLIENT_SECRET,
     );
     if (!revoked) {
       res.status(503).json({ success: false, message: "D Database could not revoke the resource credentials. Try again." });
