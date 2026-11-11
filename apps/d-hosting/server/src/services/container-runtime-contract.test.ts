@@ -60,7 +60,25 @@ test("rejects invalid resource IDs, unvalidated projects, and malformed environm
     resourceId,
     validation: valid,
     environment: { "BAD=NAME": "value" },
-  }), /invalid variable/);
+  }), /invalid, reserved/);
+});
+
+test("rejects platform and host secrets from the customer runtime environment", () => {
+  for (const name of ["PORT", "PATH", "HOME", "NODE_OPTIONS", "NODE_PATH", "HOSTING_SECRETS_KEY"]) {
+    assert.throws(() => buildNodeContainerSpec({
+      resourceId,
+      validation: valid,
+      environment: { [name]: "must-not-cross-boundary" },
+    }), /invalid, reserved/);
+  }
+});
+
+test("rejects oversized runtime environment values", () => {
+  assert.throws(() => buildNodeContainerSpec({
+    resourceId,
+    validation: valid,
+    environment: { APP_CONFIG: "x".repeat(16385) },
+  }), /oversized/);
 });
 
 test("rejects malformed operator image configuration", () => {
