@@ -1,4 +1,5 @@
 import { constants } from "node:fs";
+import { verifyStoredArtifactContents } from "./artifact-store.js";
 import { chmod, lstat, mkdir, open, readdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 
@@ -30,6 +31,9 @@ export async function materializeRuntimeWorkspace(
   runtimeRoot: string,
 ): Promise<string> {
   if (!UUID.test(artifactId)) throw new Error("Runtime artifact ID is invalid.");
+  if (!(await verifyStoredArtifactContents(storageRoot, artifactId))) {
+    throw new Error("Stored runtime artifact failed its integrity check.");
+  }
   const sourceRoot = path.resolve(storageRoot);
   const source = path.join(sourceRoot, artifactId);
   const sourceStat = await lstat(source);
