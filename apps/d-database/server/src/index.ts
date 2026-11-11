@@ -14,6 +14,7 @@ import databaseStructureRouter from "./routes/database-structure.js";
 import authRouter from "./routes/auth.js";
 import { requireAuth } from "./middleware/require-auth.js";
 import { requireProjectOwnership } from "./middleware/require-project-owner.js";
+import { startDatabaseBackupScheduler } from "./services/database-backup-worker.js";
 
 const app = express();
 app.set("trust proxy", 1);
@@ -141,6 +142,7 @@ async function startServer() {
 
     await runMigrations(pool);
     await pool.query("SELECT 1");
+    startDatabaseBackupScheduler(pool);
 
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`D Database application running on port ${PORT}`);
