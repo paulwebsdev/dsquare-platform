@@ -177,7 +177,7 @@ export async function storeRuntimeArtifact(
       sizeBytes: bundle.byteLength,
       fileCount: files.length,
     };
-    await writeFile(temporaryMetadata, JSON.stringify(descriptor), { flag: "wx", mode: 0o600 });
+    await writeFile(temporaryMetadata, JSON.stringify({ ...descriptor, files }), { flag: "wx", mode: 0o600 });
     await rename(temporaryDirectory, finalDirectory);
     try {
       await rename(temporaryMetadata, metadataPath);
@@ -217,6 +217,81 @@ export async function readStoredArtifact(
   } catch {
     return null;
   }
+}
+
+/**
+ * Re-checks the stored file tree against the upload-time manifest before it
+ * can be copied into an executable runtime workspace.
+ */
+export async function verifyStoredArtifactContents(
+  storageRoot: string,
+  artifactId: string,
+): Promise<boolean> {
+  const descriptor = await readStoredArtifact(storageRoot, artifactId);
+  if (!descriptor) return false;
+  const root = path.resolve(storageRoot);
+  const artifactRoot = path.join(root, artifactId);
+  let metadata: unknown;
+  try {
+    metadata = JSON.parse(await readFile(path.join(root, `${artifactId}.metadata.json`), "utf8"));
+  } catch {
+    return false;
+  }
+  if (!isRecord(metadata) || !Array.isArray(metadata.files) ||
+      metadata.files.length !== descriptor.fileCount) return false;
+
+  const expected = new Map<string, ManifestFile>();
+  let totalBytes = 0;
+  for (const entry of metadata.files) {
+    if (!isRecord(entry) || !safeArtifactPath(entry.path) ||
+        !Number.isSafeInteger(entry.sizeBytes) || (entry.sizeBytes as number) < 0 ||
+        !SHA256.test(String(entry.sha256)) || expected.has(entry.path)) return false;
+    const file = { path: entry.path, sizeBytes: entry.sizeBytes as number, sha256: String(entry.sha256) };
+    expected.set(file.path, file);
+    totalBytes += file.sizeBytes;
+  }
+  if (expected.size !== descriptor.fileCount || totalBytes < 1 || totalBytes > MAX_TOTAL_FILE_BYTES) return false;
+
+  const actual = new Set<string>();
+  const visit = async (directory: string, relativeDirectory: string): Promise<boolean> => {
+    let entries;
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch {
+      return false;
+    }
+    for (const entry of entries) {
+      const relative = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
+      if (!safeArtifactPath(relative) || actual.has(relative)) return false;
+      actual.add(relative);
+      const target = path.join(directory, entry.name);
+      let stat;
+      try {
+        stat = await lstat(target);
+      } catch {
+        return false;
+      }
+      if (stat.isSymbolicLink()) return false;
+      if (stat.isDirectory()) {
+        const hasExpectedChild = [...expected.keys()].some((filePath) => filePath.startsWith(`${relative}/`));
+        if (!hasExpectedChild || !(await visit(target, relative))) return false;
+        continue;
+      }
+      const manifestFile = expected.get(relative);
+      if (!stat.isFile() || !manifestFile || stat.size !== manifestFile.sizeBytes) return false;
+      let bytes: Buffer;
+      try {
+        bytes = await readFile(target);
+      } catch {
+        return false;
+      }
+      if (createHash("sha256").update(bytes).digest("hex") !== manifestFile.sha256) return false;
+    }
+    return true;
+  };
+
+  if (!(await visit(artifactRoot, ""))) return false;
+  return actual.size === expected.size && [...expected.keys()].every((filePath) => actual.has(filePath));
 }
 
 export async function deleteStoredArtifact(storageRoot: string, artifactId: string): Promise<boolean> {
