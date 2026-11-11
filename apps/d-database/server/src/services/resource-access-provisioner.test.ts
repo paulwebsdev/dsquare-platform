@@ -65,11 +65,11 @@ testRunner("resource access passwords are SQL-safe high-entropy URL-safe values"
     schemaOwner: "d_database_app",
   });
   assert.match(plan.password, /^[A-Za-z0-9_-]{43}$/);
-  assert.doesNotMatch(plan.password, /['\\\\]/);
+  assert.equal(plan.password.includes(String.fromCharCode(39)), false);
 });
 
 testRunner("resource revocation disables login, terminates sessions, and commits metadata atomically", () => {
-  assert.match(provisionerSource, /ALTER ROLE \\"\$\{roleName\}\\" NOLOGIN/);
+  assert.match(provisionerSource, /ALTER ROLE "\$\{roleName\}" NOLOGIN/);
   assert.match(provisionerSource, /pg_terminate_backend\(pid\)/);
   assert.match(provisionerSource, /status = 'revoked', revoked_at = NOW\(\)/);
   assert.match(provisionerSource, /await client\.query\("BEGIN"\)/);
@@ -80,5 +80,5 @@ testRunner("resource revocation disables login, terminates sessions, and commits
 testRunner("resource provisioning serializes grant metadata and rolls back failed grants", () => {
   assert.match(provisionerSource, /FOR UPDATE/);
   assert.match(provisionerSource, /ON CONFLICT \(resource_id\) DO UPDATE/);
-  assert.match(provisionerSource, /catch \(error\)[\\s\\S]*?ROLLBACK/);
+  assert.match(provisionerSource, /catch \(error\)[\s\S]*?ROLLBACK/);
 });
