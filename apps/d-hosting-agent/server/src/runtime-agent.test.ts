@@ -173,7 +173,7 @@ test("requires the exact artifact and JSON content types", async () => {
       return fetch(`http://127.0.0.1:${address.port}${pathname}`, {
         method,
         headers: { ...headers, "content-type": contentType },
-        body,
+        body: new Uint8Array(body),
       });
     };
     const artifact = await send(
