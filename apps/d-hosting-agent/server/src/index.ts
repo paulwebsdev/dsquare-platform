@@ -172,6 +172,10 @@ export function createRuntimeAgentApp(input: {
   });
 
   app.put("/v1/artifacts/:artifactId", async (request, response) => {
+    if (request.headers["content-type"] !== "application/vnd.dsquare.runtime-artifact") {
+      response.status(415).json({ error: "Runtime artifact content type is not supported." });
+      return;
+    }
     const artifactId = request.params.artifactId;
     if (!UUID.test(artifactId)) {
       response.status(400).json({ error: "Artifact identifier is invalid." });
@@ -186,6 +190,10 @@ export function createRuntimeAgentApp(input: {
   });
 
   app.post("/v1/runtimes", async (request, response) => {
+    if (!/^application\\/json(?:\\s*;\\s*charset=utf-8)?$/i.test(request.headers["content-type"] ?? "")) {
+      response.status(415).json({ error: "Runtime request must use application/json." });
+      return;
+    }
     let payload: unknown;
     try {
       payload = JSON.parse(getRawBody(request).toString("utf8"));
@@ -211,6 +219,10 @@ export function createRuntimeAgentApp(input: {
   });
 
   app.delete("/v1/artifacts/:artifactId", async (request, response) => {
+    if (getRawBody(request).byteLength !== 0) {
+      response.status(400).json({ error: "Artifact deletion requests cannot contain a body." });
+      return;
+    }
     const artifactId = request.params.artifactId;
     if (!UUID.test(artifactId)) {
       response.status(400).json({ error: "Artifact identifier is invalid." });
