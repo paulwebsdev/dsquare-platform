@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const MAGIC = Buffer.from("DSQART01", "ascii");
@@ -253,6 +253,7 @@ export async function verifyStoredArtifactContents(
   if (expected.size !== descriptor.fileCount || totalBytes < 1 || totalBytes > MAX_TOTAL_FILE_BYTES) return false;
 
   const actual = new Set<string>();
+  const actualFiles = new Set<string>();
   const visit = async (directory: string, relativeDirectory: string): Promise<boolean> => {
     let entries;
     try {
@@ -279,6 +280,7 @@ export async function verifyStoredArtifactContents(
       }
       const manifestFile = expected.get(relative);
       if (!stat.isFile() || !manifestFile || stat.size !== manifestFile.sizeBytes) return false;
+      actualFiles.add(relative);
       let bytes: Buffer;
       try {
         bytes = await readFile(target);
@@ -291,7 +293,7 @@ export async function verifyStoredArtifactContents(
   };
 
   if (!(await visit(artifactRoot, ""))) return false;
-  return actual.size === expected.size && [...expected.keys()].every((filePath) => actual.has(filePath));
+  return actualFiles.size === expected.size && [...expected.keys()].every((filePath) => actualFiles.has(filePath));
 }
 
 export async function deleteStoredArtifact(storageRoot: string, artifactId: string): Promise<boolean> {
