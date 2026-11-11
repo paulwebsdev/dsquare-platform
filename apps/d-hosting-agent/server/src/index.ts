@@ -42,7 +42,15 @@ class PostgresNonceStore implements RuntimeAgentNonceStore {
   constructor(private readonly pool: Pool) {}
 
   async claim(nonce: string, expiresAt: number): Promise<boolean> {
-    await this.pool.query("DELETE FROM runtime_agent_nonces WHERE expires_at < NOW()");
+    await this.pool.query(`
+      DELETE FROM runtime_agent_nonces
+      WHERE nonce IN (
+        SELECT nonce FROM runtime_agent_nonces
+        WHERE expires_at < NOW()
+        ORDER BY expires_at
+        LIMIT 500
+      )
+    `);
     const result = await this.pool.query(
       `INSERT INTO runtime_agent_nonces (nonce, expires_at)
        VALUES ($1, to_timestamp($2 / 1000.0))
