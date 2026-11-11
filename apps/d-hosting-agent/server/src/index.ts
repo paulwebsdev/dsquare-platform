@@ -328,8 +328,8 @@ export function createRuntimeAgentApp(input: {
     }
     try {
       const logs = await input.provider.logs(record.containerId, 200);
-      const safeLogs = logs.toString("utf8").split(/\\r?\\n/).slice(-200)
-        .map(redactRuntimeLogMessage).join("\\n");
+      const safeLogs = logs.toString("utf8").split(/\r?\n/).slice(-200)
+        .map(redactRuntimeLogMessage).join("\n");
       response.status(200).json({ resourceId: record.resourceId, logs: safeLogs });
     } catch {
       response.status(502).json({ error: "Runtime logs could not be retrieved." });
