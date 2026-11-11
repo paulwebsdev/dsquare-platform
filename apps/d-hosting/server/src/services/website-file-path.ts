@@ -1,7 +1,7 @@
 import path from "node:path";
 
 const ALLOWED_EXTENSIONS = new Set([
-  ".html", ".htm", ".css", ".js", ".mjs", ".json", ".txt", ".md", ".xml",
+  ".html", ".htm", ".css", ".js", ".mjs", ".cjs", ".json", ".txt", ".md", ".xml",
   ".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".ico",
   ".woff", ".woff2", ".ttf", ".otf", ".mp4", ".webm", ".mp3", ".pdf",
 ]);
