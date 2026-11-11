@@ -234,6 +234,11 @@ export type RuntimeAgentRuntimeResult = {
   deploymentId: string;
   state: RuntimeAgentState;
 };
+export type RuntimeAgentCreatedRuntime = {
+  resourceId: string;
+  deploymentId: string;
+  state: "running";
+};
 export type RuntimeAgentLifecycleResult = {
   resourceId: string;
   state: RuntimeAgentState;
@@ -280,7 +285,7 @@ function isRuntimeAgentState(value: unknown): value is RuntimeAgentState {
 export async function createRuntimeAgentRuntime(
   options: RuntimeAgentClientOptions,
   input: RuntimeAgentCreateInput,
-): Promise<RuntimeAgentRuntimeResult> {
+): Promise<RuntimeAgentCreatedRuntime> {
   assertRuntimeAgentResourceId(input.resourceId);
   assertRuntimeAgentResourceId(input.deploymentId);
   assertRuntimeAgentResourceId(input.artifact.artifactId);
@@ -297,7 +302,7 @@ export async function createRuntimeAgentRuntime(
       value.state !== "running") {
     throw new Error("Runtime agent did not confirm the requested runtime.");
   }
-  return value as RuntimeAgentRuntimeResult;
+  return value as RuntimeAgentCreatedRuntime;
 }
 
 /** Reads the current state of one managed runtime. */
