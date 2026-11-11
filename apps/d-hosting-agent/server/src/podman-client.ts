@@ -1,5 +1,4 @@
 import { request as httpRequest, type IncomingHttpHeaders } from "node:http";
-import { URL } from "node:url";
 
 export type PodmanResponse = {
   statusCode: number;
