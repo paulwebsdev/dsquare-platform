@@ -326,6 +326,29 @@ export async function getRuntimeAgentRuntime(
   return value as RuntimeAgentRuntimeResult;
 }
 
+export type RuntimeAgentLogsResult = {
+  resourceId: string;
+  logs: string;
+};
+
+/** Retrieves the latest bounded log output for one managed runtime. */
+export async function getRuntimeAgentLogs(
+  options: RuntimeAgentClientOptions,
+  resourceId: string,
+): Promise<RuntimeAgentLogsResult> {
+  assertRuntimeAgentResourceId(resourceId);
+  const result = await requestRuntimeAgent<unknown>(options, {
+    method: "GET",
+    path: `/v1/runtimes/${resourceId}/logs`,
+  });
+  if (!result || typeof result !== "object" ||
+      (result as Record<string, unknown>).resourceId !== resourceId ||
+      typeof (result as Record<string, unknown>).logs !== "string") {
+    throw new Error("Runtime agent returned invalid runtime logs.");
+  }
+  return result as RuntimeAgentLogsResult;
+}
+
 /** Stops or restarts one managed runtime and verifies the resulting state. */
 export async function changeRuntimeAgentRuntimeState(
   options: RuntimeAgentClientOptions,
