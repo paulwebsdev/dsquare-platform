@@ -153,7 +153,14 @@ router.post("/complete", requireSameOrigin, limitConnectionComplete, async (req,
     }
 
     const item = payload.connection;
-    if (!validId(item.user_id) || !validId(item.project_id) || !validId(item.resource_id) || typeof item.resource_name !== "string") {
+    if (
+      !validId(item.user_id) ||
+      !validId(item.project_id) ||
+      !validId(item.resource_id) ||
+      typeof item.resource_name !== "string" ||
+      typeof item.schema_name !== "string" ||
+      !/^db_[0-9a-f]{32}$/.test(item.schema_name)
+    ) {
       await client.query("ROLLBACK");
       res.status(502).json({ success: false, message: "D Database returned an invalid approval response." });
       return;
@@ -161,12 +168,12 @@ router.post("/complete", requireSameOrigin, limitConnectionComplete, async (req,
 
     const saved = await client.query(
       `INSERT INTO database_connections
-       (hosting_user_id, database_user_id, database_project_id, database_resource_id, resource_name)
-       VALUES ($1, $2, $3, $4, $5)
+       (hosting_user_id, database_user_id, database_project_id, database_resource_id, resource_name, database_schema_name)
+       VALUES ($1, $2, $3, $4, $5, $6)
        ON CONFLICT (hosting_user_id, database_resource_id) WHERE status = 'active'
        DO NOTHING
        RETURNING id, resource_name, status, connected_at`,
-      [res.locals.userId, item.user_id, item.project_id, item.resource_id, item.resource_name.slice(0, 80)],
+      [res.locals.userId, item.user_id, item.project_id, item.resource_id, item.resource_name.slice(0, 80), item.schema_name],
     );
     if (saved.rowCount !== 1) {
       await client.query("ROLLBACK");
