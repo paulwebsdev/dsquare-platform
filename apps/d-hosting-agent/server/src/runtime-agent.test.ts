@@ -261,3 +261,55 @@ test("requires an explicitly configured trusted runtime image", () => {
   assert.equal(isTrustedRuntimeImage("node:22-bookworm-slim", undefined), false);
   assert.equal(isTrustedRuntimeImage("node:22-bookworm-slim", "   "), false);
 });
+
+
+test("keeps customer execution disabled by default even when a provider is configured", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "dsquare-agent-disabled-default-"));
+  const claimedNonces = new Set<string>();
+  const fakePool = {
+    query: async (sql: string, values?: unknown[]) => {
+      if (sql.includes("INSERT INTO runtime_agent_nonces")) {
+        const nonce = String(values?.[0] ?? "");
+        if (claimedNonces.has(nonce)) return { rowCount: 0, rows: [] };
+        claimedNonces.add(nonce);
+        return { rowCount: 1, rows: [] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+  } as unknown as Pool;
+  const provider = {
+    createAndStart: async () => { throw new Error("must not execute"); },
+    reconcile: async () => ({ adopted: 0, removed: 0 }),
+    stop: async () => undefined,
+    restart: async () => undefined,
+    inspect: async () => ({}),
+    logs: async () => Buffer.alloc(0),
+    remove: async () => true,
+  };
+  const server = createServer(createRuntimeAgentApp({
+    pool: fakePool,
+    secret: SECRET,
+    storageRoot: root,
+    provider: provider as never,
+  }));
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const pathname = "/v1/health";
+    const headers = signRuntimeAgentRequest({ method: "GET", pathname, secret: SECRET });
+    const response = await fetch("http://127.0.0.1:" + address.port + pathname, { headers });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      status: "ready",
+      providerConfigured: true,
+      executionEnabled: false,
+    });
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => error ? reject(error) : resolve()),
+    );
+    await rm(root, { recursive: true, force: true });
+  }
+});
