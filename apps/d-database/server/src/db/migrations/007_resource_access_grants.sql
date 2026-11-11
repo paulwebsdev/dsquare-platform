@@ -10,3 +10,8 @@ CREATE TABLE IF NOT EXISTS resource_access_grants (
 
 CREATE INDEX IF NOT EXISTS resource_access_grants_status_idx
   ON resource_access_grants (status, created_at DESC);
+
+-- The application role owns resource metadata operations. The separate
+-- provisioner connection temporarily SET ROLEs to this role for these
+-- parameterized SELECT/INSERT/UPDATE statements.
+GRANT SELECT, INSERT, UPDATE ON TABLE resource_access_grants TO d_database_app;
