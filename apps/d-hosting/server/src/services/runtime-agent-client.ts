@@ -166,10 +166,27 @@ export async function uploadRuntimeAgentArtifact(
     await response.body?.cancel().catch(() => undefined);
     throw new Error("Runtime agent response exceeded the permitted size.");
   }
-  const raw = await response.text();
-  if (Buffer.byteLength(raw, "utf8") > MAX_RESPONSE_BYTES) {
-    throw new Error("Runtime agent response exceeded the permitted size.");
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new Error("Runtime agent returned an empty upload response.");
   }
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_RESPONSE_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw new Error("Runtime agent response exceeded the permitted size.");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const raw = Buffer.concat(chunks).toString("utf8");
   if (!response.ok) {
     throw new Error(`Runtime agent artifact upload failed with HTTP ${response.status}.`);
   }
