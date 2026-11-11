@@ -34,6 +34,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+export function isTrustedRuntimeImage(image: string, trustedImage?: string): boolean {
+  const approvedImage = trustedImage?.trim();
+  return Boolean(approvedImage) && image === approvedImage;
+}
+
 export function isRuntimeCreateRequest(value: unknown): value is {
   resourceId: string;
   deploymentId: string;
@@ -129,6 +134,7 @@ export function createRuntimeAgentApp(input: {
   secret: string;
   storageRoot: string;
   provider?: PodmanRuntimeProvider;
+  trustedImage?: string;
   /** Must remain false in production until Linux isolation acceptance is complete. */
   executionEnabled?: boolean;
 }) {
@@ -226,13 +232,17 @@ export function createRuntimeAgentApp(input: {
       return;
     }
 
-    if (!executionEnabled || !input.provider) {
-      response.status(503).json({ error: "Website execution is disabled pending Linux isolation acceptance." });
+    const trustedImage = input.trustedImage ?? process.env.RUNTIME_AGENT_TRUSTED_IMAGE;
+    if (!isTrustedRuntimeImage(payload.runtime.image, trustedImage)) {
+      response.status(trustedImage?.trim() ? 400 : 503).json({
+        error: trustedImage?.trim()
+          ? "Runtime image is not the configured trusted image."
+          : "Runtime creation is unavailable because no trusted image is configured.",
+      });
       return;
     }
-    if (payload.runtime.image !== process.env.RUNTIME_AGENT_TRUSTED_IMAGE &&
-        process.env.RUNTIME_AGENT_TRUSTED_IMAGE) {
-      response.status(400).json({ error: "Runtime image is not the configured trusted image." });
+    if (!executionEnabled || !input.provider) {
+      response.status(503).json({ error: "Website execution is disabled pending Linux isolation acceptance." });
       return;
     }
     let created: { containerId: string; workspacePath: string };
@@ -426,9 +436,12 @@ export async function startRuntimeAgent(): Promise<void> {
   const trustedImage = process.env.RUNTIME_AGENT_TRUSTED_IMAGE?.trim();
   const privateNetwork = process.env.RUNTIME_AGENT_PODMAN_NETWORK?.trim();
   const runtimeRootValue = process.env.RUNTIME_AGENT_RUNTIME_ROOT?.trim();
+  const containerRuntimeRoot = process.env.RUNTIME_AGENT_CONTAINER_RUNTIME_ROOT?.trim();
   let provider: PodmanRuntimeProvider | undefined;
-  if (podmanSocket && trustedImage && privateNetwork && runtimeRootValue) {
-    if (!podmanSocket.startsWith("/") || !runtimeRootValue.startsWith("/")) {
+  if (podmanSocket && trustedImage && privateNetwork && runtimeRootValue && containerRuntimeRoot) {
+    if (!podmanSocket.startsWith("/") || !runtimeRootValue.startsWith("/") ||
+        !path.posix.isAbsolute(containerRuntimeRoot) ||
+        /[\\r\\n\\0:]/.test(containerRuntimeRoot)) {
       await pool.end();
       throw new Error("Podman socket and runtime workspace paths must be Linux absolute paths.");
     }
@@ -438,7 +451,8 @@ export async function startRuntimeAgent(): Promise<void> {
       runtimeRoot: path.resolve(runtimeRootValue),
       trustedImage,
       networkName: privateNetwork,
-      containerWorkspacePath: (workspacePath) => workspacePath,
+      containerWorkspacePath: (_workspacePath, artifactId) =>
+        path.posix.join(containerRuntimeRoot, artifactId),
     });
   }
   // Production execution is deliberately hard-disabled until Linux acceptance tests pass.
