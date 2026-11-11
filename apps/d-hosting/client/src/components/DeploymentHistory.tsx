@@ -8,6 +8,7 @@ type Deployment = {
   error_summary: string | null;
   started_at: string;
   finished_at: string | null;
+  is_active?: boolean;
 };
 
 type DeploymentHistoryProps = {
@@ -18,6 +19,7 @@ export default function DeploymentHistory({ resourceUrl }: DeploymentHistoryProp
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   const [loading, setLoading] = useState(true);
   const [deploying, setDeploying] = useState(false);
+  const [activating, setActivating] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
@@ -52,7 +54,7 @@ export default function DeploymentHistory({ resourceUrl }: DeploymentHistoryProp
       if (!response.ok || !data.success) {
         throw new Error(data.message || "Deployment failed.");
       }
-      setNotice(`Deployment #${data.deployment.deployment_number} passed validation.`);
+      setNotice(`Deployment #${data.deployment.deployment_number} saved as an immutable version. Activate it to publish.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Deployment failed.");
       await loadDeployments();
@@ -61,22 +63,41 @@ export default function DeploymentHistory({ resourceUrl }: DeploymentHistoryProp
     }
   }
 
+  async function activate(deployment: Deployment) {
+    const action = deployments.some(item => item.is_active) ? "roll back to" : "publish";
+    if (!window.confirm(`Are you sure you want to ${action} deployment #${deployment.deployment_number}?`)) return;
+
+    setActivating(deployment.id);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(`${resourceUrl}/deployments/${deployment.id}/activate`, { method: "POST" });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.message || "Could not activate deployment.");
+      setNotice(`Deployment #${deployment.deployment_number} is now the live version.`);
+      await loadDeployments();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not activate deployment.");
+    } finally {
+      setActivating("");
+    }
+  }
+
   return (
     <section className="panel wb-panel" aria-labelledby="deployment-heading">
       <div className="panel-heading">
         <div>
           <h2 id="deployment-heading">Deployments</h2>
-          <p>Validate the uploaded website and keep a record of each deployment attempt.</p>
+          <p>Create immutable website versions, publish one, or roll back to an earlier successful version.</p>
         </div>
         <button className="primary-button" onClick={() => void deploy()} disabled={deploying}>
-          {deploying ? "Validating..." : "Deploy website"}
+          {deploying ? "Creating snapshot..." : "Deploy website"}
         </button>
       </div>
 
       <p className="wb-help">
-        This first deployment stage checks for a root homepage and verifies that every uploaded
-        file exists in storage. It records a file manifest; live version switching and rollback
-        are not enabled yet.
+        Each successful deployment stores its own copy of your website files. Later edits or deletions
+        from the upload area will not change an existing deployment. Node.js backend execution remains disabled.
       </p>
 
       {notice && <p role="status">{notice}</p>}
@@ -91,15 +112,27 @@ export default function DeploymentHistory({ resourceUrl }: DeploymentHistoryProp
           {deployments.map(deployment => (
             <div className="wb-file-row" key={deployment.id}>
               <div className="wb-file-info">
-                <strong>Deployment #{deployment.deployment_number}</strong>
+                <strong>Deployment #{deployment.deployment_number}{deployment.is_active ? " · Live" : ""}</strong>
                 <small>
                   {deployment.file_manifest?.length || 0} files · {new Date(deployment.started_at).toLocaleString()}
                 </small>
                 {deployment.error_summary && <small role="alert">{deployment.error_summary}</small>}
               </div>
-              <span className={`pm-status ${deployment.status === "succeeded" ? "active" : deployment.status}`}>
-                {deployment.status}
-              </span>
+              <div className="wb-file-actions">
+                <span className={`pm-status ${deployment.status === "succeeded" ? "active" : deployment.status}`}>
+                  {deployment.status}
+                </span>
+                {deployment.status === "succeeded" && !deployment.is_active && (
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => void activate(deployment)}
+                    disabled={Boolean(activating)}
+                  >
+                    {activating === deployment.id ? "Activating..." : "Publish / Roll back"}
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>
