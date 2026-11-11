@@ -40,22 +40,38 @@ export default function App() {
   const [apiStatus, setApiStatus] = useState("Checking connection...");
   const [projectCount, setProjectCount] = useState(0);
   const [recentProjects, setRecentProjects] = useState<ProjectSummary[]>([]);
+  const [resourceCount, setResourceCount] = useState<number | null>(null);
+  const [recentActivity, setRecentActivity] = useState<Array<{ id: string; title: string; detail: string; at: string }>>([]);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const refreshProjectSummary = async () => {
     try {
-      const response = await fetch("/api/v1/projects");
+      const response = await fetch("/api/v1/projects", { credentials: "same-origin" });
       if (!response.ok) throw new Error("Could not load projects.");
-
-      const data = await response.json() as {
-        count?: number;
-        projects: ProjectSummary[];
-      };
-
-      setProjectCount(data.count ?? data.projects.length);
-      setRecentProjects(data.projects.slice(0, 3));
+      const data = await response.json() as { count?: number; projects: ProjectSummary[] };
+      const projects = data.projects || [];
+      setProjectCount(data.count ?? projects.length);
+      setRecentProjects(projects.slice(0, 3));
+      const resourceResults = await Promise.all(projects.map(async (project) => {
+        const result = await fetch(`/api/v1/projects/${encodeURIComponent(project.id)}/resources`, { credentials: "same-origin" });
+        if (!result.ok) throw new Error("Could not load workspace resources.");
+        const body = await result.json() as { resources?: Array<{ id: string; name: string; created_at?: string; updated_at?: string }> };
+        return (body.resources || []).map((resource) => ({ ...resource, projectName: project.name }));
+      }));
+      const resources = resourceResults.flat();
+      setResourceCount(resources.length);
+      const events: Array<{ id: string; title: string; detail: string; at: string }> = [];
+      for (const project of projects) {
+        if (project.created_at) events.push({ id: "project-created-" + project.id, title: "Project created", detail: project.name, at: project.created_at });
+      }
+      for (const resource of resources) {
+        if (resource.created_at) events.push({ id: "resource-created-" + resource.id, title: "Resource created", detail: resource.name + " · " + resource.projectName, at: resource.created_at });
+      }
+      setRecentActivity(events.filter((event) => Number.isFinite(new Date(event.at).getTime()))
+        .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()).slice(0, 5));
     } catch (error) {
-      console.error("Could not refresh project summary:", error);
+      setResourceCount(null);
+      console.error("Could not refresh workspace summary:", error);
     }
   };
 
@@ -119,6 +135,8 @@ export default function App() {
       setUser(null);
       setRecentProjects([]);
       setProjectCount(0);
+      setResourceCount(null);
+      setRecentActivity([]);
     }
   }
 
@@ -227,18 +245,18 @@ export default function App() {
             </article>
             <article className="stat-card">
               <div className="stat-heading"><span>{resource}</span><span className="stat-icon blue"></span></div>
-              <div className="stat-value">0</div>
-              <div className="stat-foot">Nothing running yet</div>
+              <div className="stat-value">{resourceCount === null ? "—" : resourceCount}</div>
+              <div className="stat-foot">Resources across your projects</div>
             </article>
             <article className="stat-card">
               <div className="stat-heading"><span>Storage used</span><span className="stat-icon orange"></span></div>
-              <div className="stat-value">0 <small>MB</small></div>
-              <div className="stat-foot">Your storage overview</div>
+              <div className="stat-value">Not measured</div>
+              <div className="stat-foot">Storage metering is not enabled yet</div>
             </article>
             <article className="stat-card">
               <div className="stat-heading"><span>Workspace status</span><span className="stat-icon green"></span></div>
-              <div className="stat-value status-value">Ready</div>
-              <div className="stat-foot">Your workspace is available</div>
+              <div className="stat-value status-value">{apiStatus === "Checking connection..." ? "Checking" : apiStatus === "API connection unavailable" ? "Unavailable" : "Online"}</div>
+              <div className="stat-foot">{apiStatus}</div>
             </article>
           </section>
 
@@ -282,11 +300,23 @@ export default function App() {
                 <div><h2>Recent activity</h2><p>Updates from your workspace</p></div>
                 <span className="activity-menu"></span>
               </div>
-              <div className="activity-empty">
-                <span className="activity-clock"></span>
-                <strong>No activity yet</strong>
-                <p>Your recent actions will appear here.</p>
-              </div>
+              {recentActivity.length > 0 ? (
+                <div className="recent-projects">
+                  {recentActivity.map((item) => (
+                    <div className="recent-project-item" key={item.id}>
+                      <span className="recent-project-icon">◷</span>
+                      <span className="recent-project-info"><strong>{item.title}</strong><small>{item.detail}</small></span>
+                      <span className="recent-project-arrow">{new Date(item.at).toLocaleDateString()}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="activity-empty">
+                  <span className="activity-clock"></span>
+                  <strong>No project activity recorded</strong>
+                  <p>Project and resource creation will appear here.</p>
+                </div>
+              )}
             </article>
           </section>
 
