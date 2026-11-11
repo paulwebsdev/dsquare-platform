@@ -87,6 +87,7 @@ export class PodmanRuntimeProvider {
     const containers = await this.client.listManagedContainers();
     let adopted = 0;
     let removed = 0;
+    const seenContainerIds = new Set(containers.map((container) => container.id));
     for (const container of containers) {
       const record = await registry.get(container.resourceId);
       const identityMatches = record && record.deploymentId === container.deploymentId && record.artifactId === container.artifactId;
@@ -97,6 +98,15 @@ export class PodmanRuntimeProvider {
       await this.client.removeContainer(container.id);
       await removeRuntimeWorkspace(this.options.runtimeRoot, container.artifactId);
       removed += 1;
+    }
+
+    // A registry entry pointing to a container Podman no longer knows about
+    // must not continue to advertise a healthy running/stopped runtime.
+    for (const record of await registry.list()) {
+      if (record.containerId && !seenContainerIds.has(record.containerId) &&
+          (record.state === "running" || record.state === "stopped")) {
+        await registry.setState(record.resourceId, "unknown");
+      }
     }
     return { adopted, removed };
   }
