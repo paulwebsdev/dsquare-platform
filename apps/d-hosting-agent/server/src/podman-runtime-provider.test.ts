@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, lstat, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { PodmanRuntimeProvider } from "./podman-runtime-provider.js";
+import { storeRuntimeArtifact } from "./artifact-store.js";
 import type { PodmanRequest, PodmanResponse } from "./podman-client.js";
 
 const resourceId = "11111111-1111-4111-8111-111111111111";
@@ -37,8 +39,18 @@ async function setup() {
   const root = await mkdtemp(path.join(os.tmpdir(), "dsquare-podman-provider-"));
   const storageRoot = path.join(root, "stored");
   const runtimeRoot = path.join(root, "runtime");
-  await mkdir(path.join(storageRoot, artifactId), { recursive: true });
-  await writeFile(path.join(storageRoot, artifactId, "package.json"), '{"scripts":{"start":"node index.js"}}');
+  const packageBytes = Buffer.from('{"scripts":{"start":"node index.js"}}');
+  const file = { path: "package.json", sizeBytes: packageBytes.byteLength, sha256: createHash("sha256").update(packageBytes).digest("hex") };
+  const manifest = {
+    sha256: createHash("sha256").update(JSON.stringify([file])).digest("hex"),
+    fileCount: 1,
+    totalBytes: packageBytes.byteLength,
+    files: [file],
+  };
+  const manifestBytes = Buffer.from(JSON.stringify({ version: 1, artifactId, manifest }));
+  const header = Buffer.alloc(4);
+  header.writeUInt32BE(manifestBytes.byteLength, 0);
+  await storeRuntimeArtifact(storageRoot, artifactId, Buffer.concat([Buffer.from("DSQART01"), header, manifestBytes, packageBytes]));
   const calls: PodmanRequest[] = [];
   const transport = async (request: PodmanRequest): Promise<PodmanResponse> => {
     calls.push(request);
