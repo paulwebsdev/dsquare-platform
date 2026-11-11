@@ -135,6 +135,40 @@ test("rolls back the container and workspace when start fails", async () => {
   }
 });
 
+test("reports incomplete rollback when Podman refuses container removal", async () => {
+  const fixture = await setup();
+  const failingProvider = new PodmanRuntimeProvider({
+    transport: async (request) => {
+      if (request.path.startsWith("/v1.40/containers/create")) {
+        return { statusCode: 201, headers: {}, body: Buffer.from(JSON.stringify({ Id: containerId })) };
+      }
+      if (request.path.endsWith("/start")) {
+        return { statusCode: 500, headers: {}, body: Buffer.from('{"message":"start failed"}') };
+      }
+      if (request.method === "DELETE") {
+        return { statusCode: 500, headers: {}, body: Buffer.from('{"message":"remove failed"}') };
+      }
+      return { statusCode: 204, headers: {}, body: Buffer.alloc(0) };
+    },
+    storageRoot: fixture.storageRoot,
+    runtimeRoot: fixture.runtimeRoot,
+    trustedImage: "node:22-bookworm-slim",
+    networkName: "dsquare-private",
+    containerWorkspacePath: (_workspace, id) => `/var/lib/dsquare/runtime-workspaces/${id}`,
+  });
+  try {
+    await assert.rejects(
+      failingProvider.createAndStart(runtimeRequest()),
+      (error: unknown) => error instanceof AggregateError &&
+        error.message.includes("rollback was incomplete") &&
+        error.errors.length === 2,
+    );
+    await assert.rejects(lstat(path.join(fixture.runtimeRoot, artifactId)));
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("rejects malformed container identifiers before contacting Podman", async () => {
   const fixture = await setup();
   try {
