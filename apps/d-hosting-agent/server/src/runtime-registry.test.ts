@@ -11,7 +11,7 @@ const record = {
   state: "running" as const,
 };
 
-test("persists, updates, and deletes runtime mappings", async () => {
+test("atomically reserves, completes, reads, and deletes runtime mappings", async () => {
   let saved: Record<string, unknown> | undefined;
   const pool = {
     query: async (sql: string, values: unknown[] = []) => {
@@ -21,9 +21,15 @@ test("persists, updates, and deletes runtime mappings", async () => {
           resource_id: values[0],
           deployment_id: values[1],
           artifact_id: values[2],
-          container_id: values[3],
-          state: values[4],
+          container_id: null,
+          state: "creating",
         };
+        return { rowCount: 1, rows: [] };
+      }
+      if (sql.includes("UPDATE runtime_agent_runtimes") && sql.includes("SET container_id")) {
+        if (!saved || saved.state !== "creating") return { rowCount: 0, rows: [] };
+        saved.container_id = values[1];
+        saved.state = "running";
         return { rowCount: 1, rows: [] };
       }
       if (sql.includes("SELECT resource_id")) {
@@ -42,8 +48,13 @@ test("persists, updates, and deletes runtime mappings", async () => {
   } as unknown as Pool;
   const registry = new RuntimeRegistry(pool);
 
-  assert.equal(await registry.create(record), true);
-  assert.equal(await registry.create(record), false);
+  assert.equal(await registry.reserve(record), true);
+  assert.equal(await registry.reserve(record), false);
+  const pending = await registry.get(record.resourceId);
+  assert.equal(pending?.state, "creating");
+  assert.equal(pending?.containerId, null);
+  assert.equal(await registry.complete(record.resourceId, record.containerId), true);
+  assert.equal(await registry.complete(record.resourceId, record.containerId), false);
   assert.deepEqual(await registry.get(record.resourceId), record);
   await registry.setState(record.resourceId, "stopped");
   assert.equal((await registry.get(record.resourceId))?.state, "stopped");
