@@ -9,11 +9,10 @@ const MAX_TOTAL_BYTES = 100 * 1024 * 1024;
 
 function assertSafeSegment(value: string): void {
   if (!value || value === "." || value === ".." || value.startsWith(".dsquare-agent-") ||
-      value.includes("\\") || value.includes(":") || /[\\u0000-\\u001f\\u007f]/.test(value)) {
+      value.includes("\\") || value.includes(":") || /[\u0000-\u001f\u007f]/.test(value)) {
     throw new Error("Runtime artifact contains an unsafe path.");
   }
 }
-
 function ensureInside(root: string, target: string): void {
   const relative = path.relative(root, target);
   if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
