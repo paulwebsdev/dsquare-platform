@@ -4,6 +4,7 @@ import { pool } from "../config/database.js";
 import { requireAuth } from "../middleware/require-auth.js";
 import { createRateLimiter } from "../middleware/rate-limit.js";
 import { encryptEnvironmentSecret } from "../services/environment-secrets.js";
+import { getDatabaseApiUrl } from "../services/database-api-url.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -22,7 +23,6 @@ function requireSameOrigin(req: import("express").Request, res: import("express"
 
 const CLIENT_ID = process.env.D_HOSTING_INTEGRATION_CLIENT_ID || "dsquare-d-hosting";
 const CLIENT_SECRET = process.env.D_HOSTING_INTEGRATION_CLIENT_SECRET || "";
-const DATABASE_API_URL = process.env.D_DATABASE_API_URL || "http://127.0.0.1:5001";
 
 function getDatabaseAppUrl(): URL {
   const configured = process.env.D_DATABASE_APP_URL?.trim();
@@ -65,6 +65,18 @@ const DATABASE_APP_URL = getDatabaseAppUrl();
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 const validId = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
+async function revokeDatabaseResource(resourceId: string, apiUrl: URL): Promise<boolean> {
+  if (!CLIENT_SECRET) return false;
+  const response = await fetch(new URL("/api/v1/integrations/hosting/revoke", apiUrl), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, resourceId }),
+    signal: AbortSignal.timeout(10000),
+  });
+  const payload = await response.json().catch(() => null) as { success?: boolean } | null;
+  return response.ok && payload?.success === true;
+}
+
 router.post("/start", requireSameOrigin, limitConnectionStart, async (_req, res) => {
   if (!CLIENT_SECRET) {
     res.status(503).json({ success: false, message: "Database integration is not configured." });
@@ -101,27 +113,14 @@ router.post("/complete", requireSameOrigin, limitConnectionComplete, async (req,
 
   let databaseApiUrl: URL;
   try {
-    databaseApiUrl = new URL(DATABASE_API_URL);
-    const isLoopbackHttp =
-      databaseApiUrl.protocol === "http:" &&
-      ["127.0.0.1", "localhost", "[::1]"].includes(databaseApiUrl.hostname);
-    if (
-      databaseApiUrl.username ||
-      databaseApiUrl.password ||
-      databaseApiUrl.search ||
-      databaseApiUrl.hash ||
-      (process.env.NODE_ENV === "production"
-        ? databaseApiUrl.protocol !== "https:"
-        : databaseApiUrl.protocol !== "https:" && !isLoopbackHttp)
-    ) {
-      throw new Error("D Database API URL is not secure.");
-    }
+    databaseApiUrl = getDatabaseApiUrl();
   } catch {
     res.status(503).json({ success: false, message: "D Database API URL is not configured safely." });
     return;
   }
 
   const client = await pool.connect();
+  let resourceIdToRevoke: string | null = null;
   try {
     await client.query("BEGIN");
     const pending = await client.query(
@@ -165,6 +164,9 @@ router.post("/complete", requireSameOrigin, limitConnectionComplete, async (req,
     }
 
     const item = payload.connection;
+    resourceIdToRevoke = typeof item.resource_id === "string" && validId(item.resource_id)
+      ? item.resource_id
+      : null;
     if (
       !validId(item.user_id) ||
       !validId(item.project_id) ||
@@ -185,6 +187,13 @@ router.post("/complete", requireSameOrigin, limitConnectionComplete, async (req,
       !/^[A-Za-z0-9_-]{43}$/.test(item.database_password)
     ) {
       await client.query("ROLLBACK");
+      if (resourceIdToRevoke) {
+        const revoked = await revokeDatabaseResource(resourceIdToRevoke, databaseApiUrl).catch(() => false);
+        if (!revoked) {
+          res.status(503).json({ success: false, message: "D Database issued credentials but they could not be safely revoked. Contact support." });
+          return;
+        }
+      }
       res.status(502).json({ success: false, message: "D Database returned an invalid approval response." });
       return;
     }
@@ -213,6 +222,13 @@ router.post("/complete", requireSameOrigin, limitConnectionComplete, async (req,
     );
     if (saved.rowCount !== 1) {
       await client.query("ROLLBACK");
+      const revoked = resourceIdToRevoke
+        ? await revokeDatabaseResource(resourceIdToRevoke, databaseApiUrl).catch(() => false)
+        : false;
+      if (!revoked) {
+        res.status(503).json({ success: false, message: "The duplicate connection was not saved, and D Database credentials could not be safely revoked." });
+        return;
+      }
       res.status(409).json({ success: false, message: "This database resource is already connected." });
       return;
     }
@@ -222,6 +238,10 @@ router.post("/complete", requireSameOrigin, limitConnectionComplete, async (req,
     res.json({ success: true, connection: saved.rows[0] });
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
+    if (resourceIdToRevoke) {
+      const revoked = await revokeDatabaseResource(resourceIdToRevoke, databaseApiUrl).catch(() => false);
+      if (!revoked) console.error("Database credential compensation failed for resource:", resourceIdToRevoke);
+    }
     console.error("Database connection completion error:", error instanceof Error ? error.message : error);
     res.status(502).json({ success: false, message: "Unable to complete database connection." });
   } finally {
@@ -260,17 +280,12 @@ router.delete("/:connectionId", requireSameOrigin, async (req, res) => {
       return;
     }
 
-    const revokeResponse = await fetch(new URL("/api/v1/integrations/hosting/revoke", DATABASE_API_URL), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        clientId: CLIENT_ID,
-        clientSecret: CLIENT_SECRET,
-        resourceId: existing.rows[0].database_resource_id,
-      }),
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!revokeResponse.ok) {
+    const databaseApiUrl = getDatabaseApiUrl();
+    const revoked = await revokeDatabaseResource(
+      String(existing.rows[0].database_resource_id),
+      databaseApiUrl,
+    );
+    if (!revoked) {
       res.status(503).json({ success: false, message: "D Database could not revoke the resource credentials. Try again." });
       return;
     }
