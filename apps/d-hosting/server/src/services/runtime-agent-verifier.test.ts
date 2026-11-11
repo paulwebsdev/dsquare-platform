@@ -22,7 +22,7 @@ class MemoryNonceStore implements RuntimeAgentNonceStore {
 }
 
 function signedHeaders(nonce = "123e4567-e89b-42d3-a456-426614174000") {
-  return signRuntimeAgentRequest({ method, pathname, rawBody: undefined, body: rawBody, secret, now, nonce });
+  return signRuntimeAgentRequest({ method, pathname, body: rawBody, secret, now, nonce });
 }
 
 test("accepts a valid signed request and atomically claims its nonce", async () => {
