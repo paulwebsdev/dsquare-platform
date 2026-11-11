@@ -49,6 +49,8 @@ export function createResourceAccessPlan(input: {
     password,
     createRole: `CREATE ROLE ${role} LOGIN PASSWORD '${password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;`,
     grantStatements: [
+      `ALTER ROLE ${role} SET search_path TO ${schema}, pg_catalog;`,
+    grantStatements: [
       `GRANT CONNECT ON DATABASE ${database} TO ${role};`,
       `GRANT USAGE ON SCHEMA ${schema} TO ${role};`,
       `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ${schema} TO ${role};`,
