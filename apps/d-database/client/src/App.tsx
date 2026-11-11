@@ -3,6 +3,7 @@ import "./style.css";
 import ProjectManager from "./components/ProjectManager";
 import AuthScreen, { type AuthUser } from "./components/AuthScreen";
 import HostingApproval from "./components/HostingApproval";
+import { ResourceDirectory, WorkspaceSettings } from "./components/WorkspacePages";
 
 type Theme = "light" | "dark" | "system";
 
@@ -194,6 +195,10 @@ export default function App() {
         <div className="content">
           {activePage === "Projects" ? (
             <ProjectManager onProjectsChange={refreshProjectSummary} />
+          ) : activePage === "Resources" ? (
+            <ResourceDirectory onOpenProjects={() => setActivePage("Projects")} />
+          ) : activePage === "Settings" ? (
+            <WorkspaceSettings product={product} user={user} theme={theme} onThemeChange={setTheme} onSignOut={() => void handleLogout()} />
           ) : (
             <>
           <section className="welcome-row">
