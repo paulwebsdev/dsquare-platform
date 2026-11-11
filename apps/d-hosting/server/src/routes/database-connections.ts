@@ -6,6 +6,7 @@ import { createRateLimiter } from "../middleware/rate-limit.js";
 import { encryptEnvironmentSecret } from "../services/environment-secrets.js";
 import { getDatabaseApiUrl } from "../services/database-api-url.js";
 import { isValidDatabaseConnectionCredentials } from "../services/database-connection-credentials.js";
+import { toPublicDatabaseConnection } from "../services/database-connection-view.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -208,7 +209,7 @@ router.post("/complete", requireSameOrigin, limitConnectionComplete, async (req,
 
     await client.query("UPDATE database_connection_requests SET completed_at = NOW() WHERE id = $1", [pending.rows[0].id]);
     await client.query("COMMIT");
-    res.json({ success: true, connection: saved.rows[0] });
+    res.json({ success: true, connection: toPublicDatabaseConnection(saved.rows[0]) });
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
     if (resourceIdToRevoke) {
@@ -229,7 +230,7 @@ router.get("/", async (_req, res) => {
        FROM database_connections WHERE hosting_user_id = $1 ORDER BY connected_at DESC`,
       [res.locals.userId],
     );
-    res.json({ success: true, count: result.rowCount, connections: result.rows });
+    res.json({ success: true, count: result.rowCount, connections: result.rows.map(toPublicDatabaseConnection) });
   } catch (error) {
     console.error("Database connection list error:", error instanceof Error ? error.message : error);
     res.status(500).json({ success: false, message: "Unable to list database connections." });
