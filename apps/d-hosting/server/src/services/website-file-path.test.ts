@@ -6,6 +6,7 @@ test("accepts safe nested website paths", () => {
   assert.equal(normalizeWebsiteFilePath("assets/logo.svg"), "assets/logo.svg");
   assert.equal(normalizeWebsiteFilePath("css/site.css"), "css/site.css");
   assert.equal(normalizeWebsiteFilePath("js/app.js"), "js/app.js");
+  assert.equal(normalizeWebsiteFilePath("server.cjs"), "server.cjs");
   assert.equal(normalizeWebsiteFilePath("index.html"), "index.html");
 });
 
