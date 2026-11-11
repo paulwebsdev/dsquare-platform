@@ -158,6 +158,10 @@ export function createRuntimeAgentApp(input: {
     }
   });
 
+  app.get("/v1/health", (_request, response) => {
+    response.status(200).json({ status: "ready", providerConfigured: false, executionEnabled: false });
+  });
+
   app.get("/healthz", (_request, response) => {
     response.status(200).json({ status: "ok" });
   });
