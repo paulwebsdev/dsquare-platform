@@ -105,8 +105,8 @@ router.post("/", async (req, res) => {
       });
     }
 
-    // The schema identifier is generated from a UUID, never from user input.
-    await client.query(`CREATE SCHEMA "${schemaName}"`);
+    // Resource schemas must be owned by the role that manages their default privileges.
+    await client.query(`CREATE SCHEMA "${schemaName}" AUTHORIZATION d_database_app`);
 
     const result = await client.query(
       `INSERT INTO database_resources
