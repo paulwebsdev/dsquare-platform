@@ -8,6 +8,8 @@ export type EncryptedEnvironmentVariable = EncryptedSecret & {
   name: string;
 };
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Decrypts only the selected resource's stored variables for an internal runtime
  * hand-off. Callers must never log or return this object through an API response.
@@ -17,8 +19,8 @@ export function buildRuntimeEnvironment(
   variables: EncryptedEnvironmentVariable[],
   environment: NodeJS.ProcessEnv = process.env,
 ): Record<string, string> {
-  if (!resourceId.trim()) {
-    throw new Error("A resource ID is required to prepare runtime environment variables.");
+  if (!UUID_PATTERN.test(resourceId)) {
+    throw new Error("A valid website resource ID is required to prepare runtime environment variables.");
   }
 
   const runtimeEnvironment: Record<string, string> = Object.create(null) as Record<string, string>;
