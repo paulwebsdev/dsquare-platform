@@ -61,10 +61,17 @@ test("rejects symbolic links and leaves no partial workspace", async () => {
   const runtime = path.join(root, "runtime");
   const artifact = path.join(storage, artifactId);
   try {
-    await mkdir(artifact, { recursive: true });
-    await writeFile(path.join(artifact, "index.js"), "console.log('safe')");
-    await writeFile(path.join(artifact, "oversized.bin"), Buffer.alloc(10 * 1024 * 1024 + 1));
-    await assert.rejects(materializeRuntimeWorkspace(storage, artifactId, runtime), /unsupported or oversized/);
+    const safeBytes = Buffer.from("console.log('safe')");
+    const file = { path: "index.js", sizeBytes: safeBytes.byteLength, sha256: createHash("sha256").update(safeBytes).digest("hex") };
+    const manifest = { sha256: createHash("sha256").update(JSON.stringify([file])).digest("hex"), fileCount: 1, totalBytes: safeBytes.byteLength, files: [file] };
+    const manifestBytes = Buffer.from(JSON.stringify({ version: 1, artifactId, manifest }));
+    const header = Buffer.alloc(4);
+    header.writeUInt32BE(manifestBytes.byteLength, 0);
+    await storeRuntimeArtifact(storage, artifactId, Buffer.concat([Buffer.from("DSQART01"), header, manifestBytes, safeBytes]));
+    await writeFile(path.join(artifact, "unexpected-link-target.txt"), "link target");
+    await import("node:fs/promises").then(({ symlink }) =>
+      symlink(path.join(artifact, "unexpected-link-target.txt"), path.join(artifact, "linked.txt")));
+    await assert.rejects(materializeRuntimeWorkspace(storage, artifactId, runtime), /integrity check/);
     await assert.rejects(lstat(path.join(runtime, artifactId)));
   } finally {
     await rm(root, { recursive: true, force: true });
