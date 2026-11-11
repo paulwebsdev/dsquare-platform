@@ -34,10 +34,12 @@ test("rejects invalid artifact metadata and weakened isolation settings", () => 
   assert.throws(() => buildRemoteRuntimeCreateRequest({
     resourceId, deploymentId, spec, artifact: { ...artifact, sizeBytes: 0 },
   }), /artifact metadata/);
+  const weakenedSpec = {
+    ...spec,
+    readOnlyRootFilesystem: false,
+  } as unknown as typeof spec;
   assert.throws(() => buildRemoteRuntimeCreateRequest({
-    resourceId, deploymentId,
-    spec: { ...spec, readOnlyRootFilesystem: false },
-    artifact,
+    resourceId, deploymentId, spec: weakenedSpec, artifact,
   }), /isolation contract/);
   assert.throws(() => buildRemoteRuntimeCreateRequest({
     resourceId, deploymentId,
