@@ -132,13 +132,23 @@ router.get("/:resourceId/runtime", async (req, res) => {
 
     const runtime = await getRuntimeAgentRuntime(agent, resourceId);
     await pool.query(
-      `INSERT INTO hosting_runtime_instances (resource_id, provider, status, deployment_id, started_at, stopped_at, updated_at)
-       VALUES ($1, 'podman', $2, $3, CASE WHEN $2 = 'running' THEN NOW() ELSE NULL END,
+      `INSERT INTO hosting_runtime_instances
+         (resource_id, provider, status, deployment_id, started_at, stopped_at, updated_at)
+       VALUES ($1, 'podman', $2, $3,
+               CASE WHEN $2 = 'running' THEN NOW() ELSE NULL END,
                CASE WHEN $2 = 'stopped' THEN NOW() ELSE NULL END, NOW())
        ON CONFLICT (resource_id) DO UPDATE
-       SET provider = 'podman', status = EXCLUDED.status, deployment_id = EXCLUDED.deployment_id,
-           started_at = CASE WHEN EXCLUDED.status = 'running' THEN COALESCE(hosting_runtime_instances.started_at, NOW()) ELSE hosting_runtime_instances.started_at END,
-           stopped_at = CASE WHEN EXCLUDED.status = 'stopped' THEN NOW() ELSE hosting_runtime_instances.stopped_at END,
+       SET provider = 'podman',
+           status = EXCLUDED.status,
+           deployment_id = COALESCE(EXCLUDED.deployment_id, hosting_runtime_instances.deployment_id),
+           started_at = CASE
+             WHEN EXCLUDED.status = 'running' AND hosting_runtime_instances.status <> 'running' THEN NOW()
+             ELSE hosting_runtime_instances.started_at
+           END,
+           stopped_at = CASE
+             WHEN EXCLUDED.status = 'stopped' AND hosting_runtime_instances.status <> 'stopped' THEN NOW()
+             ELSE hosting_runtime_instances.stopped_at
+           END,
            updated_at = NOW()`,
       [resourceId, runtime.state, runtime.deploymentId],
     );
@@ -184,11 +194,25 @@ for (const action of ["stop", "restart"] as const) {
       if (!agent) return res.status(503).json({ success: false, message: "The private runtime agent is not configured." });
       const runtime = await changeRuntimeAgentRuntimeState(agent, resourceId, action);
       await pool.query(
-        `UPDATE hosting_runtime_instances
-         SET status = $2, started_at = CASE WHEN $2 = 'running' THEN NOW() ELSE started_at END,
-             stopped_at = CASE WHEN $2 = 'stopped' THEN NOW() ELSE stopped_at END, updated_at = NOW()
-         WHERE resource_id = $1`,
-        [resourceId, runtime.state],
+        `INSERT INTO hosting_runtime_instances
+           (resource_id, provider, status, deployment_id, started_at, stopped_at, updated_at)
+         VALUES ($1, 'podman', $2, $3,
+                 CASE WHEN $2 = 'running' THEN NOW() ELSE NULL END,
+                 CASE WHEN $2 = 'stopped' THEN NOW() ELSE NULL END, NOW())
+         ON CONFLICT (resource_id) DO UPDATE
+         SET provider = 'podman',
+             status = EXCLUDED.status,
+             deployment_id = COALESCE(EXCLUDED.deployment_id, hosting_runtime_instances.deployment_id),
+             started_at = CASE
+               WHEN EXCLUDED.status = 'running' AND hosting_runtime_instances.status <> 'running' THEN NOW()
+               ELSE hosting_runtime_instances.started_at
+             END,
+             stopped_at = CASE
+               WHEN EXCLUDED.status = 'stopped' AND hosting_runtime_instances.status <> 'stopped' THEN NOW()
+               ELSE hosting_runtime_instances.stopped_at
+             END,
+             updated_at = NOW()`,
+        [resourceId, runtime.state, owned.rows[0].active_deployment_id],
       );
       return res.json({ success: true, runtime, message: action === "stop" ? "Website runtime stopped." : "Website runtime restarted." });
     } catch (error) {
