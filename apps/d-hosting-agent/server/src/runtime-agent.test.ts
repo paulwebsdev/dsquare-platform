@@ -214,3 +214,43 @@ test("returns not-ready when the database health query fails", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+
+test("provides authenticated runtime capability status without enabling execution", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "dsquare-agent-capabilities-"));
+  const claimedNonces = new Set<string>();
+  const fakePool = {
+    query: async (sql: string, values?: unknown[]) => {
+      if (sql.includes("INSERT INTO runtime_agent_nonces")) {
+        const nonce = String(values?.[0] ?? "");
+        if (claimedNonces.has(nonce)) return { rowCount: 0, rows: [] };
+        claimedNonces.add(nonce);
+        return { rowCount: 1, rows: [] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+  } as unknown as Pool;
+  const server = createServer(createRuntimeAgentApp({ pool: fakePool, secret: SECRET, storageRoot: root }));
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const pathname = "/v1/health";
+    const headers = signRuntimeAgentRequest({ method: "GET", pathname, secret: SECRET });
+    const response = await fetch(`http://127.0.0.1:${address.port}${pathname}`, { headers });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      status: "ready",
+      providerConfigured: false,
+      executionEnabled: false,
+    });
+    const unauthenticated = await fetch(`http://127.0.0.1:${address.port}${pathname}`);
+    assert.equal(unauthenticated.status, 401);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => error ? reject(error) : resolve()),
+    );
+    await rm(root, { recursive: true, force: true });
+  }
+});
