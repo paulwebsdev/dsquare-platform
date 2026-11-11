@@ -36,15 +36,28 @@ export async function provisionResourceAccess(
     throw new Error("Active database resource not found.");
   }
 
+  const schemaName = String(resourceResult.rows[0].schema_name);
+  const ownerResult = await pool.query(
+    `SELECT owner.rolname AS schema_owner
+     FROM pg_namespace AS namespace
+     JOIN pg_roles AS owner ON owner.oid = namespace.nspowner
+     WHERE namespace.nspname = $1`,
+    [schemaName],
+  );
+  const schemaOwner = String(ownerResult.rows[0]?.schema_owner || "");
+  if (schemaOwner !== "d_database_app") {
+    throw new Error("Resource schema is not owned by the D Database application role.");
+  }
+
   const databaseResult = await pool.query(
     "SELECT current_database() AS database_name",
   );
   const databaseName = String(databaseResult.rows[0]?.database_name || "");
   const plan = createResourceAccessPlan({
     resourceId,
-    schemaName: String(resourceResult.rows[0].schema_name),
+    schemaName,
     databaseName,
-    schemaOwner: "d_database_app",
+    schemaOwner,
   });
 
   const client = await resourceProvisionerPool.connect();
