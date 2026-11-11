@@ -15,6 +15,7 @@ import authRouter from "./routes/auth.js";
 import { requireAuth } from "./middleware/require-auth.js";
 import { requireProjectOwnership } from "./middleware/require-project-owner.js";
 import { startDatabaseBackupScheduler } from "./services/database-backup-worker.js";
+import databaseBackupsRouter from "./routes/database-backups.js";
 
 const app = express();
 app.set("trust proxy", 1);
@@ -81,6 +82,7 @@ app.use("/api/v1/projects", requireAuth, projectsRouter);
 app.use("/api/v1/projects/:projectId/resources", requireAuth, requireProjectOwnership, databaseResourcesRouter);
 app.use("/api/v1/projects/:projectId/resources", requireAuth, requireProjectOwnership, databaseTablesRouter);
 app.use("/api/v1/projects/:projectId/resources", requireAuth, requireProjectOwnership, databaseStructureRouter);
+app.use("/api/v1/projects/:projectId/resources", requireAuth, requireProjectOwnership, databaseBackupsRouter);
 
 app.get("/api/v1/health", async (_req, res) => {
   try {
