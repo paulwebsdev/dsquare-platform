@@ -62,6 +62,19 @@ type NodeValidationResponse = {
   };
 };
 
+type RuntimeStatusResponse = {
+  success: boolean;
+  message?: string;
+  runtime?: {
+    configured: boolean;
+    agentReachable: boolean;
+    providerConfigured: boolean;
+    executionEnabled: boolean;
+    runtimeAvailable: boolean;
+    message: string;
+  };
+};
+
 type DbType =
   | "text"
   | "integer"
@@ -129,6 +142,8 @@ export default function ResourceWorkbench({
   const [uploading, setUploading] = useState(false);
   const [validatingNode, setValidatingNode] = useState(false);
   const [nodeValidation, setNodeValidation] = useState<NodeValidationResponse | null>(null);
+  const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatusResponse["runtime"] | null>(null);
+  const [checkingRuntime, setCheckingRuntime] = useState(false);
 
   async function loadTables() {
     setLoading(true);
@@ -168,6 +183,29 @@ export default function ResourceWorkbench({
     }
   }
 
+  async function loadRuntimeStatus() {
+    setCheckingRuntime(true);
+    try {
+      const response = await fetch(`${baseUrl}/runtime-status`);
+      const data = (await response.json()) as RuntimeStatusResponse;
+      if (!data.runtime) {
+        throw new Error(data.message || "Could not read runtime status.");
+      }
+      setRuntimeStatus(data.runtime);
+    } catch {
+      setRuntimeStatus({
+        configured: false,
+        agentReachable: false,
+        providerConfigured: false,
+        executionEnabled: false,
+        runtimeAvailable: false,
+        message: "Runtime status could not be retrieved. Backend execution remains disabled.",
+      });
+    } finally {
+      setCheckingRuntime(false);
+    }
+  }
+
   async function loadFiles() {
     setLoading(true);
     setError("");
@@ -193,8 +231,9 @@ export default function ResourceWorkbench({
       void loadTables();
     } else {
       void loadFiles();
+      if (resource.site_type === "node") void loadRuntimeStatus();
     }
-  }, [baseUrl, isDatabase]);
+  }, [baseUrl, isDatabase, resource.site_type]);
 
   async function loadRows(table: string, nextOffset: number) {
     const response = await fetch(
@@ -1126,6 +1165,29 @@ export default function ResourceWorkbench({
         </>
       ) : (
         <>
+          {resource.site_type === "node" && (
+            <article className="panel wb-panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>Backend runtime status</h2>
+                  <p>Private runtime-agent and isolated execution readiness.</p>
+                </div>
+                <button className="secondary-button" onClick={() => void loadRuntimeStatus()} disabled={checkingRuntime}>
+                  {checkingRuntime ? "Checking..." : "Refresh status"}
+                </button>
+              </div>
+              {runtimeStatus ? (
+                <>
+                  <div className="system-row"><span>Runtime agent</span><strong>{runtimeStatus.configured ? (runtimeStatus.agentReachable ? "Reachable" : "Unreachable") : "Not configured"}</strong></div>
+                  <div className="system-row"><span>Isolated provider</span><strong>{runtimeStatus.providerConfigured ? "Configured" : "Not configured"}</strong></div>
+                  <div className="system-row"><span>Backend execution</span><strong>{runtimeStatus.executionEnabled ? "Enabled" : "Disabled"}</strong></div>
+                  <p className="wb-help">{runtimeStatus.message}</p>
+                </>
+              ) : (
+                <p className="wb-help">{checkingRuntime ? "Checking the private runtime agent..." : "Runtime status has not been checked."}</p>
+              )}
+            </article>
+          )}
           {resource.site_type === "node" && (
             <article className="panel wb-panel">
               <div className="panel-heading">
