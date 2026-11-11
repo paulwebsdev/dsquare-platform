@@ -19,7 +19,7 @@ export interface RuntimeAgentNonceStore {
 export type VerifyRuntimeAgentRequestInput = {
   method: string;
   pathname: string;
-  rawBody: string;
+  rawBody: string | Uint8Array;
   headers: RuntimeAgentAuthHeaders;
   secret: string;
   nonceStore: RuntimeAgentNonceStore;
@@ -68,7 +68,7 @@ export async function verifyRuntimeAgentRequest(
     throw new Error("Runtime agent request timestamp is outside the permitted window.");
   }
 
-  const actualBodyHash = createHash("sha256").update(input.rawBody, "utf8").digest("hex");
+  const actualBodyHash = createHash("sha256").update(input.rawBody).digest("hex");
   if (!safeHexEqual(bodyHash, actualBodyHash)) {
     throw new Error("Runtime agent request body digest is invalid.");
   }
