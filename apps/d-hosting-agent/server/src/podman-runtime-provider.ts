@@ -1,5 +1,6 @@
 import path from "node:path";
 import { PodmanApiClient, type PodmanTransport } from "./podman-client.js";
+import type { RuntimeRegistry } from "./runtime-registry.js";
 import { buildPodmanContainerConfig, type PodmanRuntimeInput } from "./podman-runtime-config.js";
 import { materializeRuntimeWorkspace, removeRuntimeWorkspace } from "./runtime-workspace.js";
 
@@ -62,6 +63,8 @@ export class PodmanRuntimeProvider {
       }
       const config = buildPodmanContainerConfig({
         resourceId: request.resourceId,
+        deploymentId: request.deploymentId,
+        artifactId: request.artifactId,
         runtime: request.runtime,
         artifactDirectory,
         trustedImage: this.options.trustedImage,
@@ -77,6 +80,25 @@ export class PodmanRuntimeProvider {
       await removeRuntimeWorkspace(this.options.runtimeRoot, request.artifactId).catch(() => undefined);
       throw error;
     }
+  }
+
+  /** Adopt a container whose reservation survived a process crash, and remove only labelled DSquare orphans. */
+  async reconcile(registry: RuntimeRegistry): Promise<{ adopted: number; removed: number }> {
+    const containers = await this.client.listManagedContainers();
+    let adopted = 0;
+    let removed = 0;
+    for (const container of containers) {
+      const record = await registry.get(container.resourceId);
+      const identityMatches = record && record.deploymentId === container.deploymentId && record.artifactId === container.artifactId;
+      if (identityMatches && record.containerId === container.id) continue;
+      if (identityMatches && record.containerId === null && record.state === "creating") {
+        if (await registry.complete(container.resourceId, container.id)) { adopted += 1; continue; }
+      }
+      await this.client.removeContainer(container.id);
+      await removeRuntimeWorkspace(this.options.runtimeRoot, container.artifactId);
+      removed += 1;
+    }
+    return { adopted, removed };
   }
 
   async stop(containerId: string): Promise<void> {
