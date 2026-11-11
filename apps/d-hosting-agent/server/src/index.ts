@@ -63,11 +63,15 @@ export function createRuntimeAgentApp(input: {
   const nonceStore = new PostgresNonceStore(input.pool);
   app.disable("x-powered-by");
   app.use(express.raw({
-    type: () => true,
+    type: "*/*",
     limit: MAX_BODY_BYTES,
   }));
 
-  app.use("/v1", async (request: Request, response: Response, next: NextFunction) => {
+  app.use(async (request: Request, response: Response, next: NextFunction) => {
+    if (!request.originalUrl.startsWith("/v1/")) {
+      next();
+      return;
+    }
     try {
       if (request.originalUrl.includes("?")) {
         response.status(400).json({ error: "Runtime agent query strings are not permitted." });
@@ -75,7 +79,7 @@ export function createRuntimeAgentApp(input: {
       }
       await verifyRuntimeAgentRequest({
         method: request.method,
-        pathname: request.path,
+        pathname: request.originalUrl,
         rawBody: getRawBody(request),
         headers: request.headers as RuntimeAgentAuthHeaders,
         secret: input.secret,
