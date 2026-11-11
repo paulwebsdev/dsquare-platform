@@ -50,7 +50,7 @@ test("rejects unapproved images and unsafe mounts", () => {
     networkName: "dsquare-hosting-internal",
   }), /pre-approved image/);
   assert.throws(() => buildPodmanContainerConfig({
-    resourceId, runtime, artifactDirectory: "/srv/artifacts/site:rw",
+    resourceId, deploymentId, artifactId, runtime, artifactDirectory: "/srv/artifacts/site:rw",
     trustedImage: runtime.image, networkName: "dsquare-hosting-internal",
   }), /safe Linux absolute path/);
 });
