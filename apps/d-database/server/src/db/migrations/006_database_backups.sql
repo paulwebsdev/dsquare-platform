@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS database_backups (
     checksum_sha256 CHAR(64),
     size_bytes BIGINT CHECK (size_bytes IS NULL OR size_bytes >= 0),
     status VARCHAR(16) NOT NULL DEFAULT 'pending'
-        CHECK (status IN ('pending', 'running', 'completed', 'failed', 'restoring', 'restored')),
+        CHECK (status IN ('pending', 'running', 'completed', 'failed', 'restoring', 'restored', 'expired')),
     error_code VARCHAR(64),
     started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at TIMESTAMPTZ,
