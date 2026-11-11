@@ -108,9 +108,19 @@ export async function materializeRuntimeWorkspace(
     await rename(temporaryDirectory, finalDirectory);
     return finalDirectory;
   } catch (error) {
+    await makeDirectoriesWritable(temporaryDirectory).catch(() => undefined);
     await rm(temporaryDirectory, { recursive: true, force: true }).catch(() => undefined);
     throw error;
   }
+}
+
+async function makeDirectoriesWritable(directory: string): Promise<void> {
+  const stat = await lstat(directory);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) return;
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    if (entry.isDirectory()) await makeDirectoriesWritable(path.join(directory, entry.name));
+  }
+  await chmod(directory, 0o700);
 }
 
 /** Removes only a workspace with a valid artifact UUID beneath the configured root. */
@@ -122,7 +132,7 @@ export async function removeRuntimeWorkspace(runtimeRoot: string, artifactId: st
   try {
     const stat = await lstat(target);
     if (!stat.isDirectory() || stat.isSymbolicLink()) return false;
-    await chmod(target, 0o700);
+    await makeDirectoriesWritable(target);
     await rm(target, { recursive: true, force: false });
     return true;
   } catch (error) {
