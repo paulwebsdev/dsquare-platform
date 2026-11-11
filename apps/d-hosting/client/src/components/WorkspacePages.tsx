@@ -159,10 +159,6 @@ export function WorkspaceActivity({ onOpenProjects }: { onOpenProjects: () => vo
   );
 }
 
-import { useEffect, useState } from "react";
-
-type Project = { id: string; name: string };
-type Resource = { id: string; name: string; status?: string };
 
 export function UsageBilling({ product, onOpenProjects }: { product: string; onOpenProjects: () => void }) {
   const [projectCount, setProjectCount] = useState<number | null>(null);
