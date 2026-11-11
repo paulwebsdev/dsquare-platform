@@ -64,3 +64,34 @@ test("rejects unreasonable timeouts", async () => {
   await assert.rejects(requestRuntimeAgent({ ...options, timeoutMs: 60_001, fetchImpl: fakeFetch(() => Response.json({})) },
     { method: "GET", path: "/v1/health" }), /timeout/);
 });
+
+test("uploads binary artifacts with an HMAC signature and validates acceptance", async () => {
+  let received: RequestInit | undefined;
+  const bytes = Buffer.from([0, 1, 2, 255, 10]);
+  const result = await (await import("./runtime-agent-client.js")).uploadRuntimeAgentArtifact(
+    { ...options, fetchImpl: fakeFetch((_url, init) => {
+      received = init;
+      return Response.json({
+        artifactId: "123e4567-e89b-42d3-a456-426614174002",
+        accepted: true,
+      });
+    }) },
+    "123e4567-e89b-42d3-a456-426614174002",
+    bytes,
+  );
+  assert.equal(result.accepted, true);
+  assert.deepEqual(Buffer.from(received?.body as Uint8Array), bytes);
+  assert.equal(received?.method, "PUT");
+  assert.equal((received?.headers as Record<string, string>)["content-type"],
+    "application/vnd.dsquare.runtime-artifact");
+  assert.ok((received?.headers as Record<string, string>)["x-dsquare-signature"]);
+});
+
+test("rejects invalid artifact upload identifiers, sizes, and unconfirmed acceptance", async () => {
+  const fetchImpl = fakeFetch(() => Response.json({ accepted: true }));
+  const upload = (await import("./runtime-agent-client.js")).uploadRuntimeAgentArtifact;
+  await assert.rejects(upload({ ...options, fetchImpl }, "bad", Buffer.from("x")), /ID is invalid/);
+  await assert.rejects(upload({ ...options, fetchImpl }, "123e4567-e89b-42d3-a456-426614174002", new Uint8Array()), /between 1 byte/);
+  await assert.rejects(upload({ ...options, fetchImpl },
+    "123e4567-e89b-42d3-a456-426614174002", Buffer.from("x")), /did not confirm/);
+});
