@@ -5,6 +5,9 @@ import {
   encryptEnvironmentSecret,
   isValidEnvironmentName,
 } from "../services/environment-secrets.js";
+import {
+  getRuntimeEnvironmentCapacityError,
+} from "../services/runtime-environment-policy.js";
 
 const router = Router({ mergeParams: true });
 router.use(requireAuth);
@@ -78,14 +81,41 @@ router.put("/:resourceId/environment", async (req, res) => {
     return res.status(400).json({ success: false, message: "Environment variable values must contain 1–16,384 characters." });
   }
 
+  const client = await pool.connect();
   try {
-    const owned = await getOwnedResource(projectId, resourceId, String(res.locals.userId || ""));
-    if (owned.rowCount === 0) {
+    await client.query("BEGIN");
+    const owned = await client.query(
+      `SELECT r.id
+       FROM hosting_resources r
+       INNER JOIN projects p ON p.id = r.project_id
+       WHERE r.id = $1 AND r.project_id = $2 AND p.owner_id = $3
+       FOR UPDATE OF r`,
+      [resourceId, projectId, String(res.locals.userId || "")],
+    );
+    if (owned.rowCount !== 1) {
+      await client.query("ROLLBACK");
       return res.status(404).json({ success: false, message: "Website resource not found." });
     }
 
+    const capacity = await client.query(
+      `SELECT COUNT(*)::int AS variable_count,
+              COALESCE(SUM(octet_length(decode(encrypted_value, 'base64'))), 0)::int AS value_bytes
+       FROM hosting_environment_variables
+       WHERE resource_id = $1 AND name <> $2`,
+      [resourceId, name],
+    );
+    const capacityError = getRuntimeEnvironmentCapacityError(
+      capacity.rows[0].variable_count,
+      capacity.rows[0].value_bytes,
+      Buffer.byteLength(value, "utf8"),
+    );
+    if (capacityError) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ success: false, message: capacityError });
+    }
+
     const encrypted = encryptEnvironmentSecret(value, process.env, `${resourceId}:${name}`);
-    await pool.query(
+    await client.query(
       `INSERT INTO hosting_environment_variables
          (resource_id, name, encrypted_value, encryption_iv, encryption_auth_tag)
        VALUES ($1, $2, $3, $4, $5)
@@ -96,11 +126,15 @@ router.put("/:resourceId/environment", async (req, res) => {
                      updated_at = NOW()`,
       [resourceId, name, encrypted.ciphertext, encrypted.iv, encrypted.authTag],
     );
+    await client.query("COMMIT");
 
     return res.json({ success: true, message: "Environment variable saved." });
   } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
     console.error("Environment variable save error:", error instanceof Error ? error.message : error);
     return res.status(500).json({ success: false, message: "Could not save environment variable. Check the Hosting secrets key configuration." });
+  } finally {
+    client.release();
   }
 });
 
