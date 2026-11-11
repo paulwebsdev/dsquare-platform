@@ -46,6 +46,12 @@ type NodeValidationResponse = {
   success: boolean;
   message?: string;
   runtimeAvailable?: boolean;
+  runtime?: {
+    status: "available" | "unavailable";
+    executionEnabled: boolean;
+    providerConfigured: boolean;
+    reason?: string;
+  };
   validation?: {
     valid: boolean;
     error?: string;
@@ -1142,7 +1148,10 @@ export default function ResourceWorkbench({
                   {nodeValidation.validation?.valid && (
                     <p>Entrypoint: {nodeValidation.validation.entrypoint} · Start: {nodeValidation.validation.startCommand}</p>
                   )}
-                  <p>Backend execution is not enabled yet; deployment remains safely blocked until isolated runtime support is available.</p>
+                  <p>
+                    Runtime status: {nodeValidation.runtime?.status || "unavailable"}.
+                    {nodeValidation.runtime?.reason || "Backend execution remains disabled until an isolated runtime provider is configured."}
+                  </p>
                 </div>
               )}
             </article>
