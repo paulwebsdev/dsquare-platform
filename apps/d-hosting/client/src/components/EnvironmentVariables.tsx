@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import type { FormEvent } from "react";
 
 type EnvironmentVariable = {
   name: string;
@@ -45,7 +46,7 @@ export default function EnvironmentVariables({ resourceUrl, siteType }: Props) {
     setShowValue(false);
   }
 
-  async function saveVariable(event: React.FormEvent<HTMLFormElement>) {
+  async function saveVariable(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
     setError("");
@@ -107,7 +108,7 @@ export default function EnvironmentVariables({ resourceUrl, siteType }: Props) {
       </div>
 
       <div className="pm-resource-notice" role="note">
-        Values are encrypted at rest and never shown again after saving. Changes are saved for future runtime use; they do not currently start or restart a backend process.
+        Values are encrypted at rest and never shown again after saving. They are not injected into a running website yet; backend runtime integration will follow once isolated Node.js execution is available.
       </div>
 
       {error && <div className="pm-error" role="alert">{error}</div>}
@@ -178,11 +179,7 @@ export default function EnvironmentVariables({ resourceUrl, siteType }: Props) {
         )}
         {!loading && error && <button type="button" className="secondary-button" onClick={() => void loadVariables()}>Retry loading</button>}
       </div>
-      {siteType === "node" && (
-        <p style={{ marginTop: 14, fontSize: 13 }}>
-          Node.js execution is not enabled yet. These secrets are not currently injected into a running backend.
-        </p>
-      )}
+      {siteType === "node" && <p style={{ marginTop: 14, fontSize: 13 }}>Node.js backend execution is not enabled yet.</p>}
     </article>
   );
 }
