@@ -1,6 +1,7 @@
 import { Router } from "express";
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { copyFile, existsSync } from "node:fs";
+import { mkdir, readFile, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { pool } from "../config/database.js";
 import { requireAuth } from "../middleware/require-auth.js";
@@ -26,7 +27,7 @@ function params(req: { params: object }) {
 
 async function ownedResource(projectId: string, resourceId: string, userId: string) {
   return pool.query(
-    `SELECT r.id, r.project_id, r.status, r.site_type
+    `SELECT r.id, r.project_id, r.status, r.site_type, r.active_deployment_id
      FROM hosting_resources r
      INNER JOIN projects p ON p.id = r.project_id
      WHERE r.id = $1 AND r.project_id = $2 AND p.owner_id = $3
@@ -35,7 +36,7 @@ async function ownedResource(projectId: string, resourceId: string, userId: stri
   );
 }
 
-// Return deployment attempts newest first.
+// Return deployment attempts newest first, including the currently active version.
 router.get("/:resourceId/deployments", async (req, res) => {
   const { projectId = "", resourceId = "" } = params(req);
   if (!UUID_PATTERN.test(projectId) || !UUID_PATTERN.test(resourceId)) {
@@ -50,18 +51,79 @@ router.get("/:resourceId/deployments", async (req, res) => {
 
     const result = await pool.query(
       `SELECT id, project_id, resource_id, deployment_number, status,
-              file_manifest, error_summary, started_at, finished_at, created_at
+              file_manifest, error_summary, started_at, finished_at, created_at,
+              (id = $3::uuid) AS is_active
        FROM hosting_deployments
        WHERE project_id = $1 AND resource_id = $2
        ORDER BY deployment_number DESC
        LIMIT 20`,
-      [projectId, resourceId]
+      [projectId, resourceId, resource.rows[0].active_deployment_id]
     );
 
     return res.json({ success: true, deployments: result.rows });
   } catch (error) {
     console.error("Deployment history error:", error instanceof Error ? error.message : error);
     return res.status(500).json({ success: false, message: "Could not load deployment history." });
+  }
+});
+
+// Activate a successful immutable version. This also provides the safe rollback operation.
+router.post("/:resourceId/deployments/:deploymentId/activate", async (req, res) => {
+  const { projectId = "", resourceId = "", deploymentId = "" } = params(req);
+  if (![projectId, resourceId, deploymentId].every(value => UUID_PATTERN.test(value))) {
+    return res.status(400).json({ success: false, message: "Invalid project, website, or deployment ID." });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const resource = await client.query(
+      `SELECT r.id, r.status
+       FROM hosting_resources r
+       INNER JOIN projects p ON p.id = r.project_id
+       WHERE r.id = $1 AND r.project_id = $2 AND p.owner_id = $3
+       FOR UPDATE OF r`,
+      [resourceId, projectId, String(res.locals.userId || "")]
+    );
+    if (resource.rowCount !== 1) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ success: false, message: "Website resource not found." });
+    }
+    if (resource.rows[0].status === "archived") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ success: false, message: "Restore this website before activating a deployment." });
+    }
+
+    const deployment = await client.query(
+      `SELECT id FROM hosting_deployments
+       WHERE id = $1 AND project_id = $2 AND resource_id = $3 AND status = 'succeeded'
+       LIMIT 1`,
+      [deploymentId, projectId, resourceId]
+    );
+    if (deployment.rowCount !== 1) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ success: false, message: "Only a successful deployment belonging to this website can be activated." });
+    }
+
+    const updated = await client.query(
+      `UPDATE hosting_resources
+       SET active_deployment_id = $3, status = 'published', updated_at = NOW()
+       WHERE id = $1 AND project_id = $2
+       RETURNING id, status, active_deployment_id`,
+      [resourceId, projectId, deploymentId]
+    );
+    await client.query("COMMIT");
+    return res.json({
+      success: true,
+      message: "Deployment is now the live website version.",
+      resource: updated.rows[0],
+    });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    console.error("Deployment activation error:", error instanceof Error ? error.message : error);
+    return res.status(500).json({ success: false, message: "Could not activate this deployment." });
+  } finally {
+    client.release();
   }
 });
 
@@ -108,6 +170,12 @@ router.post("/:resourceId/validate-node", async (req, res) => {
       success: validation.valid,
       validation,
       runtimeAvailable: false,
+      runtime: {
+        status: "unavailable",
+        executionEnabled: false,
+        providerConfigured: false,
+        reason: "An isolated runtime provider is not configured. Customer backend code is never executed by this service.",
+      },
       message: validation.valid
         ? "Node.js project configuration is valid. Execution remains disabled until isolated runtime support is installed."
         : validation.error,
@@ -118,7 +186,7 @@ router.post("/:resourceId/validate-node", async (req, res) => {
   }
 });
 
-// Validate the uploaded static website and save a file-reference manifest.
+// Create an immutable snapshot of validated static website files.
 router.post("/:resourceId/deployments", async (req, res) => {
   const { projectId = "", resourceId = "" } = params(req);
   if (!UUID_PATTERN.test(projectId) || !UUID_PATTERN.test(resourceId)) {
@@ -126,6 +194,7 @@ router.post("/:resourceId/deployments", async (req, res) => {
   }
 
   const client = await pool.connect();
+  let snapshotDirectory = "";
   try {
     await client.query("BEGIN");
 
@@ -138,16 +207,14 @@ router.post("/:resourceId/deployments", async (req, res) => {
       [resourceId, projectId, String(res.locals.userId || "")]
     );
 
-    if (resource.rowCount === 0) {
+    if (resource.rowCount !== 1) {
       await client.query("ROLLBACK");
       return res.status(404).json({ success: false, message: "Website resource not found." });
     }
-
     if (resource.rows[0].site_type === "node") {
       await client.query("ROLLBACK");
       return res.status(409).json({ success: false, message: "Node.js execution is not enabled yet. This project can be configured, but cannot be deployed until isolated runtime support is available." });
     }
-
     if (resource.rows[0].status === "archived") {
       await client.query("ROLLBACK");
       return res.status(409).json({ success: false, message: "Restore this website before deploying." });
@@ -160,16 +227,15 @@ router.post("/:resourceId/deployments", async (req, res) => {
        ORDER BY original_name ASC`,
       [projectId, resourceId]
     );
-
-    const manifest = files.rows as ManifestFile[];
-    const candidates = getWebsiteFileCandidates("index.html", manifest.map(file => file.original_name));
-    const homepage = candidates.find(candidate => manifest.some(file => file.original_name === candidate));
+    const sourceFiles = files.rows as ManifestFile[];
+    const homepageCandidates = getWebsiteFileCandidates("index.html", sourceFiles.map(file => file.original_name));
+    const homepage = homepageCandidates.find(candidate => sourceFiles.some(file => file.original_name === candidate));
     let failure = "";
 
     if (!homepage) {
       failure = "Deployment failed: upload an index.html homepage at the website root.";
     } else {
-      const missing = manifest.find(file =>
+      const missing = sourceFiles.find(file =>
         !UUID_PATTERN.test(file.storage_key) ||
         !existsSync(path.join(storageRoot, resourceId, file.storage_key))
       );
@@ -183,34 +249,57 @@ router.post("/:resourceId/deployments", async (req, res) => {
       [resourceId]
     );
     const deploymentNumber = Number(numberResult.rows[0].next_number);
+    const deploymentId = randomUUID();
+    let snapshotManifest: ManifestFile[] = [];
+
+    if (!failure) {
+      snapshotDirectory = path.join(storageRoot, resourceId, "deployments", deploymentId);
+      await mkdir(snapshotDirectory, { recursive: true });
+      try {
+        for (const file of sourceFiles) {
+          const snapshotKey = randomUUID();
+          await copyFile(
+            path.join(storageRoot, resourceId, file.storage_key),
+            path.join(snapshotDirectory, snapshotKey)
+          );
+          snapshotManifest.push({ ...file, storage_key: snapshotKey });
+        }
+      } catch (error) {
+        failure = "Deployment failed while creating the immutable file snapshot.";
+        await rm(snapshotDirectory, { recursive: true, force: true });
+        snapshotManifest = [];
+        console.error("Deployment snapshot copy failed:", error instanceof Error ? error.message : error);
+      }
+    }
 
     const inserted = await client.query(
       `INSERT INTO hosting_deployments
-         (project_id, resource_id, deployment_number, status, file_manifest,
+         (id, project_id, resource_id, deployment_number, status, file_manifest,
           error_summary, finished_at, created_by)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6, NOW(), $7)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, NOW(), $8)
        RETURNING id, project_id, resource_id, deployment_number, status,
                  file_manifest, error_summary, started_at, finished_at, created_at`,
       [
+        deploymentId,
         projectId,
         resourceId,
         deploymentNumber,
         failure ? "failed" : "succeeded",
-        JSON.stringify(manifest),
+        JSON.stringify(snapshotManifest),
         failure || null,
         String(res.locals.userId || ""),
       ]
     );
 
     await client.query("COMMIT");
-
     return res.status(failure ? 422 : 201).json({
       success: !failure,
-      message: failure || "Website files validated and deployment recorded.",
+      message: failure || "Website files validated and saved as an immutable deployment snapshot.",
       deployment: inserted.rows[0],
     });
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
+    if (snapshotDirectory) await rm(snapshotDirectory, { recursive: true, force: true }).catch(() => undefined);
     console.error("Deployment creation error:", error instanceof Error ? error.message : error);
     return res.status(500).json({ success: false, message: "Could not complete this deployment." });
   } finally {
