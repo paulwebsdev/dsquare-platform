@@ -7,8 +7,9 @@ The runtime agent is a separate service for a dedicated Linux runtime host. It m
 - Authenticates every `/v1` request with the shared HMAC protocol and PostgreSQL-backed single-use nonces.
 - Accepts bounded `DSQART01` bundles and verifies the manifest and every file hash.
 - Stores uploads privately without extracting or executing them.
+- Can materialize validated uploads into a separate workspace with read-only files/directories, rejecting symlinks and enforcing file-count and size limits.
 - The Podman API client now supports a private Linux Unix socket transport and bounded container lifecycle requests.
-- **Runtime creation remains disabled (HTTP 503).** The API transport alone is not an enabled runtime provider; artifact materialization, hardened create configuration, ingress networking, lifecycle ownership and end-to-end Linux security tests must be completed before enabling execution.
+- **Runtime creation remains disabled (HTTP 503).** The API transport alone is not an enabled runtime provider; the workspace materializer is implemented, but provider wiring, ingress networking, lifecycle ownership and end-to-end Linux security tests must be completed before enabling execution.
 
 ## Podman host requirements (future activation)
 
