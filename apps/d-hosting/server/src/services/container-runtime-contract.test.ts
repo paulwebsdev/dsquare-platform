@@ -14,6 +14,7 @@ test("builds a least-privilege Node runtime specification", () => {
   const spec = buildNodeContainerSpec({
     resourceId,
     validation: valid,
+    artifactDirectory: "C:\\dsquare\\runtime-artifact",
     environment: { NODE_ENV: "production", DATABASE_URL: "secret" },
     processEnvironment: {},
   });
@@ -21,6 +22,7 @@ test("builds a least-privilege Node runtime specification", () => {
   assert.equal(spec.name, `dsquare-site-${resourceId}`);
   assert.equal(spec.image, "node:22-bookworm-slim");
   assert.deepEqual(spec.command, ["npm", "start"]);
+  assert.deepEqual(spec.mounts, [{ source: "C:\\dsquare\\runtime-artifact", target: "/app", readOnly: true }]);
   assert.equal(spec.environment.PORT, "3000");
   assert.equal(spec.environment.HOSTING_SECRETS_KEY, undefined);
   assert.equal(spec.user, "10001:10001");
