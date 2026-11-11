@@ -18,26 +18,26 @@ function databaseToolEnvironment(): NodeJS.ProcessEnv {
   return env;
 }
 
-function databaseArgs(schemaName: string): string[] {
+function databaseConnectionArgs(): string[] {
+  if (process.env.DATABASE_URL?.trim()) return ["--dbname", process.env.DATABASE_URL.trim()];
+  const database = process.env.DB_NAME || "";
+  const user = process.env.DB_USER || "";
+  if (!database || !user) throw new Error("Database connection settings are incomplete for PostgreSQL tools.");
+  return ["--host", process.env.DB_HOST || "127.0.0.1", "--port", process.env.DB_PORT || "5432", "--username", user, "--dbname", database];
+}
+
+function resourceSchema(schemaName: string): string[] {
   if (!/^db_[a-f0-9]{32}$/.test(schemaName)) throw new Error("Invalid database resource schema.");
-  const args = ["--no-owner", "--no-acl", "--schema", schemaName];
-  if (process.env.DATABASE_URL?.trim()) args.push("--dbname", process.env.DATABASE_URL.trim());
-  else {
-    const database = process.env.DB_NAME || "";
-    const user = process.env.DB_USER || "";
-    if (!database || !user) throw new Error("Database connection settings are incomplete for PostgreSQL tools.");
-    args.push("--host", process.env.DB_HOST || "127.0.0.1", "--port", process.env.DB_PORT || "5432", "--username", user, "--dbname", database);
-  }
-  return args;
+  return ["--schema", schemaName];
 }
 
 function runDump(schemaName: string): Promise<Buffer> {
-  const args = ["--format=custom", "--no-owner", "--no-acl", "--schema", schemaName, ...databaseArgs(schemaName).slice(4)];
+  const args = ["--format=custom", "--no-owner", "--no-acl", ...resourceSchema(schemaName), ...databaseConnectionArgs()];
   return runTool(process.env.PG_DUMP_PATH || "pg_dump", args);
 }
 
 function runRestore(schemaName: string, dump: Buffer): Promise<void> {
-  const args = ["--clean", "--if-exists", "--single-transaction", "--exit-on-error", ...databaseArgs(schemaName)];
+  const args = ["--clean", "--if-exists", "--single-transaction", "--exit-on-error", "--no-owner", "--no-acl", ...resourceSchema(schemaName), ...databaseConnectionArgs()];
   return runTool(process.env.PG_RESTORE_PATH || "pg_restore", args, dump).then(() => undefined);
 }
 
