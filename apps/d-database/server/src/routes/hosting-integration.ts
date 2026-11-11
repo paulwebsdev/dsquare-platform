@@ -56,7 +56,7 @@ router.post("/redeem", limitCodeRedemption, async (req, res) => {
     }
 
     const approved = await client.query(
-      `SELECT c.user_id, c.project_id, c.resource_id, r.name AS resource_name
+      `SELECT c.user_id, c.project_id, c.resource_id, r.name AS resource_name, r.schema_name
        FROM hosting_authorization_codes c
        JOIN projects p ON p.id = c.project_id AND p.owner_id = c.user_id
        JOIN database_resources r ON r.id = c.resource_id AND r.project_id = c.project_id
