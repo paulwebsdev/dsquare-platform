@@ -193,9 +193,24 @@ router.patch("/:resourceId", async (req, res) => {
     });
   }
 
+  const client = await pool.connect();
   try {
+    await client.query("BEGIN");
+
+    const current = await client.query(
+      `SELECT id FROM database_resources
+       WHERE id = $1 AND project_id = $2
+       FOR UPDATE`,
+      [resourceId, projectId],
+    );
+
+    if (current.rowCount !== 1) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ success: false, message: "Resource not found." });
+    }
+
     if (hasStatus && body.status === "archived") {
-      const grant = await pool.query(
+      const grant = await client.query(
         `SELECT status FROM resource_access_grants
          WHERE resource_id = $1 AND status = 'active'`,
         [resourceId],
@@ -203,6 +218,7 @@ router.patch("/:resourceId", async (req, res) => {
 
       if (grant.rowCount === 1) {
         if (!resourceProvisionerPool) {
+          await client.query("ROLLBACK");
           return res.status(503).json({
             success: false,
             message: "Runtime access must be configured before this resource can be archived.",
@@ -212,7 +228,7 @@ router.patch("/:resourceId", async (req, res) => {
       }
     }
 
-    const result = await pool.query(
+    const result = await client.query(
       `UPDATE database_resources
        SET name = CASE WHEN $3::boolean THEN $4::varchar ELSE name END,
            status = CASE WHEN $5::boolean THEN $6::varchar ELSE status END,
@@ -229,17 +245,17 @@ router.patch("/:resourceId", async (req, res) => {
       ]
     );
 
-    if (result.rowCount === 0) {
-      return res.status(404).json({ success: false, message: "Resource not found." });
-    }
-
+    await client.query("COMMIT");
     return res.json({
       success: true,
       message: "Database resource updated.",
       resource: result.rows[0],
     });
   } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
     return sendError(error, res);
+  } finally {
+    client.release();
   }
 });
 
