@@ -38,7 +38,7 @@ export async function startRemoteNodeRuntime(
 ): Promise<{ containerId: string; artifactId: string; fileCount: number }> {
   const launch = await prepareNodeRuntimeLaunch(input);
   let artifactId: string | undefined;
-  let uploadAttempted = false;
+  let artifactUploaded = false;
 
   try {
     artifactId = input.deploymentId;
@@ -47,8 +47,8 @@ export async function startRemoteNodeRuntime(
       artifactDirectory: launch.artifactDirectory,
     });
 
-    uploadAttempted = true;
     await uploadRuntimeAgentArtifact(input.agent, artifactId, bundle.bytes);
+    artifactUploaded = true;
 
     const request = buildRemoteRuntimeCreateRequest({
       resourceId: input.resourceId,
@@ -72,7 +72,7 @@ export async function startRemoteNodeRuntime(
       fileCount: launch.fileCount,
     };
   } catch (error) {
-    if (uploadAttempted && artifactId) {
+    if (artifactUploaded && artifactId) {
       await requestRuntimeAgent(
         input.agent,
         { method: "DELETE", path: `/v1/artifacts/${artifactId}` },
