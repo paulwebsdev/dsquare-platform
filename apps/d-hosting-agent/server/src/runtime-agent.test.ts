@@ -7,7 +7,7 @@ import path from "node:path";
 import type { Pool } from "pg";
 import { test } from "node:test";
 import { signRuntimeAgentRequest } from "../../../d-hosting/server/src/services/runtime-agent-auth.js";
-import { createRuntimeAgentApp } from "./index.js";
+import { createRuntimeAgentApp, isRuntimeCreateRequest } from "./index.js";
 
 const SECRET = "runtime-agent-test-secret-with-at-least-32-bytes";
 
@@ -61,4 +61,49 @@ test("authenticates the full endpoint path and rejects a replayed nonce", async 
     );
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("rejects runtime requests that weaken the isolation contract", () => {
+  const valid = {
+    resourceId: "11111111-1111-4111-8111-111111111111",
+    deploymentId: "22222222-2222-4222-8222-222222222222",
+    artifact: {
+      artifactId: "22222222-2222-4222-8222-222222222222",
+      sha256: "a".repeat(64),
+      sizeBytes: 128,
+      fileCount: 1,
+    },
+    runtime: {
+      name: "dsquare-site-11111111-1111-4111-8111-111111111111",
+      image: "node:22-bookworm-slim",
+      workingDirectory: "/app",
+      command: ["npm", "start"],
+      environment: { PORT: "3000", NODE_ENV: "production" },
+      memoryBytes: 256 * 1024 * 1024,
+      nanoCpus: 500_000_000,
+      pidsLimit: 128,
+      user: "10001:10001",
+      readOnlyRootFilesystem: true,
+      capDrop: ["ALL"],
+      securityOpt: ["no-new-privileges:true"],
+      tmpfs: { "/tmp": "rw,noexec,nosuid,size=64m" },
+    },
+  };
+  assert.equal(isRuntimeCreateRequest(valid), true);
+  assert.equal(isRuntimeCreateRequest({
+    ...valid,
+    runtime: { ...valid.runtime, readOnlyRootFilesystem: false },
+  }), false);
+  assert.equal(isRuntimeCreateRequest({
+    ...valid,
+    runtime: { ...valid.runtime, capDrop: [] },
+  }), false);
+  assert.equal(isRuntimeCreateRequest({
+    ...valid,
+    runtime: { ...valid.runtime, environment: { PORT: "3001" } },
+  }), false);
+  assert.equal(isRuntimeCreateRequest({
+    ...valid,
+    runtime: { ...valid.runtime, command: ["sh", "-c", "malicious"] },
+  }), false);
 });
