@@ -2,6 +2,7 @@
 import PublishingControls from "./PublishingControls";
 import DeploymentHistory from "./DeploymentHistory";
 import CustomDomains from "./CustomDomains";
+import EnvironmentVariables from "./EnvironmentVariables";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
@@ -1160,6 +1161,7 @@ export default function ResourceWorkbench({
           <PublishingControls resourceUrl={baseUrl} initialStatus={resource.status} />
           <DeploymentHistory resourceUrl={baseUrl} />
           <CustomDomains resourceUrl={baseUrl} />
+          <EnvironmentVariables resourceUrl={baseUrl} siteType={resource.site_type} />
           <div className="wb-upload-panel panel">
             <div>
               <h2>Website files</h2>
