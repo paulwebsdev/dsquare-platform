@@ -13,11 +13,17 @@ const SECRET = "runtime-agent-test-secret-with-at-least-32-bytes";
 
 test("authenticates the full endpoint path and rejects a replayed nonce", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "dsquare-agent-test-"));
+  const claimedNonces = new Set<string>();
   const fakePool = {
-    query: async (sql: string) => ({
-      rowCount: sql.includes("INSERT INTO runtime_agent_nonces") ? 1 : 0,
-      rows: [],
-    }),
+    query: async (sql: string, values?: unknown[]) => {
+      if (sql.includes("INSERT INTO runtime_agent_nonces")) {
+        const nonce = String(values?.[0] ?? "");
+        if (claimedNonces.has(nonce)) return { rowCount: 0, rows: [] };
+        claimedNonces.add(nonce);
+        return { rowCount: 1, rows: [] };
+      }
+      return { rowCount: 0, rows: [] };
+    },
   } as unknown as Pool;
   const server = createServer(createRuntimeAgentApp({
     pool: fakePool,
