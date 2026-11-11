@@ -36,7 +36,7 @@ export async function requestRuntimeAgent<T>(
     throw new Error("Runtime agent timeout must be between 1 and 60000 milliseconds.");
   }
   if (
-    !/^\\/v1\\/[A-Za-z0-9._~-]+(?:\\/[A-Za-z0-9._~-]+)*$/.test(request.path) ||
+    !/^\/v1\/[A-Za-z0-9._~-]+(?:\/[A-Za-z0-9._~-]+)*$/.test(request.path) ||
     request.path.split("/").some((part) => part === "." || part === "..")
   ) {
     throw new Error("Runtime agent endpoint path is invalid.");
