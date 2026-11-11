@@ -311,6 +311,28 @@ export function createRuntimeAgentApp(input: {
     }
   });
 
+  app.get("/v1/runtimes/:resourceId/logs", async (request, response) => {
+    if (!UUID.test(request.params.resourceId)) {
+      response.status(400).json({ error: "Runtime resource identifier is invalid." });
+      return;
+    }
+    if (!executionEnabled || !input.provider) {
+      response.status(503).json({ error: "Runtime provider is unavailable." });
+      return;
+    }
+    const record = await registry.get(request.params.resourceId);
+    if (!record) {
+      response.status(404).json({ error: "Runtime was not found." });
+      return;
+    }
+    try {
+      const logs = await input.provider.logs(record.containerId, 200);
+      response.status(200).json({ resourceId: record.resourceId, logs: logs.toString("utf8") });
+    } catch {
+      response.status(502).json({ error: "Runtime logs could not be retrieved." });
+    }
+  });
+
   for (const action of ["stop", "restart"] as const) {
     app.post(`/v1/runtimes/:resourceId/${action}`, async (request, response) => {
       if (getRawBody(request).byteLength !== 0 || !UUID.test(request.params.resourceId)) {
