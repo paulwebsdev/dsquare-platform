@@ -22,20 +22,67 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function isRuntimeCreateRequest(value: unknown): value is {
+export function isRuntimeCreateRequest(value: unknown): value is {
   resourceId: string;
   deploymentId: string;
   artifact: { artifactId: string; sha256: string; sizeBytes: number; fileCount: number };
+  runtime: {
+    name: string;
+    image: string;
+    workingDirectory: "/app";
+    command: ["npm", "start"];
+    environment: Record<string, string>;
+    memoryBytes: number;
+    nanoCpus: number;
+    pidsLimit: number;
+    user: "10001:10001";
+    readOnlyRootFilesystem: true;
+    capDrop: ["ALL"];
+    securityOpt: ["no-new-privileges:true"];
+    tmpfs: { "/tmp": "rw,noexec,nosuid,size=64m" };
+  };
 } {
   if (!isRecord(value) || !UUID.test(String(value.resourceId)) ||
-      !UUID.test(String(value.deploymentId)) || !isRecord(value.artifact)) return false;
+      !UUID.test(String(value.deploymentId)) || !isRecord(value.artifact) ||
+      !isRecord(value.runtime)) return false;
+
   const artifact = value.artifact;
-  return UUID.test(String(artifact.artifactId)) &&
-    /^[a-f0-9]{64}$/i.test(String(artifact.sha256)) &&
-    Number.isSafeInteger(artifact.sizeBytes) &&
-    (artifact.sizeBytes as number) > 0 && (artifact.sizeBytes as number) <= MAX_BODY_BYTES &&
-    Number.isInteger(artifact.fileCount) &&
-    (artifact.fileCount as number) > 0 && (artifact.fileCount as number) <= 2_000;
+  const runtime = value.runtime;
+  if (!UUID.test(String(artifact.artifactId)) ||
+      !/^[a-f0-9]{64}$/i.test(String(artifact.sha256)) ||
+      !Number.isSafeInteger(artifact.sizeBytes) ||
+      (artifact.sizeBytes as number) < 1 || (artifact.sizeBytes as number) > MAX_BODY_BYTES ||
+      !Number.isInteger(artifact.fileCount) ||
+      (artifact.fileCount as number) < 1 || (artifact.fileCount as number) > 2_000) return false;
+
+  if (runtime.name !== `dsquare-site-${value.resourceId}` ||
+      typeof runtime.image !== "string" ||
+      !/^[A-Za-z0-9][A-Za-z0-9._/:@-]{2,255}$/.test(runtime.image) ||
+      runtime.workingDirectory !== "/app" ||
+      !Array.isArray(runtime.command) || runtime.command.length !== 2 ||
+      runtime.command[0] !== "npm" || runtime.command[1] !== "start" ||
+      !isRecord(runtime.environment) || runtime.environment.PORT !== "3000" ||
+      !Number.isSafeInteger(runtime.memoryBytes) ||
+      (runtime.memoryBytes as number) < 64 * 1024 * 1024 ||
+      !Number.isSafeInteger(runtime.nanoCpus) ||
+      (runtime.nanoCpus as number) < 100_000_000 ||
+      !Number.isInteger(runtime.pidsLimit) ||
+      (runtime.pidsLimit as number) < 16 || (runtime.pidsLimit as number) > 1024 ||
+      runtime.user !== "10001:10001" ||
+      runtime.readOnlyRootFilesystem !== true ||
+      !Array.isArray(runtime.capDrop) || runtime.capDrop.length !== 1 ||
+      runtime.capDrop[0] !== "ALL" ||
+      !Array.isArray(runtime.securityOpt) || runtime.securityOpt.length !== 1 ||
+      runtime.securityOpt[0] !== "no-new-privileges:true" ||
+      !isRecord(runtime.tmpfs) ||
+      runtime.tmpfs["/tmp"] !== "rw,noexec,nosuid,size=64m") return false;
+
+  for (const [name, envValue] of Object.entries(runtime.environment)) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ||
+        typeof envValue !== "string" || envValue.length > 16_384) return false;
+    if (name === "PORT" && envValue !== "3000") return false;
+  }
+  return true;
 }
 
 class PostgresNonceStore implements RuntimeAgentNonceStore {
