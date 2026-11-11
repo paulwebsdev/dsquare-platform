@@ -62,14 +62,14 @@ export async function serveResourceFile(
   try {
     const resourceResult = publishedOnly
       ? await pool.query(
-          `SELECT id, status
+          `SELECT id, status, active_deployment_id
            FROM hosting_resources
            WHERE id = $1 AND project_id = $2
            LIMIT 1`,
           [resourceId, projectId]
         )
       : await pool.query(
-          `SELECT id, status
+          `SELECT id, status, active_deployment_id
            FROM hosting_resources
            WHERE id = $1 AND project_id = $2
              AND EXISTS (
@@ -103,56 +103,89 @@ export async function serveResourceFile(
       });
     }
 
-    const findStoredFile = async (storedPath: string) =>
-      pool.query(
-        `SELECT storage_key, mime_type
-         FROM hosting_files
-         WHERE project_id = $1
-           AND resource_id = $2
-           AND original_name = $3
+    let filePath = "";
+    let mimeType = "";
+    if (publishedOnly) {
+      const activeDeploymentId = resourceResult.rows[0].active_deployment_id;
+      if (typeof activeDeploymentId !== "string" || !UUID_PATTERN.test(activeDeploymentId)) {
+        return res.status(404).json({ success: false, message: "This website has no active deployment." });
+      }
+
+      const deploymentResult = await pool.query(
+        `SELECT file_manifest
+         FROM hosting_deployments
+         WHERE id = $1 AND project_id = $2 AND resource_id = $3 AND status = 'succeeded'
          LIMIT 1`,
-        [projectId, resourceId, storedPath]
+        [activeDeploymentId, projectId, resourceId]
       );
+      if (deploymentResult.rowCount !== 1 || !Array.isArray(deploymentResult.rows[0].file_manifest)) {
+        return res.status(404).json({ success: false, message: "The active deployment snapshot is unavailable." });
+      }
 
-    let fileResult = await findStoredFile(safeFileName);
-
-    if (fileResult.rowCount === 0) {
-      const uploadedPaths = await pool.query(
-        `SELECT original_name
-         FROM hosting_files
-         WHERE project_id = $1 AND resource_id = $2`,
-        [projectId, resourceId]
-      );
+      const manifest = deploymentResult.rows[0].file_manifest as Array<{
+        original_name: string;
+        storage_key: string;
+        mime_type: string;
+      }>;
       const candidates = getWebsiteFileCandidates(
         safeFileName,
-        uploadedPaths.rows.map((row: { original_name: string }) => row.original_name)
+        manifest.map(file => file.original_name)
       );
+      const selected = candidates
+        .map(candidate => manifest.find(file => file.original_name === candidate))
+        .find(Boolean);
 
-      // The same resolver is used by preview, published URLs and custom domains.
-      for (const candidate of candidates.slice(1)) {
-        fileResult = await findStoredFile(candidate);
-        if (fileResult.rows.length > 0) break;
+      if (!selected || !UUID_PATTERN.test(selected.storage_key)) {
+        return res.status(404).json({
+          success: false,
+          message: "Website file not found in the active deployment snapshot.",
+        });
       }
+      filePath = path.join(storageRoot, resourceId, "deployments", activeDeploymentId, selected.storage_key);
+      mimeType = selected.mime_type || "";
+    } else {
+      const findStoredFile = async (storedPath: string) =>
+        pool.query(
+          `SELECT storage_key, mime_type
+           FROM hosting_files
+           WHERE project_id = $1
+             AND resource_id = $2
+             AND original_name = $3
+           LIMIT 1`,
+          [projectId, resourceId, storedPath]
+        );
+
+      let fileResult = await findStoredFile(safeFileName);
+      if (fileResult.rowCount === 0) {
+        const uploadedPaths = await pool.query(
+          `SELECT original_name
+           FROM hosting_files
+           WHERE project_id = $1 AND resource_id = $2`,
+          [projectId, resourceId]
+        );
+        const candidates = getWebsiteFileCandidates(
+          safeFileName,
+          uploadedPaths.rows.map((row: { original_name: string }) => row.original_name)
+        );
+        for (const candidate of candidates.slice(1)) {
+          fileResult = await findStoredFile(candidate);
+          if (fileResult.rows.length > 0) break;
+        }
+      }
+
+      if (fileResult.rowCount === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "Website file not found. Upload an index.html homepage to publish this website.",
+        });
+      }
+      const stored = fileResult.rows[0];
+      if (!UUID_PATTERN.test(stored.storage_key)) {
+        return res.status(400).json({ success: false, message: "Invalid stored file reference." });
+      }
+      filePath = path.join(storageRoot, resourceId, stored.storage_key);
+      mimeType = stored.mime_type || "";
     }
-
-    if (fileResult.rowCount === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "Website file not found. Upload an index.html homepage to publish this website.",
-      });
-    }
-
-    const { storage_key: storageKey, mime_type: mimeType } =
-      fileResult.rows[0];
-
-    if (!UUID_PATTERN.test(storageKey)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid stored file reference.",
-      });
-    }
-
-    const filePath = path.join(storageRoot, resourceId, storageKey);
 
     if (!existsSync(filePath)) {
       return res.status(404).json({
