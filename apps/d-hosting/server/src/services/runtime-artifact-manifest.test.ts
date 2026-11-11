@@ -42,19 +42,35 @@ test("changes the manifest digest when file contents change", async () => {
   }
 });
 
-test("rejects symbolic links and unsafe or unsupported artifact files", async () => {
+test("rejects symbolic links when the operating system permits creating them", async (t) => {
   const root = await fixture();
   const outside = path.join(os.tmpdir(), "dsquare-runtime-outside.txt");
   try {
     await writeFile(outside, "outside");
-    await symlink(outside, path.join(root, "linked.txt"));
+    try {
+      await symlink(outside, path.join(root, "linked.txt"));
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "EPERM" || code === "EACCES" || code === "ENOTSUP") {
+        t.skip("Symbolic-link creation is not permitted in this environment.");
+        return;
+      }
+      throw error;
+    }
     await assert.rejects(buildRuntimeArtifactManifest(root), /symbolic links/);
-    await rm(path.join(root, "linked.txt"), { force: true });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(outside, { force: true });
+  }
+});
+
+test("rejects unsupported file extensions", async () => {
+  const root = await fixture();
+  try {
     await writeFile(path.join(root, "unsafe.exe"), "not allowed");
     await assert.rejects(buildRuntimeArtifactManifest(root), /unsafe file path/);
   } finally {
     await rm(root, { recursive: true, force: true });
-    await rm(outside, { force: true });
   }
 });
 
