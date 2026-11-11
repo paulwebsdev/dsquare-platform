@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
 import testRunner from "node:test";
+import { readFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const provisionerSource = await readFile(
+  resolve(dirname(fileURLToPath(import.meta.url)), "resource-access-provisioner.ts"),
+  "utf8",
+);
 import { createResourceAccessPlan } from "./resource-access-policy.js";
 
 testRunner("resource role plan does not grant schema creation or elevated role powers", () => {
@@ -13,4 +21,16 @@ testRunner("resource role plan does not grant schema creation or elevated role p
   assert.match(plan.createRole, /NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT/);
   assert.ok(plan.grantStatements.every((statement) => !/CREATE ON SCHEMA|GRANT ALL/i.test(statement)));
   assert.ok(plan.grantStatements.some((statement) => /ALTER DEFAULT PRIVILEGES FOR ROLE "d_database_app"/.test(statement)));
+});
+
+
+testRunner("provisioning rejects a provisioner connection to a different database", () => {
+  assert.match(provisionerSource, /provisionerDatabaseName !== databaseName/);
+  assert.match(provisionerSource, /Provisioner connection points to a different database/);
+});
+
+testRunner("provisioning verifies schema ownership through the provisioner connection", () => {
+  assert.match(provisionerSource, /const provisionerOwnerResult = await client\.query/);
+  assert.match(provisionerSource, /provisionerSchemaOwner !== "d_database_app"/);
+  assert.match(provisionerSource, /Provisioner database resource schema ownership does not match/);
 });
