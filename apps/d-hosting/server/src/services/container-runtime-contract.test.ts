@@ -37,6 +37,7 @@ test("uses operator-selected runtime image and bounded resource limits", () => {
   const spec = buildNodeContainerSpec({
     resourceId,
     validation: valid,
+    artifactDirectory: "C:\\dsquare\\runtime-artifact",
     environment: {},
     processEnvironment: {
       HOSTING_NODE_RUNTIME_IMAGE: "registry.example.com/dsquare/node:22",
@@ -51,6 +52,7 @@ test("rejects invalid resource IDs, unvalidated projects, and malformed environm
   assert.throws(() => buildNodeContainerSpec({
     resourceId: "not-a-uuid",
     validation: valid,
+    artifactDirectory: "C:\\dsquare\\runtime-artifact",
     environment: {},
   }), /resource ID/);
   assert.throws(() => buildNodeContainerSpec({
@@ -61,6 +63,7 @@ test("rejects invalid resource IDs, unvalidated projects, and malformed environm
   assert.throws(() => buildNodeContainerSpec({
     resourceId,
     validation: valid,
+    artifactDirectory: "C:\\dsquare\\runtime-artifact",
     environment: { "BAD=NAME": "value" },
   }), /invalid, reserved/);
 });
@@ -79,6 +82,7 @@ test("rejects oversized runtime environment values", () => {
   assert.throws(() => buildNodeContainerSpec({
     resourceId,
     validation: valid,
+    artifactDirectory: "C:\\dsquare\\runtime-artifact",
     environment: { APP_CONFIG: "x".repeat(16385) },
   }), /oversized/);
 });
@@ -87,6 +91,7 @@ test("rejects malformed operator image configuration", () => {
   assert.throws(() => buildNodeContainerSpec({
     resourceId,
     validation: valid,
+    artifactDirectory: "C:\\dsquare\\runtime-artifact",
     environment: {},
     processEnvironment: { HOSTING_NODE_RUNTIME_IMAGE: "bad image; rm -rf /" },
   }), /trusted image reference/);
