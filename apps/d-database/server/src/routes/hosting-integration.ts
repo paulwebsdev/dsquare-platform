@@ -73,6 +73,10 @@ router.post("/redeem", limitCodeRedemption, async (req, res) => {
       res.status(400).json({ success: false, message: "Approved resource is no longer available." });
       return;
     }
+    const runtimeHost = process.env.D_DATABASE_RUNTIME_HOST?.trim();
+    if (!runtimeHost) {
+      throw new Error("D_DATABASE_RUNTIME_HOST must be configured before runtime credentials can be issued.");
+    }
     const resourceId = String(approved.rows[0].resource_id);
     const access = await provisionResourceAccess(resourceId);
     provisionedResourceId = resourceId;
@@ -81,8 +85,8 @@ router.post("/redeem", limitCodeRedemption, async (req, res) => {
       success: true,
       connection: {
         ...approved.rows[0],
-        database_host: process.env.DB_HOST || "127.0.0.1",
-        database_port: Number(process.env.DB_PORT || 5432),
+        database_host: process.env.D_DATABASE_RUNTIME_HOST || "",
+        database_port: Number(process.env.D_DATABASE_RUNTIME_PORT || 5432),
         database_name: String((await pool.query("SELECT current_database() AS name")).rows[0]?.name || ""),
         database_role: access.roleName,
         database_password: access.password,
@@ -97,6 +101,32 @@ router.post("/redeem", limitCodeRedemption, async (req, res) => {
     res.status(500).json({ success: false, message: "Unable to redeem authorization code." });
   } finally {
     client.release();
+  }
+});
+
+router.post("/revoke", limitCodeRedemption, async (req, res) => {
+  const clientId = typeof req.body?.clientId === "string" ? req.body.clientId : "";
+  const clientSecret = typeof req.body?.clientSecret === "string" ? req.body.clientSecret : "";
+  const resourceId = typeof req.body?.resourceId === "string" ? req.body.resourceId : "";
+  const expected = Buffer.from(CLIENT_SECRET);
+  const supplied = Buffer.from(clientSecret);
+  const secretValid = expected.length > 0 && expected.length === supplied.length && timingSafeEqual(expected, supplied);
+
+  if (!secretValid || clientId !== CLIENT_ID) {
+    res.status(401).json({ success: false, message: "Invalid integration client." });
+    return;
+  }
+  if (!uuidPattern.test(resourceId)) {
+    res.status(400).json({ success: false, message: "Invalid resource ID." });
+    return;
+  }
+
+  try {
+    await revokeResourceAccess(resourceId);
+    res.json({ success: true, revoked: true });
+  } catch (error) {
+    console.error("D Hosting resource access revocation error:", error instanceof Error ? error.message : error);
+    res.status(503).json({ success: false, message: "Unable to revoke database access." });
   }
 });
 
