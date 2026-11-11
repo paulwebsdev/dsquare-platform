@@ -136,8 +136,25 @@ export async function storeRuntimeArtifact(
   const metadataPath = path.join(root, `${artifactId}.metadata.json`);
   const temporaryDirectory = path.join(root, `.dsquare-agent-${artifactId}-${process.pid}-${Date.now()}`);
   const temporaryMetadata = path.join(root, `.dsquare-agent-${artifactId}-${process.pid}.metadata.tmp`);
+  const lockPath = path.join(root, `.dsquare-agent-${artifactId}.lock`);
   ensureInside(root, finalDirectory);
+  ensureInside(root, lockPath);
+  let lockHandle;
   try {
+    lockHandle = await open(lockPath, "wx", 0o600);
+    await lockHandle.close();
+    try {
+      await lstat(finalDirectory);
+      throw new Error("Runtime artifact already exists.");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    try {
+      await lstat(metadataPath);
+      throw new Error("Runtime artifact metadata already exists.");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
     await mkdir(temporaryDirectory, { mode: 0o700 });
     for (let index = 0; index < files.length; index += 1) {
       const file = files[index]!;
@@ -172,6 +189,8 @@ export async function storeRuntimeArtifact(
     await rm(temporaryDirectory, { recursive: true, force: true }).catch(() => undefined);
     await rm(temporaryMetadata, { force: true }).catch(() => undefined);
     throw error;
+  } finally {
+    await rm(lockPath, { force: true }).catch(() => undefined);
   }
 }
 
@@ -182,8 +201,12 @@ export async function readStoredArtifact(
   if (!UUID.test(artifactId)) return null;
   const root = await ensurePrivateRoot(storageRoot);
   const metadataPath = path.join(root, `${artifactId}.metadata.json`);
+  const artifactDirectory = path.join(root, artifactId);
   ensureInside(root, metadataPath);
+  ensureInside(root, artifactDirectory);
   try {
+    const directoryStat = await lstat(artifactDirectory);
+    if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) return null;
     const metadata = JSON.parse(await readFile(metadataPath, "utf8")) as unknown;
     if (!isRecord(metadata) || metadata.artifactId !== artifactId ||
         !SHA256.test(String(metadata.sha256)) ||
