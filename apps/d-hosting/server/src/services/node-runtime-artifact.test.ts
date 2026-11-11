@@ -70,3 +70,46 @@ test("removes a partially prepared artifact when a stored file is missing", asyn
     await rm(root, { recursive: true, force: true });
   }
 });
+
+
+test("rejects file counts above the runtime staging limit", async () => {
+  const root = await fixture();
+  try {
+    const files = Array.from({ length: MAX_NODE_RUNTIME_FILES + 1 }, (_, index) => ({
+      originalName: "file-" + index + ".js",
+      storageKey,
+    }));
+    await assert.rejects(
+      prepareNodeRuntimeArtifact({ resourceId, deploymentId, storageRoot: root, files }),
+      /maximum of 2,000 files/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects oversized files and removes the partial artifact", async () => {
+  const root = await fixture();
+  try {
+    const largeFile = path.join(root, resourceId, storageKey);
+    const fs = await import("node:fs/promises");
+    const handle = await fs.open(largeFile, "w");
+    try {
+      await handle.truncate(10 * 1024 * 1024 + 1);
+    } finally {
+      await handle.close();
+    }
+    await assert.rejects(
+      prepareNodeRuntimeArtifact({
+        resourceId, deploymentId, storageRoot: root,
+        files: [{ originalName: "large.js", storageKey }],
+      }),
+      /larger than 10 MB/,
+    );
+    await assert.rejects(
+      readFile(path.join(root, resourceId, "runtime-artifacts", deploymentId, "large.js")),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
