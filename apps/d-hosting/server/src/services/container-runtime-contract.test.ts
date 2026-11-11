@@ -9,12 +9,11 @@ const valid = {
   nodeMajor: 22 as const,
 };
 const resourceId = "123e4567-e89b-42d3-a456-426614174000";
+const artifactDirectory = process.cwd();
 
-test("builds a least-privilege Node runtime specification", () => {
+test("builds a least-privilege Node runtime specification with a read-only artifact mount", () => {
   const spec = buildNodeContainerSpec({
-    resourceId,
-    validation: valid,
-    artifactDirectory: "C:\\dsquare\\runtime-artifact",
+    resourceId, validation: valid, artifactDirectory,
     environment: { NODE_ENV: "production", DATABASE_URL: "secret" },
     processEnvironment: {},
   });
@@ -22,7 +21,7 @@ test("builds a least-privilege Node runtime specification", () => {
   assert.equal(spec.name, `dsquare-site-${resourceId}`);
   assert.equal(spec.image, "node:22-bookworm-slim");
   assert.deepEqual(spec.command, ["npm", "start"]);
-  assert.deepEqual(spec.mounts, [{ source: "C:\\dsquare\\runtime-artifact", target: "/app", readOnly: true }]);
+  assert.deepEqual(spec.mounts, [{ source: artifactDirectory, target: "/app", readOnly: true }]);
   assert.equal(spec.environment.PORT, "3000");
   assert.equal(spec.environment.HOSTING_SECRETS_KEY, undefined);
   assert.equal(spec.user, "10001:10001");
@@ -35,10 +34,7 @@ test("builds a least-privilege Node runtime specification", () => {
 
 test("uses operator-selected runtime image and bounded resource limits", () => {
   const spec = buildNodeContainerSpec({
-    resourceId,
-    validation: valid,
-    artifactDirectory: "C:\\dsquare\\runtime-artifact",
-    environment: {},
+    resourceId, validation: valid, artifactDirectory, environment: {},
     processEnvironment: {
       HOSTING_NODE_RUNTIME_IMAGE: "registry.example.com/dsquare/node:22",
       HOSTING_RUNTIME_MEMORY_MB: "512",
@@ -50,49 +46,40 @@ test("uses operator-selected runtime image and bounded resource limits", () => {
 
 test("rejects invalid resource IDs, unvalidated projects, and malformed environment", () => {
   assert.throws(() => buildNodeContainerSpec({
-    resourceId: "not-a-uuid",
-    validation: valid,
-    artifactDirectory: "C:\\dsquare\\runtime-artifact",
-    environment: {},
+    resourceId: "not-a-uuid", validation: valid, artifactDirectory, environment: {},
   }), /resource ID/);
   assert.throws(() => buildNodeContainerSpec({
-    resourceId,
-    validation: { valid: false, error: "missing package" },
-    environment: {},
+    resourceId, validation: { valid: false, error: "missing package" },
+    artifactDirectory, environment: {},
   }), /valid Node.js project/);
   assert.throws(() => buildNodeContainerSpec({
-    resourceId,
-    validation: valid,
-    artifactDirectory: "C:\\dsquare\\runtime-artifact",
-    environment: { "BAD=NAME": "value" },
+    resourceId, validation: valid, artifactDirectory, environment: { "BAD=NAME": "value" },
   }), /invalid, reserved/);
 });
 
 test("rejects platform and host secrets from the customer runtime environment", () => {
   for (const name of ["PORT", "PATH", "HOME", "NODE_OPTIONS", "NODE_PATH", "HOSTING_SECRETS_KEY"]) {
     assert.throws(() => buildNodeContainerSpec({
-      resourceId,
-      validation: valid,
-      environment: { [name]: "must-not-cross-boundary" },
+      resourceId, validation: valid, artifactDirectory, environment: { [name]: "must-not-cross-boundary" },
     }), /invalid, reserved/);
   }
 });
 
 test("rejects oversized runtime environment values", () => {
   assert.throws(() => buildNodeContainerSpec({
-    resourceId,
-    validation: valid,
-    artifactDirectory: "C:\\dsquare\\runtime-artifact",
-    environment: { APP_CONFIG: "x".repeat(16385) },
+    resourceId, validation: valid, artifactDirectory, environment: { APP_CONFIG: "x".repeat(16385) },
   }), /oversized/);
 });
 
 test("rejects malformed operator image configuration", () => {
   assert.throws(() => buildNodeContainerSpec({
-    resourceId,
-    validation: valid,
-    artifactDirectory: "C:\\dsquare\\runtime-artifact",
-    environment: {},
+    resourceId, validation: valid, artifactDirectory, environment: {},
     processEnvironment: { HOSTING_NODE_RUNTIME_IMAGE: "bad image; rm -rf /" },
   }), /trusted image reference/);
+});
+
+test("rejects a relative artifact directory", () => {
+  assert.throws(() => buildNodeContainerSpec({
+    resourceId, validation: valid, artifactDirectory: "relative/path", environment: {},
+  }), /absolute runtime artifact directory/);
 });
