@@ -227,3 +227,153 @@ export async function checkRuntimeAgentHealth(
   }
   return result as RuntimeAgentHealth;
 }
+
+export type RuntimeAgentState = "running" | "stopped";
+export type RuntimeAgentRuntimeResult = {
+  resourceId: string;
+  deploymentId: string;
+  state: RuntimeAgentState;
+};
+export type RuntimeAgentLifecycleResult = {
+  resourceId: string;
+  state: RuntimeAgentState;
+};
+export type RuntimeAgentCreateInput = {
+  resourceId: string;
+  deploymentId: string;
+  artifact: {
+    artifactId: string;
+    sha256: string;
+    sizeBytes: number;
+    fileCount: number;
+  };
+  runtime: {
+    name: string;
+    image: string;
+    workingDirectory: "/app";
+    command: ["npm", "start"];
+    environment: Record<string, string>;
+    memoryBytes: number;
+    nanoCpus: number;
+    pidsLimit: number;
+    user: "10001:10001";
+    readOnlyRootFilesystem: true;
+    capDrop: ["ALL"];
+    securityOpt: ["no-new-privileges:true"];
+    tmpfs: { "/tmp": "rw,noexec,nosuid,size=64m" };
+  };
+};
+
+const RUNTIME_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function assertRuntimeAgentResourceId(resourceId: string): void {
+  if (!RUNTIME_UUID.test(resourceId)) {
+    throw new Error("Runtime resource ID is invalid.");
+  }
+}
+
+function isRuntimeAgentState(value: unknown): value is RuntimeAgentState {
+  return value === "running" || value === "stopped";
+}
+
+/** Creates an isolated runtime after the matching artifact has been uploaded. */
+export async function createRuntimeAgentRuntime(
+  options: RuntimeAgentClientOptions,
+  input: RuntimeAgentCreateInput,
+): Promise<RuntimeAgentRuntimeResult> {
+  assertRuntimeAgentResourceId(input.resourceId);
+  assertRuntimeAgentResourceId(input.deploymentId);
+  assertRuntimeAgentResourceId(input.artifact.artifactId);
+  const result = await requestRuntimeAgent<unknown>(options, {
+    method: "POST",
+    path: "/v1/runtimes",
+    body: input,
+  });
+  if (!result || typeof result !== "object") {
+    throw new Error("Runtime agent returned an invalid runtime creation response.");
+  }
+  const value = result as Record<string, unknown>;
+  if (value.resourceId !== input.resourceId || value.deploymentId !== input.deploymentId ||
+      value.state !== "running") {
+    throw new Error("Runtime agent did not confirm the requested runtime.");
+  }
+  return value as RuntimeAgentRuntimeResult;
+}
+
+/** Reads the current state of one managed runtime. */
+export async function getRuntimeAgentRuntime(
+  options: RuntimeAgentClientOptions,
+  resourceId: string,
+): Promise<RuntimeAgentRuntimeResult> {
+  assertRuntimeAgentResourceId(resourceId);
+  const result = await requestRuntimeAgent<unknown>(options, {
+    method: "GET",
+    path: `/v1/runtimes/${resourceId}`,
+  });
+  if (!result || typeof result !== "object") {
+    throw new Error("Runtime agent returned an invalid runtime status response.");
+  }
+  const value = result as Record<string, unknown>;
+  if (value.resourceId !== resourceId || !RUNTIME_UUID.test(String(value.deploymentId)) ||
+      !isRuntimeAgentState(value.state)) {
+    throw new Error("Runtime agent returned invalid runtime status fields.");
+  }
+  return value as RuntimeAgentRuntimeResult;
+}
+
+/** Stops or restarts one managed runtime and verifies the resulting state. */
+export async function changeRuntimeAgentRuntimeState(
+  options: RuntimeAgentClientOptions,
+  resourceId: string,
+  action: "stop" | "restart",
+): Promise<RuntimeAgentLifecycleResult> {
+  assertRuntimeAgentResourceId(resourceId);
+  const result = await requestRuntimeAgent<unknown>(options, {
+    method: "POST",
+    path: `/v1/runtimes/${resourceId}/${action}`,
+  });
+  const expectedState = action === "stop" ? "stopped" : "running";
+  if (!result || typeof result !== "object" ||
+      (result as Record<string, unknown>).resourceId !== resourceId ||
+      (result as Record<string, unknown>).state !== expectedState) {
+    throw new Error("Runtime agent did not confirm the requested lifecycle operation.");
+  }
+  return result as RuntimeAgentLifecycleResult;
+}
+
+/** Removes the runtime before its deployment artifact is eligible for deletion. */
+export async function deleteRuntimeAgentRuntime(
+  options: RuntimeAgentClientOptions,
+  resourceId: string,
+): Promise<{ resourceId: string; deleted: true }> {
+  assertRuntimeAgentResourceId(resourceId);
+  const result = await requestRuntimeAgent<unknown>(options, {
+    method: "DELETE",
+    path: `/v1/runtimes/${resourceId}`,
+  });
+  if (!result || typeof result !== "object" ||
+      (result as Record<string, unknown>).resourceId !== resourceId ||
+      (result as Record<string, unknown>).deleted !== true) {
+    throw new Error("Runtime agent did not confirm runtime deletion.");
+  }
+  return result as { resourceId: string; deleted: true };
+}
+
+/** Deletes an artifact only after its runtime has been removed. */
+export async function deleteRuntimeAgentArtifact(
+  options: RuntimeAgentClientOptions,
+  artifactId: string,
+): Promise<{ artifactId: string; deleted: boolean }> {
+  assertRuntimeAgentResourceId(artifactId);
+  const result = await requestRuntimeAgent<unknown>(options, {
+    method: "DELETE",
+    path: `/v1/artifacts/${artifactId}`,
+  });
+  if (!result || typeof result !== "object" ||
+      (result as Record<string, unknown>).artifactId !== artifactId ||
+      typeof (result as Record<string, unknown>).deleted !== "boolean") {
+    throw new Error("Runtime agent returned an invalid artifact deletion response.");
+  }
+  return result as { artifactId: string; deleted: boolean };
+}
+
