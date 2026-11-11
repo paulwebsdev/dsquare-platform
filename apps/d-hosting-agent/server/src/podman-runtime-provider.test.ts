@@ -198,7 +198,9 @@ test("reconciles registered, pending, missing, and orphaned containers safely", 
     assert.deepEqual(stateChanges, [{ resourceId: missingResourceId, state: "unknown" }]);
     const removed = fixture.calls;
     // Only the orphan is deleted; registered and adopted containers remain.
-    assert.equal(removed.filter((call) => call.method === "DELETE").length, 0);
+    const deletions = removed.filter((call) => call.method === "DELETE");
+    assert.equal(deletions.length, 1);
+    assert.ok(deletions[0].path.includes(orphanContainerId));
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
