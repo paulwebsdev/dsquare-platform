@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { checkRuntimeAgentHealth, requestRuntimeAgent } from "./runtime-agent-client.js";
+import { changeRuntimeAgentRuntimeState, checkRuntimeAgentHealth, createRuntimeAgentRuntime, deleteRuntimeAgentArtifact, deleteRuntimeAgentRuntime, getRuntimeAgentRuntime, requestRuntimeAgent } from "./runtime-agent-client.js";
 
 const options = {
   baseUrl: "https://runtime.example.com",
@@ -123,4 +123,97 @@ test("checks authenticated runtime health and validates capability fields", asyn
       executionEnabled: "yes",
     })),
   }), /invalid health response/);
+});
+
+
+const RESOURCE_ID = "123e4567-e89b-42d3-a456-426614174001";
+const DEPLOYMENT_ID = "123e4567-e89b-42d3-a456-426614174002";
+
+test("creates and reads a runtime using validated typed responses", async () => {
+  const createInput = {
+    resourceId: RESOURCE_ID,
+    deploymentId: DEPLOYMENT_ID,
+    artifact: { artifactId: DEPLOYMENT_ID, sha256: "a".repeat(64), sizeBytes: 128, fileCount: 1 },
+    runtime: {
+      name: `dsquare-site-${RESOURCE_ID}`,
+      image: "node:22-bookworm-slim",
+      workingDirectory: "/app" as const,
+      command: ["npm", "start"] as ["npm", "start"],
+      environment: { PORT: "3000", NODE_ENV: "production" },
+      memoryBytes: 256 * 1024 * 1024,
+      nanoCpus: 500_000_000,
+      pidsLimit: 128,
+      user: "10001:10001" as const,
+      readOnlyRootFilesystem: true as const,
+      capDrop: ["ALL"] as ["ALL"],
+      securityOpt: ["no-new-privileges:true"] as ["no-new-privileges:true"],
+      tmpfs: { "/tmp": "rw,noexec,nosuid,size=64m" as const },
+    },
+  };
+  const created = await createRuntimeAgentRuntime({
+    ...options,
+    fetchImpl: fakeFetch((_url, init) => {
+      assert.equal(init.method, "POST");
+      return Response.json({ resourceId: RESOURCE_ID, deploymentId: DEPLOYMENT_ID, state: "running" }, { status: 201 });
+    }),
+  }, createInput);
+  assert.equal(created.state, "running");
+
+  const current = await getRuntimeAgentRuntime({
+    ...options,
+    fetchImpl: fakeFetch((url, init) => {
+      assert.equal(url.pathname, `/v1/runtimes/${RESOURCE_ID}`);
+      assert.equal(init.method, "GET");
+      return Response.json({ resourceId: RESOURCE_ID, deploymentId: DEPLOYMENT_ID, state: "stopped" });
+    }),
+  }, RESOURCE_ID);
+  assert.equal(current.state, "stopped");
+});
+
+test("validates runtime lifecycle and artifact deletion confirmations", async () => {
+  const stop = await changeRuntimeAgentRuntimeState({
+    ...options,
+    fetchImpl: fakeFetch((_url, init) => {
+      assert.equal(init.method, "POST");
+      return Response.json({ resourceId: RESOURCE_ID, state: "stopped" });
+    }),
+  }, RESOURCE_ID, "stop");
+  assert.equal(stop.state, "stopped");
+
+  const restart = await changeRuntimeAgentRuntimeState({
+    ...options,
+    fetchImpl: fakeFetch(() => Response.json({ resourceId: RESOURCE_ID, state: "running" })),
+  }, RESOURCE_ID, "restart");
+  assert.equal(restart.state, "running");
+
+  const removed = await deleteRuntimeAgentRuntime({
+    ...options,
+    fetchImpl: fakeFetch((_url, init) => {
+      assert.equal(init.method, "DELETE");
+      return Response.json({ resourceId: RESOURCE_ID, deleted: true });
+    }),
+  }, RESOURCE_ID);
+  assert.equal(removed.deleted, true);
+
+  const artifact = await deleteRuntimeAgentArtifact({
+    ...options,
+    fetchImpl: fakeFetch((url) => {
+      assert.equal(url.pathname, `/v1/artifacts/${DEPLOYMENT_ID}`);
+      return Response.json({ artifactId: DEPLOYMENT_ID, deleted: true });
+    }),
+  }, DEPLOYMENT_ID);
+  assert.equal(artifact.deleted, true);
+});
+
+test("rejects invalid resource identifiers and unconfirmed lifecycle results", async () => {
+  const fetchImpl = fakeFetch(() => Response.json({ resourceId: RESOURCE_ID, state: "running" }));
+  await assert.rejects(getRuntimeAgentRuntime({ ...options, fetchImpl }, "not-a-uuid"), /ID is invalid/);
+  await assert.rejects(changeRuntimeAgentRuntimeState({ ...options, fetchImpl }, RESOURCE_ID, "stop"),
+    /did not confirm/);
+  await assert.rejects(createRuntimeAgentRuntime({ ...options, fetchImpl }, {
+    resourceId: "invalid",
+    deploymentId: DEPLOYMENT_ID,
+    artifact: { artifactId: DEPLOYMENT_ID, sha256: "a".repeat(64), sizeBytes: 128, fileCount: 1 },
+    runtime: {} as never,
+  }), /ID is invalid/);
 });
