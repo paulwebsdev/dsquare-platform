@@ -64,7 +64,8 @@ router.post("/redeem", limitCodeRedemption, async (req, res) => {
        JOIN database_resources r ON r.id = c.resource_id AND r.project_id = c.project_id
        WHERE c.code_hash = $1
          AND p.status = 'active'
-         AND r.status = 'active'`,
+         AND r.status = 'active'
+       FOR UPDATE OF r`,
       [sha256(code)],
     );
     if (approved.rowCount !== 1) {
