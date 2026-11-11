@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { verifyDatabaseBackupPayload } from "./database-backup-restore.js";
+import { verifyDatabaseBackupPayload } from "./backup-integrity.js";
 
 const payload = Buffer.from("verified PostgreSQL backup payload");
 const checksum = createHash("sha256").update(payload).digest("hex");
