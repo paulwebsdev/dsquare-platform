@@ -7,15 +7,15 @@ test("redacts common secret assignments, bearer tokens, and database credentials
     "password=hunter2 API_KEY:abc123 Bearer eyJhbGciOiJIUzI1NiJ9 postgres://user:pass@db.local/app",
   );
   assert.doesNotMatch(safe, /hunter2|abc123|eyJhbGci|user:pass/);
-  assert.match(safe, /\\[REDACTED\\]/);
+  assert.match(safe, /\[REDACTED\]/);
 });
 
 test("redacts platform secret-key and quoted environment assignments", () => {
   const safe = redactRuntimeLogMessage(
     'HOSTING_SECRETS_KEY=base64-private DATABASE_URL="postgres://private" PRIVATE_KEY:abc123 TOKEN=jwt-private',
   );
-  assert.doesNotMatch(safe, /base64-private|postgres:\\/\\/private|abc123|jwt-private/);
-  assert.equal((safe.match(/\\[REDACTED\\]/g) || []).length, 4);
+  assert.doesNotMatch(safe, /base64-private|postgres:\/\/private|abc123|jwt-private/);
+  assert.equal((safe.match(/\[REDACTED\]/g) || []).length, 4);
 });
 
 test("limits log count and truncates excessively long messages", () => {
