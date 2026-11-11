@@ -146,3 +146,71 @@ test("exposes minimal liveness and database readiness checks", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+
+test("requires the exact artifact and JSON content types", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "dsquare-agent-content-type-"));
+  const claimedNonces = new Set<string>();
+  const fakePool = {
+    query: async (sql: string, values?: unknown[]) => {
+      if (sql.includes("INSERT INTO runtime_agent_nonces")) {
+        const nonce = String(values?.[0] ?? "");
+        if (claimedNonces.has(nonce)) return { rowCount: 0, rows: [] };
+        claimedNonces.add(nonce);
+        return { rowCount: 1, rows: [] };
+      }
+      return { rowCount: 0, rows: [] };
+    },
+  } as unknown as Pool;
+  const server = createServer(createRuntimeAgentApp({ pool: fakePool, secret: SECRET, storageRoot: root }));
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const send = async (method: "PUT" | "POST", pathname: string, body: Buffer, contentType: string) => {
+      const headers = signRuntimeAgentRequest({ method, pathname, body, secret: SECRET });
+      return fetch(`http://127.0.0.1:${address.port}${pathname}`, {
+        method,
+        headers: { ...headers, "content-type": contentType },
+        body,
+      });
+    };
+    const artifact = await send(
+      "PUT",
+      "/v1/artifacts/33333333-3333-4333-8333-333333333333",
+      Buffer.from("not-a-bundle"),
+      "application/octet-stream",
+    );
+    assert.equal(artifact.status, 415);
+    const runtime = await send("POST", "/v1/runtimes", Buffer.from("{}"), "text/plain");
+    assert.equal(runtime.status, 415);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => error ? reject(error) : resolve()),
+    );
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("returns not-ready when the database health query fails", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "dsquare-agent-not-ready-"));
+  const fakePool = {
+    query: async () => { throw new Error("database unavailable"); },
+  } as unknown as Pool;
+  const server = createServer(createRuntimeAgentApp({ pool: fakePool, secret: SECRET, storageRoot: root }));
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const response = await fetch(`http://127.0.0.1:${address.port}/readyz`);
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { status: "not_ready" });
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => error ? reject(error) : resolve()),
+    );
+    await rm(root, { recursive: true, force: true });
+  }
+});
