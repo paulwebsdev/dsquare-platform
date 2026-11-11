@@ -57,6 +57,21 @@ export class RuntimeRegistry {
     return result.rowCount === 1;
   }
 
+  async list(): Promise<RuntimeRecord[]> {
+    const result = await this.pool.query(
+      `SELECT resource_id, deployment_id, artifact_id, container_id, state
+       FROM runtime_agent_runtimes ORDER BY created_at ASC`,
+    );
+    return result.rows.map((row: Record<string, unknown>) => ({
+      resourceId: String(row.resource_id),
+      deploymentId: String(row.deployment_id),
+      artifactId: String(row.artifact_id),
+      containerId: row.container_id == null ? null : String(row.container_id),
+      state: row.state === "creating" || row.state === "running" || row.state === "stopped"
+        ? row.state : "unknown",
+    }));
+  }
+
   async get(resourceId: string): Promise<RuntimeRecord | null> {
     const result = await this.pool.query(
       `SELECT resource_id, deployment_id, artifact_id, container_id, state
