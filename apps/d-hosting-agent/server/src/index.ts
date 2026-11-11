@@ -467,6 +467,7 @@ export async function startRuntimeAgent(): Promise<void> {
     await pool.query("CREATE INDEX IF NOT EXISTS runtime_agent_nonces_expires_at_idx ON runtime_agent_nonces (expires_at)");
     await pool.query("SELECT 1");
     await new RuntimeRegistry(pool).initialize();
+    await new RuntimeRegistry(pool).clearStaleReservations();
   } catch (error) {
     await pool.end();
     throw error;
