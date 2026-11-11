@@ -32,7 +32,7 @@ export function isValidDatabaseConnectionCredentials(
     typeof item.database_host === "string" &&
     item.database_host.length <= 253 &&
     item.database_host.trim() === item.database_host &&
-    !/[\\s\\u0000-\\u001f\\u007f/?#@]/.test(item.database_host) &&
+    !/[\\s\\u0000-\\u001f\\u007f\\\\/?#@]/.test(item.database_host) &&
     item.database_host.length > 0 &&
     Number.isInteger(item.database_port) &&
     Number(item.database_port) >= 1 && Number(item.database_port) <= 65535 &&
