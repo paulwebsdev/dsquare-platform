@@ -12,7 +12,7 @@ export function redactRuntimeLogMessage(message: string): string {
   let safe = message.slice(0, MAX_MESSAGE_LENGTH);
   for (const pattern of SECRET_PATTERNS) {
     safe = safe.replace(pattern, (_match, prefix: string, suffix?: string) =>
-      suffix === undefined ? \`${prefix}[REDACTED]\` : \`${prefix}[REDACTED]${suffix}\`,
+      suffix === undefined ? prefix + "[REDACTED]" : prefix + "[REDACTED]" + suffix,
     );
   }
   return safe;
