@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type PublishingControlsProps = {
   resourceUrl: string;
@@ -12,6 +12,15 @@ export default function PublishingControls({
   const [status, setStatus] = useState(initialStatus);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    const handleStatusChange = (event: Event) => {
+      const nextStatus = (event as CustomEvent<{ status?: string }>).detail?.status;
+      if (nextStatus) setStatus(nextStatus);
+    };
+    window.addEventListener("dsquare:hosting-status-change", handleStatusChange);
+    return () => window.removeEventListener("dsquare:hosting-status-change", handleStatusChange);
+  }, []);
 
   async function changeStatus() {
     const nextStatus = status === "published" ? "draft" : "published";
