@@ -213,7 +213,12 @@ export async function readStoredArtifact(
         !SHA256.test(String(metadata.sha256)) ||
         !Number.isSafeInteger(metadata.sizeBytes) ||
         !Number.isInteger(metadata.fileCount)) return null;
-    return metadata as StoredArtifact;
+    return {
+      artifactId,
+      sha256: metadata.sha256 as string,
+      sizeBytes: metadata.sizeBytes as number,
+      fileCount: metadata.fileCount as number,
+    };
   } catch {
     return null;
   }
