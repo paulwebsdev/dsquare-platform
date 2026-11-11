@@ -1,0 +1,133 @@
+import assert from "node:assert/strict";
+import { mkdtemp, mkdir, readFile, lstat, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { test } from "node:test";
+import { PodmanRuntimeProvider } from "./podman-runtime-provider.js";
+import type { PodmanRequest, PodmanResponse } from "./podman-client.js";
+
+const resourceId = "11111111-1111-4111-8111-111111111111";
+const artifactId = "22222222-2222-4222-8222-222222222222";
+const containerId = "a".repeat(64);
+
+function runtimeRequest() {
+  return {
+    resourceId,
+    deploymentId: artifactId,
+    artifactId,
+    runtime: {
+      name: `dsquare-site-${resourceId}`,
+      image: "node:22-bookworm-slim",
+      workingDirectory: "/app" as const,
+      command: ["npm", "start"] as ["npm", "start"],
+      environment: { PORT: "3000", NODE_ENV: "production" },
+      memoryBytes: 256 * 1024 * 1024,
+      nanoCpus: 500_000_000,
+      pidsLimit: 128,
+      user: "10001:10001" as const,
+      readOnlyRootFilesystem: true as const,
+      capDrop: ["ALL"] as ["ALL"],
+      securityOpt: ["no-new-privileges:true"] as ["no-new-privileges:true"],
+      tmpfs: { "/tmp": "rw,noexec,nosuid,size=64m" as const },
+    },
+  };
+}
+
+async function setup() {
+  const root = await mkdtemp(path.join(os.tmpdir(), "dsquare-podman-provider-"));
+  const storageRoot = path.join(root, "stored");
+  const runtimeRoot = path.join(root, "runtime");
+  await mkdir(path.join(storageRoot, artifactId), { recursive: true });
+  await writeFile(path.join(storageRoot, artifactId, "package.json"), '{"scripts":{"start":"node index.js"}}');
+  const calls: PodmanRequest[] = [];
+  const transport = async (request: PodmanRequest): Promise<PodmanResponse> => {
+    calls.push(request);
+    if (request.path.startsWith("/v1.40/containers/create")) {
+      return { statusCode: 201, headers: {}, body: Buffer.from(JSON.stringify({ Id: containerId })) };
+    }
+    if (request.path.endsWith("/json")) {
+      return { statusCode: 200, headers: {}, body: Buffer.from('{"State":{"Status":"running"}}') };
+    }
+    if (request.path.includes("/logs?")) {
+      return { statusCode: 200, headers: {}, body: Buffer.from("runtime logs") };
+    }
+    return { statusCode: 204, headers: {}, body: Buffer.alloc(0) };
+  };
+  const provider = new PodmanRuntimeProvider({
+    transport,
+    storageRoot,
+    runtimeRoot,
+    trustedImage: "node:22-bookworm-slim",
+    networkName: "dsquare-private",
+    containerWorkspacePath: (_workspace, id) => `/var/lib/dsquare/runtime-workspaces/${id}`,
+  });
+  return { root, runtimeRoot, calls, provider };
+}
+
+test("creates and starts an isolated container, then manages its lifecycle", async () => {
+  const fixture = await setup();
+  try {
+    const created = await fixture.provider.createAndStart(runtimeRequest());
+    assert.equal(created.containerId, containerId);
+    assert.equal(await readFile(path.join(created.workspacePath, "package.json"), "utf8"),
+      '{"scripts":{"start":"node index.js"}}');
+    const createCall = fixture.calls.find((call) => call.path.startsWith("/v1.40/containers/create"));
+    assert.ok(createCall);
+    const config = createCall.body as { HostConfig: { Binds: string[]; PortBindings?: unknown } };
+    assert.deepEqual(config.HostConfig.Binds, [
+      `/var/lib/dsquare/runtime-workspaces/${artifactId}:/app:ro`,
+    ]);
+    assert.equal(config.HostConfig.PortBindings, undefined);
+
+    await fixture.provider.stop(containerId);
+    await fixture.provider.restart(containerId);
+    assert.deepEqual(await fixture.provider.inspect(containerId), { State: { Status: "running" } });
+    assert.equal((await fixture.provider.logs(containerId)).toString(), "runtime logs");
+    assert.equal(await fixture.provider.remove(containerId, artifactId), true);
+    await assert.rejects(lstat(path.join(fixture.runtimeRoot, artifactId)));
+    assert.ok(fixture.calls.some((call) => call.path.endsWith("/stop?t=10")));
+    assert.ok(fixture.calls.some((call) => call.path.endsWith("/restart?t=10")));
+    assert.ok(fixture.calls.some((call) => call.method === "DELETE"));
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("rolls back the container and workspace when start fails", async () => {
+  const fixture = await setup();
+  const rollbackCalls: string[] = [];
+  const failingProvider = new PodmanRuntimeProvider({
+    transport: async (request) => {
+      rollbackCalls.push(`${request.method} ${request.path}`);
+      if (request.path.startsWith("/v1.40/containers/create")) {
+        return { statusCode: 201, headers: {}, body: Buffer.from(JSON.stringify({ Id: containerId })) };
+      }
+      if (request.path.endsWith("/start")) {
+        return { statusCode: 500, headers: {}, body: Buffer.from('{"message":"start failed"}') };
+      }
+      return { statusCode: 204, headers: {}, body: Buffer.alloc(0) };
+    },
+    storageRoot: path.join(fixture.root, "stored"),
+    runtimeRoot: fixture.runtimeRoot,
+    trustedImage: "node:22-bookworm-slim",
+    networkName: "dsquare-private",
+    containerWorkspacePath: (_workspace, id) => `/var/lib/dsquare/runtime-workspaces/${id}`,
+  });
+  try {
+    await assert.rejects(failingProvider.createAndStart(runtimeRequest()), /start failed/);
+    assert.ok(rollbackCalls.some((call) => call.startsWith("DELETE ")));
+    await assert.rejects(lstat(path.join(fixture.runtimeRoot, artifactId)));
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects malformed container identifiers before contacting Podman", async () => {
+  const fixture = await setup();
+  try {
+    await assert.rejects(fixture.provider.stop("../../etc/passwd"), /identifier is invalid/);
+    assert.equal(fixture.calls.length, 0);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
