@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { pool } from "../config/database.js";
+import { verifyDatabaseBackupPayload } from "./backup-integrity.js";
 import { getDatabaseBackupStorageConfig } from "../config/backup-storage-config.js";
 import { S3CompatibleBackupStorage, getBackupObjectKey } from "./s3-compatible-backup-storage.js";
 
