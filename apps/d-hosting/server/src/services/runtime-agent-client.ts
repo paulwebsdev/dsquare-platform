@@ -203,3 +203,27 @@ export async function uploadRuntimeAgentArtifact(
   }
   return parsed as { artifactId: string; accepted: true };
 }
+
+
+export type RuntimeAgentHealth = {
+  status: "ready";
+  providerConfigured: boolean;
+  executionEnabled: boolean;
+};
+
+/** Checks the authenticated private agent endpoint without enabling deployments. */
+export async function checkRuntimeAgentHealth(
+  options: RuntimeAgentClientOptions,
+): Promise<RuntimeAgentHealth> {
+  const result = await requestRuntimeAgent<unknown>(options, {
+    method: "GET",
+    path: "/v1/health",
+  });
+  if (!result || typeof result !== "object" ||
+      (result as Record<string, unknown>).status !== "ready" ||
+      typeof (result as Record<string, unknown>).providerConfigured !== "boolean" ||
+      typeof (result as Record<string, unknown>).executionEnabled !== "boolean") {
+    throw new Error("Runtime agent returned an invalid health response.");
+  }
+  return result as RuntimeAgentHealth;
+}
