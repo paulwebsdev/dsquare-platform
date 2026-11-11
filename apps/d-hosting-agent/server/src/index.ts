@@ -5,6 +5,8 @@ import path from "node:path";
 import { isIP } from "node:net";
 import { verifyRuntimeAgentRequest, type RuntimeAgentAuthHeaders, type RuntimeAgentNonceStore } from "../../../d-hosting/server/src/services/runtime-agent-verifier.js";
 import { deleteStoredArtifact, readStoredArtifact, storeRuntimeArtifact } from "./artifact-store.js";
+import { PodmanRuntimeProvider } from "./podman-runtime-provider.js";
+import { RuntimeRegistry } from "./runtime-registry.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_BODY_BYTES = 100 * 1024 * 1024;
@@ -125,9 +127,14 @@ export function createRuntimeAgentApp(input: {
   pool: Pool;
   secret: string;
   storageRoot: string;
+  provider?: PodmanRuntimeProvider;
+  /** Must remain false in production until Linux isolation acceptance is complete. */
+  executionEnabled?: boolean;
 }) {
   const app = express();
   const nonceStore = new PostgresNonceStore(input.pool);
+  const registry = new RuntimeRegistry(input.pool);
+  const executionEnabled = input.executionEnabled === true && Boolean(input.provider);
   app.disable("x-powered-by");
   app.use(express.raw({
     type: "*/*",
@@ -159,7 +166,7 @@ export function createRuntimeAgentApp(input: {
   });
 
   app.get("/v1/health", (_request, response) => {
-    response.status(200).json({ status: "ready", providerConfigured: false, executionEnabled: false });
+    response.status(200).json({ status: "ready", providerConfigured: Boolean(input.provider), executionEnabled });
   });
 
   app.get("/healthz", (_request, response) => {
@@ -218,8 +225,129 @@ export function createRuntimeAgentApp(input: {
       return;
     }
 
-    // Deliberately fail closed. No container provider is configured or trusted yet.
-    response.status(503).json({ error: "Isolated runtime provider is not configured. Website execution remains disabled." });
+    if (!executionEnabled || !input.provider) {
+      response.status(503).json({ error: "Website execution is disabled pending Linux isolation acceptance." });
+      return;
+    }
+    if (payload.runtime.image !== process.env.RUNTIME_AGENT_TRUSTED_IMAGE &&
+        process.env.RUNTIME_AGENT_TRUSTED_IMAGE) {
+      response.status(400).json({ error: "Runtime image is not the configured trusted image." });
+      return;
+    }
+    let created: { containerId: string; workspacePath: string };
+    try {
+      created = await input.provider.createAndStart({
+        resourceId: payload.resourceId,
+        deploymentId: payload.deploymentId,
+        artifactId: payload.artifact.artifactId,
+        runtime: payload.runtime,
+      });
+    } catch {
+      response.status(502).json({ error: "Isolated runtime could not be created." });
+      return;
+    }
+    try {
+      const saved = await registry.create({
+        resourceId: payload.resourceId,
+        deploymentId: payload.deploymentId,
+        artifactId: payload.artifact.artifactId,
+        containerId: created.containerId,
+        state: "running",
+      });
+      if (!saved) {
+        await input.provider.remove(created.containerId, payload.artifact.artifactId).catch(() => false);
+        response.status(409).json({ error: "A runtime already exists for this resource or deployment." });
+        return;
+      }
+    } catch {
+      await input.provider.remove(created.containerId, payload.artifact.artifactId).catch(() => false);
+      response.status(503).json({ error: "Runtime state could not be persisted; the container was rolled back." });
+      return;
+    }
+    response.status(201).json({
+      resourceId: payload.resourceId,
+      deploymentId: payload.deploymentId,
+      state: "running",
+    });
+  });
+
+  app.get("/v1/runtimes/:resourceId", async (request, response) => {
+    if (!UUID.test(request.params.resourceId)) {
+      response.status(400).json({ error: "Runtime resource identifier is invalid." });
+      return;
+    }
+    const record = await registry.get(request.params.resourceId);
+    if (!record) {
+      response.status(404).json({ error: "Runtime was not found." });
+      return;
+    }
+    if (!executionEnabled || !input.provider) {
+      response.status(503).json({ error: "Runtime provider is unavailable." });
+      return;
+    }
+    try {
+      const inspected = await input.provider.inspect(record.containerId);
+      const state = isRecord(inspected.State) && inspected.State.Status === "running"
+        ? "running" : "stopped";
+      await registry.setState(record.resourceId, state);
+      response.status(200).json({
+        resourceId: record.resourceId,
+        deploymentId: record.deploymentId,
+        state,
+      });
+    } catch {
+      response.status(502).json({ error: "Runtime status could not be retrieved." });
+    }
+  });
+
+  for (const action of ["stop", "restart"] as const) {
+    app.post(`/v1/runtimes/:resourceId/${action}`, async (request, response) => {
+      if (getRawBody(request).byteLength !== 0 || !UUID.test(request.params.resourceId)) {
+        response.status(400).json({ error: "Runtime lifecycle request is invalid." });
+        return;
+      }
+      if (!executionEnabled || !input.provider) {
+        response.status(503).json({ error: "Website execution is disabled pending Linux isolation acceptance." });
+        return;
+      }
+      const record = await registry.get(request.params.resourceId);
+      if (!record) {
+        response.status(404).json({ error: "Runtime was not found." });
+        return;
+      }
+      try {
+        if (action === "stop") await input.provider.stop(record.containerId);
+        else await input.provider.restart(record.containerId);
+        const state = action === "stop" ? "stopped" : "running";
+        await registry.setState(record.resourceId, state);
+        response.status(200).json({ resourceId: record.resourceId, state });
+      } catch {
+        response.status(502).json({ error: "Runtime lifecycle operation failed." });
+      }
+    });
+  }
+
+  app.delete("/v1/runtimes/:resourceId", async (request, response) => {
+    if (getRawBody(request).byteLength !== 0 || !UUID.test(request.params.resourceId)) {
+      response.status(400).json({ error: "Runtime deletion request is invalid." });
+      return;
+    }
+    if (!executionEnabled || !input.provider) {
+      response.status(503).json({ error: "Website execution is disabled pending Linux isolation acceptance." });
+      return;
+    }
+    const record = await registry.get(request.params.resourceId);
+    if (!record) {
+      response.status(404).json({ error: "Runtime was not found." });
+      return;
+    }
+    try {
+      await input.provider.remove(record.containerId, record.artifactId);
+      await registry.delete(record.resourceId);
+      response.status(200).json({ resourceId: record.resourceId, deleted: true });
+    } catch {
+      response.status(502).json({ error: "Runtime could not be safely removed." });
+    }
   });
 
   app.delete("/v1/artifacts/:artifactId", async (request, response) => {
@@ -286,12 +414,14 @@ export async function startRuntimeAgent(): Promise<void> {
     `);
     await pool.query("CREATE INDEX IF NOT EXISTS runtime_agent_nonces_expires_at_idx ON runtime_agent_nonces (expires_at)");
     await pool.query("SELECT 1");
+    await new RuntimeRegistry(pool).initialize();
   } catch (error) {
     await pool.end();
     throw error;
   }
 
-  const app = createRuntimeAgentApp({ pool, secret, storageRoot });
+  // Production execution is deliberately hard-disabled until Linux acceptance tests pass.
+  const app = createRuntimeAgentApp({ pool, secret, storageRoot, executionEnabled: false });
   const port = Number(process.env.RUNTIME_AGENT_PORT || 5003);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     await pool.end();
