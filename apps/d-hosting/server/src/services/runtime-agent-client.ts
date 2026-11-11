@@ -152,7 +152,6 @@ export async function uploadRuntimeAgentArtifact(
       ...headers,
       accept: "application/json",
       "content-type": "application/vnd.dsquare.runtime-artifact",
-      "content-length": String(bytes.byteLength),
     },
     body: Buffer.from(bytes),
     redirect: "manual",
