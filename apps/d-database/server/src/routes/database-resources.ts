@@ -1,6 +1,7 @@
 import { Router, type Response } from "express";
 import { randomUUID } from "node:crypto";
 import { pool } from "../config/database.js";
+import { resourceProvisionerPool, revokeResourceAccess } from "../services/resource-access-provisioner.js";
 
 const router = Router({ mergeParams: true });
 
@@ -193,6 +194,24 @@ router.patch("/:resourceId", async (req, res) => {
   }
 
   try {
+    if (hasStatus && body.status === "archived") {
+      const grant = await pool.query(
+        `SELECT status FROM resource_access_grants
+         WHERE resource_id = $1 AND status = 'active'`,
+        [resourceId],
+      );
+
+      if (grant.rowCount === 1) {
+        if (!resourceProvisionerPool) {
+          return res.status(503).json({
+            success: false,
+            message: "Runtime access must be configured before this resource can be archived.",
+          });
+        }
+        await revokeResourceAccess(resourceId);
+      }
+    }
+
     const result = await pool.query(
       `UPDATE database_resources
        SET name = CASE WHEN $3::boolean THEN $4::varchar ELSE name END,
