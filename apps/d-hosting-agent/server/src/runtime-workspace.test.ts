@@ -38,9 +38,8 @@ test("rejects symbolic links and leaves no partial workspace", async () => {
   try {
     await mkdir(artifact, { recursive: true });
     await writeFile(path.join(artifact, "index.js"), "console.log('safe')");
-    // A symlink is not required for this test: a non-regular filesystem entry is rejected too.
-    await mkdir(path.join(artifact, "unsupported"));
-    await assert.rejects(materializeRuntimeWorkspace(storage, artifactId, runtime), /unsupported or oversized|symbolic links/);
+    await writeFile(path.join(artifact, "oversized.bin"), Buffer.alloc(10 * 1024 * 1024 + 1));
+    await assert.rejects(materializeRuntimeWorkspace(storage, artifactId, runtime), /unsupported or oversized/);
     await assert.rejects(lstat(path.join(runtime, artifactId)));
   } finally {
     await rm(root, { recursive: true, force: true });
