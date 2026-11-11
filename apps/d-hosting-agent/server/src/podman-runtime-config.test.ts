@@ -3,6 +3,8 @@ import { test } from "node:test";
 import { buildPodmanContainerConfig } from "./podman-runtime-config.js";
 
 const resourceId = "11111111-1111-4111-8111-111111111111";
+const deploymentId = "22222222-2222-4222-8222-222222222222";
+const artifactId = deploymentId;
 const runtime = {
   name: `dsquare-site-${resourceId}`,
   image: "node:22-bookworm-slim",
@@ -21,7 +23,7 @@ const runtime = {
 
 test("builds a restricted Podman config without publishing a host port", () => {
   const config = buildPodmanContainerConfig({
-    resourceId, runtime, artifactDirectory: "/srv/dsquare/artifacts/site-1",
+    resourceId, deploymentId, artifactId, runtime, artifactDirectory: "/srv/dsquare/artifacts/site-1",
     trustedImage: "node:22-bookworm-slim", networkName: "dsquare-hosting-internal",
   }) as { HostConfig: Record<string, unknown>; ExposedPorts: Record<string, unknown> };
   assert.deepEqual(config.HostConfig.Binds, ["/srv/dsquare/artifacts/site-1:/app:ro"]);
@@ -32,12 +34,18 @@ test("builds a restricted Podman config without publishing a host port", () => {
   assert.deepEqual(config.HostConfig.CapDrop, ["ALL"]);
   assert.equal(config.HostConfig.NetworkMode, "dsquare-hosting-internal");
   assert.deepEqual(config.ExposedPorts, { "3000/tcp": {} });
+  assert.deepEqual((config as { Labels: Record<string, string> }).Labels, {
+    "io.dsquare.managed": "true",
+    "io.dsquare.resource-id": resourceId,
+    "io.dsquare.deployment-id": deploymentId,
+    "io.dsquare.artifact-id": artifactId,
+  });
   assert.equal("PortBindings" in config.HostConfig, false);
 });
 
 test("rejects unapproved images and unsafe mounts", () => {
   assert.throws(() => buildPodmanContainerConfig({
-    resourceId, runtime: { ...runtime, image: "attacker/image:latest" },
+    resourceId, deploymentId, artifactId, runtime: { ...runtime, image: "attacker/image:latest" },
     artifactDirectory: "/srv/artifacts/site", trustedImage: "node:22-bookworm-slim",
     networkName: "dsquare-hosting-internal",
   }), /pre-approved image/);
@@ -49,12 +57,12 @@ test("rejects unapproved images and unsafe mounts", () => {
 
 test("rejects weakened isolation and invalid resource limits", () => {
   assert.throws(() => buildPodmanContainerConfig({
-    resourceId, runtime: { ...runtime, readOnlyRootFilesystem: false as true },
+    resourceId, deploymentId, artifactId, runtime: { ...runtime, readOnlyRootFilesystem: false as true },
     artifactDirectory: "/srv/artifacts/site", trustedImage: runtime.image,
     networkName: "dsquare-hosting-internal",
   }), /isolation contract/);
   assert.throws(() => buildPodmanContainerConfig({
-    resourceId, runtime: { ...runtime, pidsLimit: 2 },
+    resourceId, deploymentId, artifactId, runtime: { ...runtime, pidsLimit: 2 },
     artifactDirectory: "/srv/artifacts/site", trustedImage: runtime.image,
     networkName: "dsquare-hosting-internal",
   }), /resource limits/);
