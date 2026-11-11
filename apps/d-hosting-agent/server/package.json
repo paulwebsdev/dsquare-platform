@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/artifact-store.test.ts src/runtime-agent.test.ts src/podman-client.test.ts",
+    "test": "tsx --test src/artifact-store.test.ts src/runtime-agent.test.ts src/podman-client.test.ts src/podman-runtime-config.test.ts",
     "dev": "tsx watch src/main.ts",
     "start": "tsx src/main.ts"
   },
