@@ -73,7 +73,7 @@ async function setup() {
     networkName: "dsquare-private",
     containerWorkspacePath: (_workspace, id) => `/var/lib/dsquare/runtime-workspaces/${id}`,
   });
-  return { root, runtimeRoot, calls, provider };
+  return { root, storageRoot, runtimeRoot, calls, transport, provider };
 }
 
 test("creates and starts an isolated container, then manages its lifecycle", async () => {
@@ -139,6 +139,66 @@ test("rejects malformed container identifiers before contacting Podman", async (
   try {
     await assert.rejects(fixture.provider.stop("../../etc/passwd"), /identifier is invalid/);
     assert.equal(fixture.calls.length, 0);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+
+test("reconciles registered, pending, missing, and orphaned containers safely", async () => {
+  const fixture = await setup();
+  const pendingResourceId = "33333333-3333-4333-8333-333333333333";
+  const missingResourceId = "44444444-4444-4444-8444-444444444444";
+  const orphanResourceId = "55555555-5555-4555-8555-555555555555";
+  const existingContainerId = "a".repeat(64);
+  const pendingContainerId = "b".repeat(64);
+  const orphanContainerId = "c".repeat(64);
+  const missingContainerId = "d".repeat(64);
+  const rows = [
+    { Id: existingContainerId, Labels: { "io.dsquare.managed": "true", "io.dsquare.resource-id": resourceId, "io.dsquare.deployment-id": artifactId, "io.dsquare.artifact-id": artifactId } },
+    { Id: pendingContainerId, Labels: { "io.dsquare.managed": "true", "io.dsquare.resource-id": pendingResourceId, "io.dsquare.deployment-id": artifactId, "io.dsquare.artifact-id": artifactId } },
+    { Id: orphanContainerId, Labels: { "io.dsquare.managed": "true", "io.dsquare.resource-id": orphanResourceId, "io.dsquare.deployment-id": artifactId, "io.dsquare.artifact-id": artifactId } },
+  ];
+  const records = [
+    { resourceId, deploymentId: artifactId, artifactId, containerId: existingContainerId, state: "running" as const },
+    { resourceId: pendingResourceId, deploymentId: artifactId, artifactId, containerId: null, state: "creating" as const },
+    { resourceId: missingResourceId, deploymentId: artifactId, artifactId, containerId: missingContainerId, state: "running" as const },
+  ];
+  const stateChanges: Array<{ resourceId: string; state: string }> = [];
+  const registry = {
+    get: async (id: string) => records.find((record) => record.resourceId === id) ?? null,
+    complete: async (id: string, idValue: string) => {
+      const record = records.find((item) => item.resourceId === id);
+      if (!record || record.state !== "creating" || record.containerId !== null) return false;
+      record.containerId = idValue;
+      record.state = "running";
+      return true;
+    },
+    list: async () => records,
+    setState: async (id: string, state: "unknown") => {
+      stateChanges.push({ resourceId: id, state });
+    },
+  };
+  const provider = new PodmanRuntimeProvider({
+    transport: async (request) => {
+      if (request.path.startsWith("/v1.40/containers/json")) {
+        return { statusCode: 200, headers: {}, body: Buffer.from(JSON.stringify(rows)) };
+      }
+      return fixture.transport(request);
+    },
+    storageRoot: fixture.storageRoot,
+    runtimeRoot: fixture.runtimeRoot,
+    trustedImage: "node:22-bookworm-slim",
+    networkName: "dsquare-private",
+  });
+  try {
+    const result = await provider.reconcile(registry as never);
+    assert.deepEqual(result, { adopted: 1, removed: 1 });
+    assert.equal(records[1].containerId, pendingContainerId);
+    assert.deepEqual(stateChanges, [{ resourceId: missingResourceId, state: "unknown" }]);
+    const removed = fixture.calls;
+    // Only the orphan is deleted; registered and adopted containers remain.
+    assert.equal(removed.filter((call) => call.method === "DELETE").length, 0);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
