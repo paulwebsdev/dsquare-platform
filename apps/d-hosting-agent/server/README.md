@@ -1,38 +1,37 @@
-# D Hosting Runtime Agent (initial secure receiver)
+# D Hosting Runtime Agent (secure receiver + Podman transport)
 
-This is a separate service workspace for a future Linux runtime host. It is not part of the D Hosting API process.
+The runtime agent is a separate service for a dedicated Linux runtime host. It must not run customer code on the D Hosting API process or the Windows development PC.
 
 ## Current safety state
 
-- Authenticates every `/v1` request with the shared HMAC protocol used by D Hosting.
-- Uses PostgreSQL-backed, single-use nonces to reject replayed requests.
-- Accepts only bounded `DSQART01` artifact bundles and verifies the manifest and every file hash.
-- Stores files in a private directory using exclusive file creation; it does not unpack archives or execute uploaded files.
-- Runtime creation deliberately returns HTTP 503. No customer code is executed until a real isolated OCI provider is implemented and security-tested.
-- The agent must run on a dedicated Linux host, not on the Windows development PC or inside the D Hosting API process.
+- Authenticates every `/v1` request with the shared HMAC protocol and PostgreSQL-backed single-use nonces.
+- Accepts bounded `DSQART01` bundles and verifies the manifest and every file hash.
+- Stores uploads privately without extracting or executing them.
+- The Podman API client now supports a private Linux Unix socket transport and bounded container lifecycle requests.
+- **Runtime creation remains disabled (HTTP 503).** The API transport alone is not an enabled runtime provider; artifact materialization, hardened create configuration, ingress networking, lifecycle ownership and end-to-end Linux security tests must be completed before enabling execution.
+
+## Podman host requirements (future activation)
+
+- Dedicated Linux host with rootless Podman and cgroup v2.
+- Use the rootless Podman socket (for example, `$XDG_RUNTIME_DIR/podman/podman.sock`) with filesystem permissions restricted to the runtime-agent service account.
+- Never expose the Podman API over a public TCP interface. The agent must access it through the Unix socket only.
+- Preload a trusted, pinned Node runtime image; do not allow customer requests to select or pull images.
+- Configure a dedicated network and an ingress proxy before enabling website execution. Do not publish container ports directly to the public internet.
 
 ## Required environment
 
-Set these values in the agent host's private environment (never commit real secrets):
-
-- `RUNTIME_AGENT_SHARED_SECRET`: the same random secret configured on the D Hosting API; at least 32 UTF-8 bytes.
-- `RUNTIME_AGENT_DATABASE_URL`: connection string for a dedicated runtime-agent PostgreSQL database, not either product database.
-- `RUNTIME_AGENT_STORAGE_ROOT`: absolute path to a private persistent directory outside any web root.
-- `RUNTIME_AGENT_HOST`: optional bind IP; defaults to `127.0.0.1` so the service is not exposed on every network interface. Set a private interface IP only when remote Hosting API connectivity is configured.
+- `RUNTIME_AGENT_SHARED_SECRET`: same random secret as the D Hosting API; at least 32 UTF-8 bytes.
+- `RUNTIME_AGENT_DATABASE_URL`: dedicated runtime-agent PostgreSQL database.
+- `RUNTIME_AGENT_STORAGE_ROOT`: absolute private persistent directory outside any web root.
+- `RUNTIME_AGENT_HOST`: optional bind IP; defaults to `127.0.0.1`.
 - `RUNTIME_AGENT_PORT`: optional TCP port; defaults to `5003`.
-- `GET /healthz` is a minimal liveness check; `GET /readyz` checks PostgreSQL connectivity and returns 503 when unavailable.
-- `RUNTIME_AGENT_DB_SSL=true`: enable certificate-verified PostgreSQL TLS when required by the database host.
-
-The database role currently needs permission to create the `runtime_agent_nonces` table and its expiry index at startup. Use a dedicated database/schema and do not reuse the D Hosting or D Database application roles.
+- `RUNTIME_AGENT_DB_SSL=true`: certificate-verified PostgreSQL TLS when required.
 
 ## Local verification
 
-From this directory:
-
 ```powershell
-npm.cmd install
 npm.cmd test
 npm.cmd run typecheck
-```
+``
 
-Do not expose this service publicly yet. Keep the default loopback bind for local use. For a remote Linux host, bind only to its private interface IP, put it behind HTTPS, and configure firewall rules allowing only the D Hosting API to reach it. Never bind to a public interface directly.
+Do not expose this service publicly. For remote connectivity, bind the agent only to a private interface behind HTTPS and firewall rules allowing only the D Hosting API.
