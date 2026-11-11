@@ -114,6 +114,10 @@ export async function revokeResourceAccess(resourceId: string): Promise<void> {
     }
     await client.query(`ALTER ROLE "${roleName}" NOLOGIN`);
     await client.query(
+      "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = $1 AND pid <> pg_backend_pid()",
+      [roleName],
+    );
+    await client.query(
       `UPDATE resource_access_grants
        SET status = 'revoked', revoked_at = NOW()
        WHERE resource_id = $1`,
