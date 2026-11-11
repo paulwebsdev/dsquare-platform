@@ -84,6 +84,15 @@ export class PodmanApiError extends Error {
   }
 }
 
+
+
+export type PodmanManagedContainer = {
+  id: string;
+  resourceId: string;
+  deploymentId: string;
+  artifactId: string;
+};
+
 export class PodmanApiClient {
   constructor(private readonly transport: PodmanTransport) {}
 
@@ -106,6 +115,36 @@ export class PodmanApiClient {
     } catch {
       throw new Error("Podman API returned invalid JSON.");
     }
+  }
+
+  async listManagedContainers(): Promise<PodmanManagedContainer[]> {
+    const filters = encodeURIComponent(JSON.stringify({ label: ["io.dsquare.managed=true"] }));
+    const rows = await this.call<unknown>({
+      method: "GET",
+      path: `/v1.40/containers/json?all=true&filters=${filters}`,
+    }, [200]);
+    if (!Array.isArray(rows) || rows.length > 10_000) {
+      throw new Error("Podman returned an invalid managed-container list.");
+    }
+    const managed: PodmanManagedContainer[] = [];
+    for (const row of rows) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      const item = row as Record<string, unknown>;
+      const labels = item.Labels;
+      if (!labels || typeof labels !== "object" || Array.isArray(labels)) continue;
+      const values = labels as Record<string, unknown>;
+      const id = item.Id;
+      const resourceId = values["io.dsquare.resource-id"];
+      const deploymentId = values["io.dsquare.deployment-id"];
+      const artifactId = values["io.dsquare.artifact-id"];
+      if (values["io.dsquare.managed"] !== "true" ||
+          typeof id !== "string" || !/^[a-f0-9]{12,64}$/i.test(id) ||
+          typeof resourceId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(resourceId) ||
+          typeof deploymentId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(deploymentId) ||
+          typeof artifactId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(artifactId)) continue;
+      managed.push({ id, resourceId, deploymentId, artifactId });
+    }
+    return managed;
   }
 
   async createContainer(config: Record<string, unknown>, name: string): Promise<string> {
