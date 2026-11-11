@@ -2,11 +2,20 @@ import "dotenv/config";
 import express, { type Request, type Response, type NextFunction } from "express";
 import { Pool } from "pg";
 import path from "node:path";
+import { isIP } from "node:net";
 import { verifyRuntimeAgentRequest, type RuntimeAgentAuthHeaders, type RuntimeAgentNonceStore } from "../../../d-hosting/server/src/services/runtime-agent-verifier.js";
 import { deleteStoredArtifact, readStoredArtifact, storeRuntimeArtifact } from "./artifact-store.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_BODY_BYTES = 100 * 1024 * 1024;
+
+export function resolveRuntimeAgentHost(value?: string): string {
+  const host = value?.trim() || "127.0.0.1";
+  if (isIP(host) === 0) {
+    throw new Error("RUNTIME_AGENT_HOST must be a valid IPv4 or IPv6 address.");
+  }
+  return host;
+}
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name]?.trim();
@@ -149,6 +158,19 @@ export function createRuntimeAgentApp(input: {
     }
   });
 
+  app.get("/healthz", (_request, response) => {
+    response.status(200).json({ status: "ok" });
+  });
+
+  app.get("/readyz", async (_request, response) => {
+    try {
+      await input.pool.query("SELECT 1");
+      response.status(200).json({ status: "ready" });
+    } catch {
+      response.status(503).json({ status: "not_ready" });
+    }
+  });
+
   app.put("/v1/artifacts/:artifactId", async (request, response) => {
     const artifactId = request.params.artifactId;
     if (!UUID.test(artifactId)) {
@@ -221,6 +243,7 @@ export async function startRuntimeAgent(): Promise<void> {
   if (Buffer.byteLength(secret, "utf8") < 32) {
     throw new Error("RUNTIME_AGENT_SHARED_SECRET must contain at least 32 bytes.");
   }
+  const host = resolveRuntimeAgentHost(process.env.RUNTIME_AGENT_HOST);
   const databaseUrl = requiredEnvironment("RUNTIME_AGENT_DATABASE_URL");
   const storageRoot = path.resolve(requiredEnvironment("RUNTIME_AGENT_STORAGE_ROOT"));
   const pool = new Pool({
@@ -258,7 +281,7 @@ export async function startRuntimeAgent(): Promise<void> {
     await pool.end();
     throw new Error("RUNTIME_AGENT_PORT must be a valid TCP port.");
   }
-  const server = app.listen(port, "0.0.0.0", () => {
+  const server = app.listen(port, host, () => {
     console.log(`D Hosting Runtime Agent listening on port ${port}`);
     console.log("Runtime provider: disabled (customer code execution is blocked).");
   });
