@@ -8,6 +8,7 @@ import { deleteStoredArtifact, readStoredArtifact, storeRuntimeArtifact } from "
 import { PodmanRuntimeProvider } from "./podman-runtime-provider.js";
 import { createPodmanSocketTransport } from "./podman-client.js";
 import { RuntimeRegistry } from "./runtime-registry.js";
+import { redactRuntimeLogMessage } from "../../../d-hosting/server/src/services/runtime-logs.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_BODY_BYTES = 100 * 1024 * 1024;
@@ -327,7 +328,9 @@ export function createRuntimeAgentApp(input: {
     }
     try {
       const logs = await input.provider.logs(record.containerId, 200);
-      response.status(200).json({ resourceId: record.resourceId, logs: logs.toString("utf8") });
+      const safeLogs = logs.toString("utf8").split(/\\r?\\n/).slice(-200)
+        .map(redactRuntimeLogMessage).join("\\n");
+      response.status(200).json({ resourceId: record.resourceId, logs: safeLogs });
     } catch {
       response.status(502).json({ error: "Runtime logs could not be retrieved." });
     }
