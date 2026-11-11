@@ -22,7 +22,7 @@ test("Podman client creates a named container through the versioned API", async 
   assert.equal(id, "a".repeat(64));
   assert.equal(calls[0]?.method, "POST");
   assert.match(calls[0]?.path ?? "", /^\/v1\.40\/containers\/create\?name=/);
-  assert.throws(() => client.createContainer({}, "untrusted-name"));
+  await assert.rejects(() => client.createContainer({}, "untrusted-name"), /container name is invalid/);
 });
 
 test("Podman client rejects malformed create responses and propagates API errors", async () => {
