@@ -34,3 +34,51 @@ testRunner("provisioning verifies schema ownership through the provisioner conne
   assert.match(provisionerSource, /provisionerSchemaOwner !== "d_database_app"/);
   assert.match(provisionerSource, /Provisioner database resource schema ownership does not match/);
 });
+
+
+testRunner("resource access plans reject unsafe database and schema-owner identifiers", () => {
+  const base = {
+    resourceId: "09800acb-a6c6-42d0-93f0-9d8aa73c251d",
+    schemaName: "db_09800acba6c642d093f09d8aa73c251d",
+    databaseName: "d_database",
+    schemaOwner: "d_database_app",
+  };
+  assert.throws(
+    () => createResourceAccessPlan({ ...base, databaseName: 'd_database"; DROP DATABASE postgres; --' }),
+    /Invalid PostgreSQL identifier/,
+  );
+  assert.throws(
+    () => createResourceAccessPlan({ ...base, schemaOwner: "public; GRANT ALL" }),
+    /Invalid PostgreSQL identifier/,
+  );
+  assert.throws(
+    () => createResourceAccessPlan({ ...base, schemaName: "public" }),
+    /Invalid resource schema/,
+  );
+});
+
+testRunner("resource access passwords are SQL-safe high-entropy URL-safe values", () => {
+  const plan = createResourceAccessPlan({
+    resourceId: "09800acb-a6c6-42d0-93f0-9d8aa73c251d",
+    schemaName: "db_09800acba6c642d093f09d8aa73c251d",
+    databaseName: "d_database",
+    schemaOwner: "d_database_app",
+  });
+  assert.match(plan.password, /^[A-Za-z0-9_-]{43}$/);
+  assert.doesNotMatch(plan.password, /['\\\\]/);
+});
+
+testRunner("resource revocation disables login, terminates sessions, and commits metadata atomically", () => {
+  assert.match(provisionerSource, /ALTER ROLE \\"\$\{roleName\}\\" NOLOGIN/);
+  assert.match(provisionerSource, /pg_terminate_backend\(pid\)/);
+  assert.match(provisionerSource, /status = 'revoked', revoked_at = NOW\(\)/);
+  assert.match(provisionerSource, /await client\.query\("BEGIN"\)/);
+  assert.match(provisionerSource, /await client\.query\("COMMIT"\)/);
+  assert.match(provisionerSource, /await client\.query\("ROLLBACK"\)/);
+});
+
+testRunner("resource provisioning serializes grant metadata and rolls back failed grants", () => {
+  assert.match(provisionerSource, /FOR UPDATE/);
+  assert.match(provisionerSource, /ON CONFLICT \(resource_id\) DO UPDATE/);
+  assert.match(provisionerSource, /catch \(error\)[\\s\\S]*?ROLLBACK/);
+});
