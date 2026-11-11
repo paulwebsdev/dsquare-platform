@@ -53,3 +53,27 @@ testRunner("generates different credentials for separate provisioning attempts",
     createResourceAccessPlan(input).password,
   );
 });
+
+testRunner("limits every grant to the resource schema and required data operations", () => {
+  const plan = createResourceAccessPlan({
+    resourceId,
+    schemaName: "db_09800acba6c642d093f09d8aa73c251d",
+    databaseName: "d_database",
+    schemaOwner: "d_database_app",
+  });
+
+  assert.equal(plan.grantStatements.length, 7);
+  assert.ok(plan.grantStatements.every((sql) =>
+    sql.includes('"db_09800acba6c642d093f09d8aa73c251d"') ||
+    sql.includes('ON DATABASE "d_database"'),
+  ));
+  assert.ok(plan.grantStatements.every((sql) =>
+    !/\\b(CREATE|TRUNCATE|REFERENCES|TRIGGER|GRANT OPTION)\\b|\\bTO PUBLIC\\b/i.test(sql),
+  ));
+  assert.ok(plan.grantStatements.some((sql) =>
+    /GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA/.test(sql),
+  ));
+  assert.ok(plan.grantStatements.some((sql) =>
+    /GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA/.test(sql),
+  ));
+});
