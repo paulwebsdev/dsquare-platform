@@ -27,6 +27,7 @@ test("rejects malformed identities and resource schemas", () => {
 
 test("rejects unsafe database endpoints and invalid ports", () => {
   assert.equal(isValidDatabaseConnectionCredentials({ ...valid, database_host: "db.internal/other" }), false);
+  assert.equal(isValidDatabaseConnectionCredentials({ ...valid, database_host: "db.internal" + String.fromCharCode(10) }), false);
   assert.equal(isValidDatabaseConnectionCredentials({ ...valid, database_host: "db.internal\\n" }), false);
   assert.equal(isValidDatabaseConnectionCredentials({ ...valid, database_port: 70000 }), false);
   assert.equal(isValidDatabaseConnectionCredentials({ ...valid, database_port: 0 }), false);
