@@ -32,8 +32,8 @@ export function buildPodmanContainerConfig(input: {
     throw new Error("Podman runtime identity is invalid.");
   }
   if (!input.artifactDirectory.startsWith("/") ||
-      input.artifactDirectory.includes("\\0") ||
-      /[\\r\\n:]/.test(input.artifactDirectory)) {
+      input.artifactDirectory.includes("\0") ||
+      /[\r\n:]/.test(input.artifactDirectory)) {
     throw new Error("Podman artifact mount path must be a safe Linux absolute path.");
   }
   if (!input.trustedImage || runtime.image !== input.trustedImage) {
