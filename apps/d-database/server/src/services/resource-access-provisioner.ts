@@ -51,14 +51,24 @@ export async function provisionResourceAccess(
   try {
     await client.query("BEGIN");
     const existing = await client.query(
-      "SELECT role_name FROM resource_access_grants WHERE resource_id = $1 AND status = 'active' FOR UPDATE",
+      "SELECT role_name, status FROM resource_access_grants WHERE resource_id = $1 FOR UPDATE",
       [resourceId],
     );
-    if (existing.rowCount) {
+    if (existing.rowCount && existing.rows[0].status === "active") {
       throw new Error("This resource already has an active access grant.");
     }
 
-    await client.query(plan.createRole);
+    if (existing.rowCount) {
+      const storedRole = String(existing.rows[0].role_name);
+      if (storedRole !== plan.roleName) {
+        throw new Error("Stored resource access role does not match the resource.");
+      }
+      await client.query(
+        `ALTER ROLE "${plan.roleName}" LOGIN PASSWORD '${plan.password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT`,
+      );
+    } else {
+      await client.query(plan.createRole);
+    }
     for (const statement of plan.grantStatements) {
       await client.query(statement);
     }
