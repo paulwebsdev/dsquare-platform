@@ -6,6 +6,7 @@ import { isIP } from "node:net";
 import { verifyRuntimeAgentRequest, type RuntimeAgentAuthHeaders, type RuntimeAgentNonceStore } from "../../../d-hosting/server/src/services/runtime-agent-verifier.js";
 import { deleteStoredArtifact, readStoredArtifact, storeRuntimeArtifact } from "./artifact-store.js";
 import { PodmanRuntimeProvider } from "./podman-runtime-provider.js";
+import { createPodmanSocketTransport } from "./podman-client.js";
 import { RuntimeRegistry } from "./runtime-registry.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -421,7 +422,27 @@ export async function startRuntimeAgent(): Promise<void> {
   }
 
   // Production execution is deliberately hard-disabled until Linux acceptance tests pass.
-  const app = createRuntimeAgentApp({ pool, secret, storageRoot, executionEnabled: false });
+  const podmanSocket = process.env.RUNTIME_AGENT_PODMAN_SOCKET?.trim();
+  const trustedImage = process.env.RUNTIME_AGENT_TRUSTED_IMAGE?.trim();
+  const privateNetwork = process.env.RUNTIME_AGENT_PODMAN_NETWORK?.trim();
+  const runtimeRootValue = process.env.RUNTIME_AGENT_RUNTIME_ROOT?.trim();
+  let provider: PodmanRuntimeProvider | undefined;
+  if (podmanSocket && trustedImage && privateNetwork && runtimeRootValue) {
+    if (!podmanSocket.startsWith("/") || !runtimeRootValue.startsWith("/")) {
+      await pool.end();
+      throw new Error("Podman socket and runtime workspace paths must be Linux absolute paths.");
+    }
+    provider = new PodmanRuntimeProvider({
+      transport: createPodmanSocketTransport({ socketPath: podmanSocket }),
+      storageRoot,
+      runtimeRoot: path.resolve(runtimeRootValue),
+      trustedImage,
+      networkName: privateNetwork,
+      containerWorkspacePath: (workspacePath) => workspacePath,
+    });
+  }
+  // Production execution is deliberately hard-disabled until Linux acceptance tests pass.
+  const app = createRuntimeAgentApp({ pool, secret, storageRoot, provider, executionEnabled: false });
   const port = Number(process.env.RUNTIME_AGENT_PORT || 5003);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     await pool.end();
