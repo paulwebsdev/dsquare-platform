@@ -79,7 +79,8 @@ export async function runDatabaseBackupSweep(pool: Pool): Promise<{ completed: n
 
   let completed = 0;
   let failed = 0;
-  const retentionDays = Math.max(1, Math.min(365, Number(process.env.D_DATABASE_BACKUP_RETENTION_DAYS || DEFAULT_RETENTION_DAYS)));
+  const requestedRetention = Number(process.env.D_DATABASE_BACKUP_RETENTION_DAYS || DEFAULT_RETENTION_DAYS);
+  const retentionDays = Number.isFinite(requestedRetention) ? Math.max(1, Math.min(365, Math.floor(requestedRetention))) : DEFAULT_RETENTION_DAYS;
 
   for (const resource of resources.rows as Array<{ resource_id: string; project_id: string; schema_name: string }>) {
     const backupId = randomUUID();
@@ -95,7 +96,9 @@ export async function runDatabaseBackupSweep(pool: Pool): Promise<{ completed: n
       if (dump.length === 0) throw new Error("pg_dump returned an empty backup.");
       const uploaded = await storage.putObject(objectKey, dump);
       const checksum = createHash("sha256").update(dump).digest("hex");
-      if (checksum !== uploaded.checksumSha256 || uploaded.sizeBytes !== dump.length) {
+      const remote = await storage.getObject(objectKey);
+      const remoteChecksum = createHash("sha256").update(remote.body).digest("hex");
+      if (checksum !== uploaded.checksumSha256 || uploaded.sizeBytes !== dump.length || remoteChecksum !== checksum || remote.body.length !== dump.length) {
         throw new Error("Backup upload integrity verification failed.");
       }
       await pool.query(
@@ -138,7 +141,7 @@ export async function runDatabaseBackupRetentionSweep(pool: Pool): Promise<numbe
       }
       await storage.deleteObject(backup.object_key);
       await pool.query(
-        "UPDATE database_backups SET status = 'failed', error_code = 'RETENTION_EXPIRED', object_key = NULL WHERE id = $1 AND status = 'completed'",
+        "UPDATE database_backups SET status = 'expired', error_code = 'RETENTION_EXPIRED', object_key = NULL WHERE id = $1 AND status = 'completed'",
         [backup.id],
       );
       removed++;
@@ -168,7 +171,8 @@ export function startDatabaseBackupScheduler(pool: Pool): void {
       running = false;
     }
   };
-  const interval = Math.max(60 * 60 * 1000, Number(process.env.D_DATABASE_BACKUP_INTERVAL_MS || DEFAULT_INTERVAL_MS));
+  const requestedInterval = Number(process.env.D_DATABASE_BACKUP_INTERVAL_MS || DEFAULT_INTERVAL_MS);
+  const interval = Number.isFinite(requestedInterval) ? Math.max(60 * 60 * 1000, requestedInterval) : DEFAULT_INTERVAL_MS;
   const timer = setInterval(() => void run(), interval);
   timer.unref();
   void run();
