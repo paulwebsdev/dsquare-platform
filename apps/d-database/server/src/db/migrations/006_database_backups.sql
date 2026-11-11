@@ -1,4 +1,6 @@
 BEGIN;
+CREATE UNIQUE INDEX IF NOT EXISTS database_resources_id_project_unique_idx
+    ON database_resources (id, project_id);
 CREATE TABLE IF NOT EXISTS database_backups (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
