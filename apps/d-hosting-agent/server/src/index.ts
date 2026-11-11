@@ -69,6 +69,10 @@ export function createRuntimeAgentApp(input: {
 
   app.use("/v1", async (request: Request, response: Response, next: NextFunction) => {
     try {
+      if (request.originalUrl.includes("?")) {
+        response.status(400).json({ error: "Runtime agent query strings are not permitted." });
+        return;
+      }
       await verifyRuntimeAgentRequest({
         method: request.method,
         pathname: request.path,
