@@ -190,13 +190,16 @@ router.patch("/:resourceId", async (req, res) => {
 
   if (hasStatus && body.status === "published") {
     const runtime = await pool.query(
-      `SELECT r.site_type FROM hosting_resources r
+      `SELECT r.site_type, r.active_deployment_id FROM hosting_resources r
        INNER JOIN projects p ON p.id = r.project_id
        WHERE r.id = $1 AND r.project_id = $2 AND p.owner_id = $3`,
       [resourceId, projectId, res.locals.userId]
     );
     if (runtime.rowCount && runtime.rows[0].site_type === "node") {
       return res.status(409).json({ success: false, message: "Node.js execution is not enabled yet. This website cannot be published until isolated runtime support is available." });
+    }
+    if (runtime.rowCount !== 1 || !runtime.rows[0].active_deployment_id) {
+      return res.status(409).json({ success: false, message: "Create and activate a successful deployment before publishing this website." });
     }
   }
 
