@@ -3,7 +3,7 @@ import "./style.css";
 import ProjectManager from "./components/ProjectManager";
 import AuthScreen, { type AuthUser } from "./components/AuthScreen";
 import HostingApproval from "./components/HostingApproval";
-import { ResourceDirectory, WorkspaceActivity, WorkspaceSettings } from "./components/WorkspacePages";
+import { HelpSupport, ResourceDirectory, UsageBilling, WorkspaceActivity, WorkspaceSettings } from "./components/WorkspacePages";
 
 type Theme = "light" | "dark" | "system";
 
@@ -183,7 +183,7 @@ export default function App() {
           </div>
           <div className="topbar-actions">
             <div className="connection"><span className="connection-dot"></span> {apiStatus}</div>
-            <button className="icon-button" title="Notifications">♧</button>
+            <button className="icon-button" title="Open recent activity" aria-label="Open recent activity" onClick={() => setActivePage("Activity")}>♧</button>
             <div className="theme-control" aria-label="Theme selection">
               <button className={theme === "light" ? "selected" : ""} onClick={() => setTheme("light")} title="Light mode">☀</button>
               <button className={theme === "dark" ? "selected" : ""} onClick={() => setTheme("dark")} title="Dark mode">☾</button>
@@ -199,6 +199,10 @@ export default function App() {
             <ResourceDirectory onOpenProjects={() => setActivePage("Projects")} />
           ) : activePage === "Activity" ? (
             <WorkspaceActivity onOpenProjects={() => setActivePage("Projects")} />
+          ) : activePage === "Usage & Billing" ? (
+            <UsageBilling product={product} onOpenProjects={() => setActivePage("Projects")} />
+          ) : activePage === "Help & Support" ? (
+            <HelpSupport product={product} onNavigate={setActivePage} />
           ) : activePage === "Settings" ? (
             <WorkspaceSettings product={product} user={user} theme={theme} onThemeChange={setTheme} onSignOut={() => void handleLogout()} />
           ) : (
