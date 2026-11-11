@@ -50,3 +50,33 @@ test("Podman logs are bounded and tail count is validated", async () => {
   assert.match(seenPath, /tail=50/);
   await assert.rejects(() => client.readContainerLogs("abc123", 5000));
 });
+
+
+test("Podman client lists only validated DSquare-labelled containers", async () => {
+  let seenPath = "";
+  const client = new PodmanApiClient(async (request) => {
+    seenPath = request.path;
+    return {
+      statusCode: 200,
+      headers: {},
+      body: Buffer.from(JSON.stringify([
+        {
+          Id: "a".repeat(64),
+          Labels: {
+            "io.dsquare.managed": "true",
+            "io.dsquare.resource-id": "11111111-1111-4111-8111-111111111111",
+            "io.dsquare.deployment-id": "22222222-2222-4222-8222-222222222222",
+            "io.dsquare.artifact-id": "22222222-2222-4222-8222-222222222222",
+          },
+        },
+        { Id: "b".repeat(64), Labels: { "io.dsquare.managed": "false" } },
+        { Id: "bad", Labels: { "io.dsquare.managed": "true" } },
+      ])),
+    };
+  });
+  const managed = await client.listManagedContainers();
+  assert.equal(managed.length, 1);
+  assert.equal(managed[0]?.id, "a".repeat(64));
+  assert.match(seenPath, /containers\/json\?all=true&filters=/);
+  assert.match(decodeURIComponent(seenPath), /io.dsquare.managed/);
+});
