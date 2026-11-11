@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { pool } from "../config/database.js";
 import { restoreDatabaseBackup } from "../services/database-backup-restore.js";
+import { restoreDatabaseBackup } from "../services/database-backup-restore.js";
 
 const router = Router({ mergeParams: true });
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -48,6 +49,34 @@ router.get("/:resourceId/backups", async (req, res) => {
   } catch (error) {
     console.error("D Database backup history failed:", error instanceof Error ? error.message : "Unknown error");
     return res.status(500).json({ success: false, message: "Could not load backup history." });
+  }
+});
+
+
+router.post("/:resourceId/backups/:backupId/restore", async (req, res) => {
+  const params = req.params as Record<string, string>;
+  const projectId = params.projectId || "";
+  const resourceId = params.resourceId || "";
+  const backupId = params.backupId || "";
+  if (![projectId, resourceId, backupId].every((value) => UUID.test(value))) {
+    return res.status(400).json({ success: false, message: "Invalid project, resource, or backup ID." });
+  }
+  const userId = res.locals.userId as string | undefined;
+  if (!userId || !UUID.test(userId)) {
+    return res.status(401).json({ success: false, message: "Authentication is required." });
+  }
+  try {
+    await restoreDatabaseBackup({ projectId, resourceId, backupId, userId });
+    return res.json({ success: true, message: "Database backup restored successfully. A verified safety backup was created first." });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown restore error.";
+    const notFound = message.includes("not found") || message.includes("completed, unexpired backup");
+    const conflict = message.includes("not configured") || message.includes("checksum") || message.includes("integrity") || message.includes("safety backup") || message.includes("ownership validation");
+    console.error("D Database restore failed:", message);
+    return res.status(notFound ? 404 : conflict ? 409 : 500).json({
+      success: false,
+      message: notFound || conflict ? message : "Database restore failed. The existing safety backup has been retained where possible.",
+    });
   }
 });
 
