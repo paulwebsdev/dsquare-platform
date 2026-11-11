@@ -9,7 +9,8 @@ The runtime agent is a separate service for a dedicated Linux runtime host. It m
 - Stores uploads privately without extracting or executing them.
 - Can materialize validated uploads into a separate workspace with read-only files/directories, rejecting symlinks and enforcing file-count and size limits.
 - The Podman API client now supports a private Linux Unix socket transport and bounded container lifecycle requests.
-- **Runtime creation remains disabled (HTTP 503).** The API transport alone is not an enabled runtime provider; the workspace materializer is implemented, but provider wiring, ingress networking, lifecycle ownership and end-to-end Linux security tests must be completed before enabling execution.
+- Runtime artifact intake, Podman provider wiring, registry reconciliation, inspect, bounded/redacted logs, stop/restart and deletion APIs are implemented. D Hosting exposes owner-scoped runtime status, logs and lifecycle routes.
+- **Runtime creation remains disabled (HTTP 503).** `startRuntimeAgent` deliberately passes `executionEnabled: false`; do not change this until the dedicated Linux host passes isolation, ingress, lifecycle, restart/recovery and end-to-end security acceptance tests. Merely setting Podman environment variables does not enable customer code.
 
 ## Podman host requirements (future activation)
 
@@ -28,7 +29,7 @@ The runtime agent is a separate service for a dedicated Linux runtime host. It m
 - `RUNTIME_AGENT_PORT`: optional TCP port; defaults to `5003`.
 - `RUNTIME_AGENT_DB_SSL=true`: certificate-verified PostgreSQL TLS when required.
 
-## Local verification
+## Owner-scoped D Hosting runtime API\n\nOnce the private agent is reachable, D Hosting can query `GET /api/v1/projects/:projectId/resources/:resourceId/runtime`, retrieve bounded logs from `GET .../:resourceId/runtime/logs`, and call `POST .../:resourceId/runtime/stop` or `POST .../:resourceId/runtime/restart`. These endpoints require the website owner's D Hosting session. They do not enable runtime creation; the agent still returns HTTP 503 while execution is hard-disabled.\n\n## Local verification
 
 ```powershell
 npm.cmd test
