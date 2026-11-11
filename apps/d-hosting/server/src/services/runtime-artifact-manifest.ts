@@ -6,7 +6,7 @@ import {
   MAX_NODE_RUNTIME_FILE_BYTES,
   MAX_NODE_RUNTIME_TOTAL_BYTES,
 } from "./node-runtime-artifact.js";
-import { normalizeWebsiteFilePath } from "./website-file-path.js";
+import { normalizeWebsiteFilePath, normalizeWebsiteRequestPath } from "./website-file-path.js";
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 
@@ -45,21 +45,24 @@ export async function buildRuntimeArtifactManifest(
     for (const child of children) {
       const absolutePath = path.resolve(directory, child.name);
       const relativePath = path.relative(root, absolutePath).split(path.sep).join("/");
-      const safePath = normalizeWebsiteFilePath(relativePath);
-      if (!safePath || safePath !== relativePath) {
-        throw new Error("Runtime artifact contains an unsafe file path.");
-      }
-
       const metadata = await lstat(absolutePath);
       if (metadata.isSymbolicLink()) {
         throw new Error("Runtime artifacts must not contain symbolic links.");
       }
       if (metadata.isDirectory()) {
+        const safeDirectoryPath = normalizeWebsiteRequestPath(relativePath);
+        if (!safeDirectoryPath || safeDirectoryPath !== relativePath) {
+          throw new Error("Runtime artifact contains an unsafe directory path.");
+        }
         await visit(absolutePath);
         continue;
       }
       if (!metadata.isFile()) {
         throw new Error("Runtime artifacts may contain only regular files and directories.");
+      }
+      const safePath = normalizeWebsiteFilePath(relativePath);
+      if (!safePath || safePath !== relativePath) {
+        throw new Error("Runtime artifact contains an unsafe file path.");
       }
       if (metadata.size > MAX_NODE_RUNTIME_FILE_BYTES) {
         throw new Error("Runtime artifact contains a file larger than 10 MB.");
