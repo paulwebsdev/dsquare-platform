@@ -74,10 +74,22 @@ export class PodmanRuntimeProvider {
       await this.client.startContainer(containerId);
       return { containerId, workspacePath };
     } catch (error) {
+      const cleanupErrors: unknown[] = [];
       if (containerId) {
-        await this.client.removeContainer(containerId).catch(() => undefined);
+        try {
+          await this.client.removeContainer(containerId);
+        } catch (cleanupError) {
+          cleanupErrors.push(cleanupError);
+        }
       }
-      await removeRuntimeWorkspace(this.options.runtimeRoot, request.artifactId).catch(() => undefined);
+      try {
+        await removeRuntimeWorkspace(this.options.runtimeRoot, request.artifactId);
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError);
+      }
+      if (cleanupErrors.length > 0) {
+        throw new AggregateError([error, ...cleanupErrors], "Runtime startup failed and rollback was incomplete.", { cause: error });
+      }
       throw error;
     }
   }
