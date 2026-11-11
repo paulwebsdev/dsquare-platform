@@ -309,6 +309,10 @@ export function createRuntimeAgentApp(input: {
       response.status(404).json({ error: "Runtime was not found." });
       return;
     }
+    if (!record.containerId) {
+      response.status(409).json({ error: "Runtime creation is still in progress." });
+      return;
+    }
     if (!executionEnabled || !input.provider) {
       response.status(503).json({ error: "Runtime provider is unavailable." });
       return;
@@ -342,6 +346,10 @@ export function createRuntimeAgentApp(input: {
       response.status(404).json({ error: "Runtime was not found." });
       return;
     }
+    if (!record.containerId) {
+      response.status(409).json({ error: "Runtime creation is still in progress." });
+      return;
+    }
     try {
       const logs = await input.provider.logs(record.containerId, 200);
       const safeLogs = logs.toString("utf8").split(/\r?\n/).slice(-200)
@@ -365,6 +373,10 @@ export function createRuntimeAgentApp(input: {
       const record = await registry.get(request.params.resourceId);
       if (!record) {
         response.status(404).json({ error: "Runtime was not found." });
+        return;
+      }
+      if (!record.containerId) {
+        response.status(409).json({ error: "Runtime creation is still in progress." });
         return;
       }
       try {
@@ -391,6 +403,11 @@ export function createRuntimeAgentApp(input: {
     const record = await registry.get(request.params.resourceId);
     if (!record) {
       response.status(404).json({ error: "Runtime was not found." });
+      return;
+    }
+    if (!record.containerId) {
+      await registry.delete(record.resourceId);
+      response.status(200).json({ resourceId: record.resourceId, deleted: true });
       return;
     }
     try {
