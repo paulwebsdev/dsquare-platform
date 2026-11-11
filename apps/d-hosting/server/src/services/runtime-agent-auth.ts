@@ -49,7 +49,7 @@ function signingPayload(input: {
 export function signRuntimeAgentRequest(input: {
   method: string;
   pathname: string;
-  body?: string;
+  body?: string | Uint8Array;
   secret: string;
   now?: number;
   nonce?: string;
@@ -68,7 +68,7 @@ export function signRuntimeAgentRequest(input: {
     throw new Error("Runtime agent request nonce is invalid.");
   }
 
-  const bodyHash = createHash("sha256").update(input.body ?? "", "utf8").digest("hex");
+  const bodyHash = createHash("sha256").update(input.body ?? "").digest("hex");
   const payload = signingPayload({
     method: input.method,
     pathname: input.pathname,
