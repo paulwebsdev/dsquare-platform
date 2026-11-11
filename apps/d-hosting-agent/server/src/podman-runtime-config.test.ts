@@ -25,7 +25,7 @@ test("builds a restricted Podman config without publishing a host port", () => {
   const config = buildPodmanContainerConfig({
     resourceId, deploymentId, artifactId, runtime, artifactDirectory: "/srv/dsquare/artifacts/site-1",
     trustedImage: "node:22-bookworm-slim", networkName: "dsquare-hosting-internal",
-  }) as { HostConfig: Record<string, unknown>; ExposedPorts: Record<string, unknown> };
+  }) as { HostConfig: Record<string, unknown>; ExposedPorts: Record<string, unknown>; Labels: Record<string, string> };
   assert.deepEqual(config.HostConfig.Binds, ["/srv/dsquare/artifacts/site-1:/app:ro"]);
   assert.equal(config.HostConfig.Memory, runtime.memoryBytes);
   assert.equal(config.HostConfig.NanoCpus, runtime.nanoCpus);
@@ -34,7 +34,7 @@ test("builds a restricted Podman config without publishing a host port", () => {
   assert.deepEqual(config.HostConfig.CapDrop, ["ALL"]);
   assert.equal(config.HostConfig.NetworkMode, "dsquare-hosting-internal");
   assert.deepEqual(config.ExposedPorts, { "3000/tcp": {} });
-  assert.deepEqual((config as { Labels: Record<string, string> }).Labels, {
+  assert.deepEqual(config.Labels, {
     "io.dsquare.managed": "true",
     "io.dsquare.resource-id": resourceId,
     "io.dsquare.deployment-id": deploymentId,
