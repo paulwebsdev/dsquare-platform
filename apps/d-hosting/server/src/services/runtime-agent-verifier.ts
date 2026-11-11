@@ -46,7 +46,7 @@ export async function verifyRuntimeAgentRequest(
   if (!/^[A-Z]{3,10}$/.test(input.method) ||
       !input.pathname.startsWith("/") ||
       input.pathname.startsWith("//") ||
-      /[\\r\\n]/.test(input.pathname)) {
+      /[\r\n]/.test(input.pathname)) {
     throw new Error("Runtime agent request target is invalid.");
   }
 
@@ -54,7 +54,7 @@ export async function verifyRuntimeAgentRequest(
   const nonce = input.headers["x-dsquare-nonce"] ?? "";
   const bodyHash = input.headers["x-dsquare-content-sha256"] ?? "";
   const signature = input.headers["x-dsquare-signature"] ?? "";
-  if (!/^\\d{13}$/.test(timestamp) ||
+  if (!/^\d{13}$/.test(timestamp) ||
       !/^[0-9a-f-]{36}$/i.test(nonce) ||
       !/^[a-f0-9]{64}$/i.test(bodyHash) ||
       !/^[a-f0-9]{64}$/i.test(signature)) {
