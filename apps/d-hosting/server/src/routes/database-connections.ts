@@ -3,6 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { pool } from "../config/database.js";
 import { requireAuth } from "../middleware/require-auth.js";
 import { createRateLimiter } from "../middleware/rate-limit.js";
+import { encryptEnvironmentSecret } from "../services/environment-secrets.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -150,6 +151,11 @@ router.post("/complete", requireSameOrigin, limitConnectionComplete, async (req,
         resource_id: string;
         resource_name: string;
         schema_name: string;
+        database_host: string;
+        database_port: number;
+        database_name: string;
+        database_role: string;
+        database_password: string;
       };
     };
     if (!response.ok || !payload.success || !payload.connection) {
@@ -165,21 +171,45 @@ router.post("/complete", requireSameOrigin, limitConnectionComplete, async (req,
       !validId(item.resource_id) ||
       typeof item.resource_name !== "string" ||
       typeof item.schema_name !== "string" ||
-      !/^db_[0-9a-f]{32}$/.test(item.schema_name)
+      !/^db_[0-9a-f]{32}$/.test(item.schema_name) ||
+      typeof item.database_host !== "string" ||
+      !item.database_host.trim() ||
+      !Number.isInteger(item.database_port) ||
+      item.database_port < 1 ||
+      item.database_port > 65535 ||
+      typeof item.database_name !== "string" ||
+      !/^[a-zA-Z0-9_]{1,63}$/.test(item.database_name) ||
+      typeof item.database_role !== "string" ||
+      !/^dsq_app_[0-9a-f]{32}$/.test(item.database_role) ||
+      typeof item.database_password !== "string" ||
+      !/^[A-Za-z0-9_-]{43}$/.test(item.database_password)
     ) {
       await client.query("ROLLBACK");
       res.status(502).json({ success: false, message: "D Database returned an invalid approval response." });
       return;
     }
 
+    const encryptedPassword = encryptEnvironmentSecret(
+      item.database_password,
+      process.env,
+      `d-database:${res.locals.userId}:${item.resource_id}`,
+    );
     const saved = await client.query(
       `INSERT INTO database_connections
-       (hosting_user_id, database_user_id, database_project_id, database_resource_id, resource_name, database_schema_name)
-       VALUES ($1, $2, $3, $4, $5, $6)
+       (hosting_user_id, database_user_id, database_project_id, database_resource_id,
+        resource_name, database_schema_name, database_host, database_port, database_name,
+        database_role_name, database_password_ciphertext, database_password_iv,
+        database_password_auth_tag)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        ON CONFLICT (hosting_user_id, database_resource_id) WHERE status = 'active'
        DO NOTHING
        RETURNING id, resource_name, status, connected_at`,
-      [res.locals.userId, item.user_id, item.project_id, item.resource_id, item.resource_name.slice(0, 80), item.schema_name],
+      [
+        res.locals.userId, item.user_id, item.project_id, item.resource_id,
+        item.resource_name.slice(0, 80), item.schema_name, item.database_host,
+        item.database_port, item.database_name, item.database_role,
+        encryptedPassword.ciphertext, encryptedPassword.iv, encryptedPassword.authTag,
+      ],
     );
     if (saved.rowCount !== 1) {
       await client.query("ROLLBACK");
@@ -220,6 +250,31 @@ router.delete("/:connectionId", requireSameOrigin, async (req, res) => {
     return;
   }
   try {
+    const existing = await pool.query(
+      `SELECT database_resource_id FROM database_connections
+       WHERE id = $1 AND hosting_user_id = $2 AND status = 'active'`,
+      [connectionId, res.locals.userId],
+    );
+    if (existing.rowCount !== 1) {
+      res.status(404).json({ success: false, message: "Active connection not found." });
+      return;
+    }
+
+    const revokeResponse = await fetch(new URL("/api/v1/integrations/hosting/revoke", DATABASE_API_URL), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        clientId: CLIENT_ID,
+        clientSecret: CLIENT_SECRET,
+        resourceId: existing.rows[0].database_resource_id,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!revokeResponse.ok) {
+      res.status(503).json({ success: false, message: "D Database could not revoke the resource credentials. Try again." });
+      return;
+    }
+
     const result = await pool.query(
       `UPDATE database_connections SET status = 'revoked', revoked_at = COALESCE(revoked_at, NOW())
        WHERE id = $1 AND hosting_user_id = $2 AND status = 'active'
