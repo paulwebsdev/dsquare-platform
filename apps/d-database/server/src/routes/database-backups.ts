@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { pool } from "../config/database.js";
+import { restoreDatabaseBackup } from "../services/database-backup-restore.js";
 
 const router = Router({ mergeParams: true });
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
