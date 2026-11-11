@@ -131,8 +131,7 @@ export async function restoreDatabaseBackup(input: { projectId: string; resource
     selectedBackupId = backup.id;
     const downloaded = await storage.getObject(backup.object_key);
     const expectedSize = Number(backup.size_bytes);
-    if (!Number.isSafeInteger(expectedSize) || expectedSize < 1 || expectedSize > MAX_BACKUP_BYTES ||
-      downloaded.body.length !== expectedSize || sha256(downloaded.body) !== backup.checksum_sha256) {
+    if (!verifyDatabaseBackupPayload(downloaded.body, backup.checksum_sha256, expectedSize)) {
       throw new Error("Backup checksum or size verification failed; restore was stopped.");
     }
 
