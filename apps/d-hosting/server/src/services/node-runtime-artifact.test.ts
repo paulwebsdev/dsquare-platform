@@ -3,7 +3,7 @@ import test from "node:test";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { prepareNodeRuntimeArtifact } from "./node-runtime-artifact.js";
+import { MAX_NODE_RUNTIME_FILES, prepareNodeRuntimeArtifact } from "./node-runtime-artifact.js";
 
 const resourceId = "123e4567-e89b-42d3-a456-426614174000";
 const deploymentId = "123e4567-e89b-42d3-a456-426614174001";
