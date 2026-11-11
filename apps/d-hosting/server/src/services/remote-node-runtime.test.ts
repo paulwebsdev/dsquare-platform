@@ -71,15 +71,17 @@ test("uploads the verified bundle before requesting remote runtime startup", asy
     assert.ok(body.artifact.sizeBytes > 0);
     assert.equal(body.runtime.environment.APP_SECRET, "private-value");
     assert.equal("HOSTING_SECRETS_KEY" in body.runtime.environment, false);
-    return Response.json({ containerId: "remote-runtime-1" });
+    return Response.json({ resourceId, deploymentId, state: "running" }, { status: 201 });
   });
 
   try {
     const result = await startRemoteNodeRuntime(deploymentInput(root, fetchImpl));
     assert.deepEqual(result, {
-      containerId: "remote-runtime-1",
+      resourceId,
+      deploymentId,
       artifactId: deploymentId,
       fileCount: 1,
+      state: "running",
     });
     assert.deepEqual(calls.map((call) => [call.init.method, call.url.pathname]), [
       ["PUT", `/v1/artifacts/${deploymentId}`],
@@ -102,6 +104,9 @@ test("removes a remotely accepted artifact if runtime creation fails", async () 
     if (init.method === "POST") {
       return new Response("internal failure", { status: 500 });
     }
+    if (url.pathname === `/v1/runtimes/${resourceId}`) {
+      return new Response(null, { status: 404 });
+    }
     return Response.json({ artifactId: deploymentId, deleted: true });
   });
 
@@ -113,6 +118,7 @@ test("removes a remotely accepted artifact if runtime creation fails", async () 
     assert.deepEqual(paths, [
       `PUT /v1/artifacts/${deploymentId}`,
       "POST /v1/runtimes",
+      `DELETE /v1/runtimes/${resourceId}`,
       `DELETE /v1/artifacts/${deploymentId}`,
     ]);
     await assert.rejects(stat(path.join(root, resourceId, "runtime-artifacts", deploymentId)));
