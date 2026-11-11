@@ -1,4 +1,5 @@
 import type { NodeProjectValidation } from "./node-project-validation.js";
+import { isValidEnvironmentName } from "./environment-secrets.js";
 import { getRuntimeLimits } from "./runtime-limits.js";
 
 export type ContainerRuntimeSpec = {
@@ -40,8 +41,8 @@ export function buildNodeContainerSpec(input: {
   }
 
   for (const [name, value] of Object.entries(input.environment)) {
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || typeof value !== "string") {
-      throw new Error("Runtime environment contains an invalid variable.");
+    if (!isValidEnvironmentName(name) || typeof value !== "string" || value.length > 16384) {
+      throw new Error("Runtime environment contains an invalid, reserved, or oversized variable.");
     }
   }
 
@@ -57,9 +58,7 @@ export function buildNodeContainerSpec(input: {
     image,
     workingDirectory: "/app",
     command: ["npm", "start"],
-    // PORT is platform-owned and deliberately overrides any caller-supplied value.
-    // The user-facing environment editor rejects PORT; this fixed value is injected
-    // only into the isolated website process.
+    // PORT is platform-owned and deliberately injected only into the isolated process.
     environment: { ...input.environment, PORT: "3000" },
     memoryBytes: limits.memoryBytes,
     nanoCpus: limits.nanoCpus,
