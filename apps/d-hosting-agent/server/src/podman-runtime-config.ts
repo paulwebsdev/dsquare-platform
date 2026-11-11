@@ -22,6 +22,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  */
 export function buildPodmanContainerConfig(input: {
   resourceId: string;
+  deploymentId: string;
+  artifactId: string;
   runtime: PodmanRuntimeInput;
   artifactDirectory: string;
   trustedImage: string;
@@ -64,6 +66,12 @@ export function buildPodmanContainerConfig(input: {
     Cmd: ["npm", "start"],
     Env: Object.entries(runtime.environment).map(([key, value]) => `${key}=${value}`),
     ExposedPorts: { "3000/tcp": {} },
+    Labels: {
+      "io.dsquare.managed": "true",
+      "io.dsquare.resource-id": input.resourceId,
+      "io.dsquare.deployment-id": input.deploymentId,
+      "io.dsquare.artifact-id": input.artifactId,
+    },
     HostConfig: {
       Binds: [`${input.artifactDirectory}:/app:ro`],
       Memory: runtime.memoryBytes,
