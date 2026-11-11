@@ -514,11 +514,16 @@ export async function startRuntimeAgent(): Promise<void> {
     });
   }
   const registry = new RuntimeRegistry(pool);
-  if (provider) {
-    const recovered = await provider.reconcile(registry);
-    console.log(`Runtime recovery: adopted ${recovered.adopted}, removed ${recovered.removed} orphaned containers.`);
+  try {
+    if (provider) {
+      const recovered = await provider.reconcile(registry);
+      console.log(`Runtime recovery: adopted ${recovered.adopted}, removed ${recovered.removed} orphaned containers.`);
+    }
+    await registry.clearStaleReservations();
+  } catch (error) {
+    await pool.end();
+    throw error;
   }
-  await registry.clearStaleReservations();
 
   // Production execution is deliberately hard-disabled until Linux acceptance tests pass.
   const app = createRuntimeAgentApp({ pool, secret, storageRoot, provider, executionEnabled: false });
