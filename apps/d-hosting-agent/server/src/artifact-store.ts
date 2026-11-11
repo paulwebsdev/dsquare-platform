@@ -139,9 +139,10 @@ export async function storeRuntimeArtifact(
   const lockPath = path.join(root, `.dsquare-agent-${artifactId}.lock`);
   ensureInside(root, finalDirectory);
   ensureInside(root, lockPath);
-  let lockHandle;
+  let lockAcquired = false;
   try {
-    lockHandle = await open(lockPath, "wx", 0o600);
+    const lockHandle = await open(lockPath, "wx", 0o600);
+    lockAcquired = true;
     await lockHandle.close();
     try {
       await lstat(finalDirectory);
@@ -190,7 +191,7 @@ export async function storeRuntimeArtifact(
     await rm(temporaryMetadata, { force: true }).catch(() => undefined);
     throw error;
   } finally {
-    await rm(lockPath, { force: true }).catch(() => undefined);
+    if (lockAcquired) await rm(lockPath, { force: true }).catch(() => undefined);
   }
 }
 
