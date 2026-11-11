@@ -114,3 +114,76 @@ export async function requestRuntimeAgent<T>(
     throw new Error("Runtime agent returned an invalid JSON response.");
   }
 }
+
+/**
+ * Uploads one bounded binary artifact bundle using the same HMAC scheme as
+ * JSON requests. The raw bytes are signed exactly as transmitted.
+ */
+export async function uploadRuntimeAgentArtifact(
+  options: RuntimeAgentClientOptions,
+  artifactId: string,
+  bytes: Uint8Array,
+): Promise<{ artifactId: string; accepted: boolean }> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(artifactId)) {
+    throw new Error("Runtime artifact ID is invalid.");
+  }
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength < 1 || bytes.byteLength > 100 * 1024 * 1024) {
+    throw new Error("Runtime artifact upload must be between 1 byte and 100 MB.");
+  }
+  const baseUrl = validateRuntimeAgentUrl(options.baseUrl);
+  const timeoutMs = options.timeoutMs ?? 60_000;
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_TIMEOUT_MS) {
+    throw new Error("Runtime agent timeout must be between 1 and 60000 milliseconds.");
+  }
+  const pathname = `/v1/artifacts/${artifactId}`;
+  const target = new URL(pathname, baseUrl);
+  if (target.origin !== baseUrl.origin) {
+    throw new Error("Runtime agent endpoint is outside the configured service.");
+  }
+  const headers = signRuntimeAgentRequest({
+    method: "PUT",
+    pathname: target.pathname,
+    body: bytes,
+    secret: options.secret,
+  });
+  const response = await (options.fetchImpl ?? fetch)(target, {
+    method: "PUT",
+    headers: {
+      ...headers,
+      accept: "application/json",
+      "content-type": "application/vnd.dsquare.runtime-artifact",
+      "content-length": String(bytes.byteLength),
+    },
+    body: Buffer.from(bytes),
+    redirect: "manual",
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (response.status >= 300 && response.status < 400) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error("Runtime agent redirects are not permitted.");
+  }
+  const declaredLength = Number(response.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_RESPONSE_BYTES) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error("Runtime agent response exceeded the permitted size.");
+  }
+  const raw = await response.text();
+  if (Buffer.byteLength(raw, "utf8") > MAX_RESPONSE_BYTES) {
+    throw new Error("Runtime agent response exceeded the permitted size.");
+  }
+  if (!response.ok) {
+    throw new Error(`Runtime agent artifact upload failed with HTTP ${response.status}.`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("Runtime agent returned an invalid upload response.");
+  }
+  if (!parsed || typeof parsed !== "object" ||
+      (parsed as Record<string, unknown>).artifactId !== artifactId ||
+      (parsed as Record<string, unknown>).accepted !== true) {
+    throw new Error("Runtime agent did not confirm artifact acceptance.");
+  }
+  return parsed as { artifactId: string; accepted: true };
+}
