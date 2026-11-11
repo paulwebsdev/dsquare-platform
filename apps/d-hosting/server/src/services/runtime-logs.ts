@@ -3,16 +3,16 @@ import type { RuntimeLogEntry } from "./runtime-provider.js";
 const MAX_LOG_LINES = 500;
 const MAX_MESSAGE_LENGTH = 4000;
 const SECRET_PATTERNS = [
-  /(\\b[A-Z0-9_]*(?:PASSWORD|PASSWD|TOKEN|SECRETS?|API[_-]?KEY|DATABASE_URL|PRIVATE_KEY)[A-Z0-9_]*\\s*[=:]\\s*)(?:"[^"]*"|'[^']*'|[^\\s,;]+)/gi,
-  /(Bearer\\s+)[A-Za-z0-9._~+/-]+=*/gi,
-  /(postgres(?:ql)?:\\/\\/[^:\\s/@]+:)[^@\\s]+(@)/gi,
+  /(\b[A-Z0-9_]*(?:PASSWORD|PASSWD|TOKEN|SECRETS?|API[_-]?KEY|DATABASE_URL|PRIVATE_KEY)[A-Z0-9_]*\s*[=:]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
+  /(Bearer\s+)[A-Za-z0-9._~+/-]+=*/gi,
+  /(postgres(?:ql)?:\/\/[^:\s/@]+:)[^@\s]+(@)/gi,
 ];
 
 export function redactRuntimeLogMessage(message: string): string {
   let safe = message.slice(0, MAX_MESSAGE_LENGTH);
   for (const pattern of SECRET_PATTERNS) {
     safe = safe.replace(pattern, (_match, prefix: string, suffix?: string) =>
-      suffix === undefined ? `${prefix}[REDACTED]` : `${prefix}[REDACTED]${suffix}`,
+      suffix === undefined ? \`${prefix}[REDACTED]\` : \`${prefix}[REDACTED]${suffix}\`,
     );
   }
   return safe;
