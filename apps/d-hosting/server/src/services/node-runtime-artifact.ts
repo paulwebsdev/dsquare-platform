@@ -1,6 +1,5 @@
 import { constants } from "node:fs";
 import { lstat, mkdir, copyFile, rm } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { normalizeWebsiteFilePath } from "./website-file-path.js";
 
