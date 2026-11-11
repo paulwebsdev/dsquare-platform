@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { PodmanRuntimeProvider } from "./podman-runtime-provider.js";
+import type { RuntimeRecord } from "./runtime-registry.js";
 import { storeRuntimeArtifact } from "./artifact-store.js";
 import type { PodmanRequest, PodmanResponse } from "./podman-client.js";
 
@@ -159,10 +160,10 @@ test("reconciles registered, pending, missing, and orphaned containers safely", 
     { Id: pendingContainerId, Labels: { "io.dsquare.managed": "true", "io.dsquare.resource-id": pendingResourceId, "io.dsquare.deployment-id": artifactId, "io.dsquare.artifact-id": artifactId } },
     { Id: orphanContainerId, Labels: { "io.dsquare.managed": "true", "io.dsquare.resource-id": orphanResourceId, "io.dsquare.deployment-id": artifactId, "io.dsquare.artifact-id": artifactId } },
   ];
-  const records = [
-    { resourceId, deploymentId: artifactId, artifactId, containerId: existingContainerId, state: "running" as const },
-    { resourceId: pendingResourceId, deploymentId: artifactId, artifactId, containerId: null, state: "creating" as const },
-    { resourceId: missingResourceId, deploymentId: artifactId, artifactId, containerId: missingContainerId, state: "running" as const },
+  const records: RuntimeRecord[] = [
+    { resourceId, deploymentId: artifactId, artifactId, containerId: existingContainerId, state: "running" },
+    { resourceId: pendingResourceId, deploymentId: artifactId, artifactId, containerId: null, state: "creating" },
+    { resourceId: missingResourceId, deploymentId: artifactId, artifactId, containerId: missingContainerId, state: "running" },
   ];
   const stateChanges: Array<{ resourceId: string; state: string }> = [];
   const registry = {
