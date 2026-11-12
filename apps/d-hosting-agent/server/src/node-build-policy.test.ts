@@ -20,7 +20,7 @@ test("creates a bounded offline Node 22 build plan", () => {
   if (!result.valid) return;
   assert.equal(result.plan.network, "none");
   assert.equal(result.plan.user, "10001:10001");
-  assert.deepEqual(result.plan.install, ["npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"]);
+  assert.deepEqual(result.plan.install, ["npm", "ci", "--offline", "--ignore-scripts", "--no-audit", "--no-fund"]);
   assert.deepEqual(result.plan.build, ["npm", "run", "build", "--if-present", "--ignore-scripts"]);
   assert.equal(result.plan.inputMount.readOnly, true);
   assert.equal(result.plan.outputMount.readOnly, false);
