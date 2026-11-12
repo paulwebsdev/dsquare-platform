@@ -69,6 +69,9 @@ export function validateNodeProject(
   if (!uploadedPaths.includes("package.json")) {
     return { valid: false, error: "Upload package.json at the website root." };
   }
+  if (!uploadedPaths.includes("package-lock.json")) {
+    return { valid: false, error: "Upload package-lock.json at the website root so dependencies can be installed reproducibly in an isolated builder." };
+  }
   if (!uploadedPaths.includes(entrypoint)) {
     return { valid: false, error: `Upload the configured Node.js entrypoint: ${entrypoint}.` };
   }
