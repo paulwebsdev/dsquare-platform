@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, readFile, rm } from "node:fs/promises";
+import { copyFile, lstat, mkdir, open, readFile, rm } from "node:fs/promises";
+import { constants } from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { pool } from "../config/database.js";
@@ -377,6 +378,30 @@ router.post("/:resourceId/validate-node", async (req, res) => {
 
 
 
+async function copyNodeSnapshotFile(source: string, destination: string): Promise<number> {
+  const metadata = await lstat(source);
+  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size > 10 * 1024 * 1024) {
+    throw new Error("A Node deployment source is not a permitted regular file.");
+  }
+  const sourceHandle = await open(source, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  const destinationHandle = await open(destination, "wx", 0o600);
+  try {
+    const opened = await sourceHandle.stat();
+    if (!opened.isFile() || opened.dev !== metadata.dev || opened.ino !== metadata.ino ||
+        opened.size !== metadata.size) {
+      throw new Error("A Node deployment source changed while its snapshot was being created.");
+    }
+    const bytes = await sourceHandle.readFile();
+    if (bytes.byteLength !== metadata.size) throw new Error("A Node deployment source changed while being copied.");
+    await destinationHandle.writeFile(bytes);
+    await destinationHandle.sync();
+    return bytes.byteLength;
+  } finally {
+    await sourceHandle.close();
+    await destinationHandle.close();
+  }
+}
+
 /**
  * Node deployments are built remotely and activated only after the private
  * runtime agent confirms its readiness probe. No database transaction is held
@@ -401,6 +426,7 @@ async function deployNodeWebsite(
   const snapshotKeys: string[] = [];
   let snapshotManifest: ManifestFile[] = [];
   let runtimeStarted = false;
+  let snapshotBytes = 0;
   try {
     await client.query("BEGIN");
     const resource = await client.query(
@@ -453,7 +479,8 @@ async function deployNodeWebsite(
       const source = path.join(storageRoot, resourceId, file.storage_key);
       if (!existsSync(source)) throw new Error("A stored website file is missing.");
       const snapshotKey = randomUUID();
-      await copyFile(source, path.join(storageRoot, resourceId, snapshotKey));
+      snapshotBytes += await copyNodeSnapshotFile(source, path.join(storageRoot, resourceId, snapshotKey));
+      if (snapshotBytes > 100 * 1024 * 1024) throw new Error("Node deployment exceeds the 100 MB snapshot limit.");
       snapshotKeys.push(snapshotKey);
       snapshotManifest.push({ ...file, storage_key: snapshotKey });
     }
