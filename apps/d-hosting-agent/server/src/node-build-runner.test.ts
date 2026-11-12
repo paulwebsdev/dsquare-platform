@@ -98,6 +98,7 @@ test("builds an immutable runtime artifact inside a networkless isolated Podman 
     const config = create?.body as { HostConfig: Record<string, unknown>; Image: string };
     assert.equal(config.Image, NODE_BUILDER_IMAGE);
     assert.equal(config.HostConfig.NetworkMode, "none");
+    assert.equal(config.HostConfig.UsernsMode, "keep-id:uid=10001,gid=10001");
     assert.equal(config.HostConfig.ReadonlyRootfs, true);
     assert.deepEqual(config.HostConfig.CapDrop, ["ALL"]);
     assert.deepEqual(config.HostConfig.Binds, [
