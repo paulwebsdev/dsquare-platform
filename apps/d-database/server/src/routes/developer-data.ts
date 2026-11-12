@@ -9,10 +9,6 @@ function quoteIdentifier(value: string) {
   return `"${value.replace(/"/g, '""')}"`;
 }
 
-function getResource() {
-  return undefined;
-}
-
 // List tables visible inside the API key's single database resource.
 router.get("/tables", requireDeveloperScope("read"), async (_req, res) => {
   const key = res.locals.developerKey as { schema_name: string };
