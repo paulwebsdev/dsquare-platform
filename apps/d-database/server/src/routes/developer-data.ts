@@ -61,7 +61,8 @@ router.get("/tables/:tableName/rows", requireDeveloperScope("read"), async (req,
 
 // Insert a row using validated column names and parameterized values.
 router.post("/tables/:tableName/rows", requireDeveloperScope("write"), async (req, res) => {
-  const tableName = req.params.tableName || "";
+  const rawTableName = req.params.tableName;
+  const tableName = typeof rawTableName === "string" ? rawTableName : "";
   if (!IDENTIFIER_PATTERN.test(tableName)) return res.status(400).json({ success: false, message: "Invalid table name." });
   const body = req.body as Record<string, unknown>;
   const values = body?.values;
