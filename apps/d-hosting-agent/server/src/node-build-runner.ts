@@ -201,6 +201,7 @@ export class PodmanNodeBuildRunner {
           SecurityOpt: ["no-new-privileges:true"],
           Tmpfs: { "/tmp": "rw,noexec,nosuid,size=128m" },
           NetworkMode: "none",
+          UsernsMode: "keep-id:uid=10001,gid=10001",
           RestartPolicy: { Name: "no" },
         },
       };
