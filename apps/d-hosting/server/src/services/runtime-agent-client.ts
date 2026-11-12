@@ -405,3 +405,65 @@ export async function deleteRuntimeAgentArtifact(
   return result as { artifactId: string; deleted: boolean };
 }
 
+
+
+export type RuntimeAgentBuildInput = {
+  sourceArtifactId: string;
+  deploymentId: string;
+  cacheAttestation?: {
+    schemaVersion: 1;
+    lockfileSha256: string;
+    builderImage: string;
+    npmVersion: string;
+    verifiedCacheIntegrities: string[];
+    npmCacheVerified: true;
+    verifiedAt: string;
+    signature: string;
+  };
+};
+
+export type RuntimeAgentBuildResult = {
+  artifact: {
+    artifactId: string;
+    sha256: string;
+    sizeBytes: number;
+    fileCount: number;
+  };
+  output: string;
+};
+
+/** Builds a source artifact in the private isolated builder and returns its immutable runtime artifact descriptor. */
+export async function buildRuntimeAgentArtifact(
+  options: RuntimeAgentClientOptions,
+  input: RuntimeAgentBuildInput,
+): Promise<RuntimeAgentBuildResult> {
+  assertRuntimeAgentResourceId(input.sourceArtifactId);
+  assertRuntimeAgentResourceId(input.deploymentId);
+  if (input.sourceArtifactId === input.deploymentId) {
+    throw new Error("Source and built runtime artifact IDs must be different.");
+  }
+  const result = await requestRuntimeAgent<unknown>(options, {
+    method: "POST",
+    path: "/v1/builds",
+    body: input,
+  });
+  if (!result || typeof result !== "object") {
+    throw new Error("Runtime agent returned an invalid build response.");
+  }
+  const value = result as Record<string, unknown>;
+  const artifact = value.artifact;
+  if (!artifact || typeof artifact !== "object") {
+    throw new Error("Runtime agent did not return a built artifact.");
+  }
+  const descriptor = artifact as Record<string, unknown>;
+  if (descriptor.artifactId !== input.deploymentId ||
+      !/^[a-f0-9]{64}$/i.test(String(descriptor.sha256)) ||
+      !Number.isSafeInteger(descriptor.sizeBytes) ||
+      (descriptor.sizeBytes as number) < 1 || (descriptor.sizeBytes as number) > 100 * 1024 * 1024 ||
+      !Number.isInteger(descriptor.fileCount) ||
+      (descriptor.fileCount as number) < 1 || (descriptor.fileCount as number) > 2_000 ||
+      typeof value.output !== "string" || value.output.length > 64 * 1024) {
+    throw new Error("Runtime agent returned invalid built artifact metadata.");
+  }
+  return value as RuntimeAgentBuildResult;
+}
