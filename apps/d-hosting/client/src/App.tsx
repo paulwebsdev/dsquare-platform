@@ -15,13 +15,13 @@ type ProjectSummary = {
 };
 
 const navigation = [
-  { label: "Overview", icon: "" },
-  { label: "Projects", icon: "" },
-  { label: "Resources", icon: "" },
-  { label: "Database Connections", icon: "" },
-  { label: "Usage & Billing", icon: "" },
-  { label: "Activity", icon: "" },
-  { label: "Settings", icon: "" }
+  { label: "Overview", icon: "◫" },
+  { label: "Projects", icon: "▦" },
+  { label: "Resources", icon: "◈" },
+  { label: "Database Connections", icon: "⇄" },
+  { label: "Usage & Billing", icon: "▤" },
+  { label: "Activity", icon: "◷" },
+  { label: "Settings", icon: "⚙" }
 ];
 
 export default function App() {
@@ -156,7 +156,6 @@ export default function App() {
         <div className="workspace-switch">
           <span className="workspace-icon">{product.charAt(0)}</span>
           <span className="workspace-name">{product}</span>
-          <span className="workspace-arrow"></span>
         </div>
 
         <div className="nav-label">MENU</div>
@@ -264,7 +263,7 @@ export default function App() {
             <article className="panel projects-panel">
               <div className="panel-heading">
                 <div><h2>Recent projects</h2><p>Your latest workspace projects</p></div>
-                <button className="text-button" onClick={() => setActivePage("Projects")}>View all </button>
+                <button className="text-button" onClick={() => setActivePage("Projects")}>View all projects</button>
               </div>
               {recentProjects.length > 0 ? (
                 <div className="recent-projects">
@@ -298,7 +297,7 @@ export default function App() {
             <article className="panel activity-panel">
               <div className="panel-heading">
                 <div><h2>Recent activity</h2><p>Updates from your workspace</p></div>
-                <span className="activity-menu"></span>
+                <button className="text-button" type="button" onClick={() => setActivePage("Activity")}>View activity</button>
               </div>
               {recentActivity.length > 0 ? (
                 <div className="recent-projects">
