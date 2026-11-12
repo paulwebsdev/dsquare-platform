@@ -37,6 +37,17 @@ export default function App() {
   });
 
   const [activePage, setActivePage] = useState("Overview");
+  const [initialProjectId, setInitialProjectId] = useState<string | null>(null);
+  const [initialResourceId, setInitialResourceId] = useState<string | null>(null);
+  const openWorkspaceResource = (projectId: string, resourceId: string) => {
+    setInitialProjectId(projectId);
+    setInitialResourceId(resourceId);
+    setActivePage("Projects");
+  };
+  const clearInitialResource = () => {
+    setInitialProjectId(null);
+    setInitialResourceId(null);
+  };
   const [apiStatus, setApiStatus] = useState("Checking connection...");
   const [projectCount, setProjectCount] = useState(0);
   const [recentProjects, setRecentProjects] = useState<ProjectSummary[]>([]);
@@ -210,9 +221,9 @@ export default function App() {
 
         <div className="content">
           {activePage === "Projects" ? (
-            <ProjectManager onProjectsChange={refreshProjectSummary} />
+            <ProjectManager onProjectsChange={refreshProjectSummary} initialProjectId={initialProjectId} initialResourceId={initialResourceId} onInitialResourceOpened={clearInitialResource} />
           ) : activePage === "Resources" ? (
-            <ResourceDirectory onOpenProjects={() => setActivePage("Projects")} />
+            <ResourceDirectory onOpenProjects={() => setActivePage("Projects")} onOpenResource={openWorkspaceResource} />
           ) : activePage === "Activity" ? (
             <WorkspaceActivity onOpenProjects={() => setActivePage("Projects")} />
           ) : activePage === "Usage & Billing" ? (
