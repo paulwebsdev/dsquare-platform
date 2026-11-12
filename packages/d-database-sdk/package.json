@@ -11,7 +11,19 @@
       "import": "./src/index.ts"
     }
   },
-  "files": ["src", "README.md"],
-  "engines": { "node": ">=20" },
-  "license": "UNLICENSED"
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "UNLICENSED",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/index.test.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15"
+  }
 }
