@@ -160,7 +160,7 @@ test("does not request runtime creation when artifact upload is rejected", async
 
   try {
     await assert.rejects(
-      startRemoteNodeRuntime(deploymentInput(root, fetchImpl)),
+      startRemoteNodeRuntime(deploymentInput(root, fetchImpl), async () => null),
       /upload failed with HTTP 413/,
     );
     assert.deepEqual(paths, [`PUT /v1/artifacts/${deploymentId}`]);
