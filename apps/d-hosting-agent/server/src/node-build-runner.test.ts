@@ -74,7 +74,7 @@ test("builds an immutable runtime artifact inside a networkless isolated Podman 
       return { statusCode: 201, headers: {}, body: Buffer.from(JSON.stringify({ Id: String(execCount).repeat(64).slice(0,64) })) };
     }
     if (request.path.endsWith("/start") && request.method === "POST" && request.path.includes("/exec/")) {
-      return { statusCode: 200, headers: {}, body: frame("phase completed") };
+      return { statusCode: 200, headers: {}, body: frame(request.path.includes("/exec/" + "1".repeat(64) + "/start") ? "10.9.4" : "phase completed") };
     }
     if (request.path.endsWith("/json") && request.method === "GET") {
       return { statusCode: 200, headers: {}, body: Buffer.from(JSON.stringify({ Running: false, ExitCode: 0 })) };
@@ -92,6 +92,7 @@ test("builds an immutable runtime artifact inside a networkless isolated Podman 
     const result = await runner.build({ sourceArtifactId, deploymentId, cacheAttestation: attestation });
     assert.equal(result.artifactId, deploymentId);
     assert.equal(result.fileCount, 4);
+    assert.match(result.output, /version/);
     assert.match(result.output, /install/);
     assert.match(result.output, /build/);
     const create = calls.find((call) => call.path.includes("/containers/create"));
@@ -106,7 +107,7 @@ test("builds an immutable runtime artifact inside a networkless isolated Podman 
       path.join(workspaceRoot, deploymentId) + ":/workspace:rw",
       cacheDirectory + ":/npm-cache:ro",
     ]);
-    assert.equal(calls.filter((call) => call.path.endsWith("/exec")).length, 2);
+    assert.equal(calls.filter((call) => call.path.endsWith("/exec")).length, 3);
     assert.ok(calls.some((call) => call.method === "DELETE"));
   } finally {
     await rm(root, { recursive: true, force: true });
