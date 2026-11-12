@@ -52,7 +52,7 @@ test("rejects unsafe or missing entrypoints", () => {
 
 test("requires package.json at the project root", () => {
   assert.match(
-    validationError(validateNodeProject(validManifest, ["app/package.json", "server.js"])),
+    validationError(validateNodeProject(validManifest, ["app/package.json", "package-lock.json", "server.js"])),
     /package.json at the website root/,
   );
 });
