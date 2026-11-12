@@ -10,7 +10,7 @@ const resourceB = "22222222-2222-4222-8222-222222222222";
 
 test("normalizes public internationalized hostnames and trailing dots", () => {
   assert.equal(normalizePrivateIngressDomain("WWW.Example.COM."), "www.example.com");
-  assert.equal(normalizePrivateIngressDomain("bücher.example"), "xn--bcher-kva.example");
+  assert.equal(normalizePrivateIngressDomain("bücher.com"), "xn--bcher-kva.com");
 });
 
 test("rejects private, local, malformed and non-hostname domain values", () => {
