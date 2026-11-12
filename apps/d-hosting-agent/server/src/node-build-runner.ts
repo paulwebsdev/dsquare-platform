@@ -230,6 +230,10 @@ export class PodmanNodeBuildRunner {
         }
       }
 
+      // Stop the entire builder container before packaging so background child
+      // processes cannot keep mutating the workspace after npm exits.
+      await this.client.removeContainer(containerId);
+      containerId = undefined;
       const bundle = await createRuntimeArtifactBundle(request.deploymentId, workspaceHostPath);
       const stored = await storeRuntimeArtifact(this.options.storageRoot, request.deploymentId, bundle.bytes);
       return {
