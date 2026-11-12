@@ -20,7 +20,7 @@ test("rejects private, local, malformed and non-hostname domain values", () => {
     "https://example.com", "*.example.com", "bad..example.com",
     "example.com/path", "example.com\\evil",
   ]) {
-    assert.throws(() => normalizePrivateIngressDomain(domain), undefined, domain);
+    assert.throws(() => normalizePrivateIngressDomain(domain), /Ingress domain|public DNS hostname/, domain);
   }
 });
 
