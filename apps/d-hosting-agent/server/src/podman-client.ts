@@ -148,7 +148,7 @@ export class PodmanApiClient {
   }
 
   async createContainer(config: Record<string, unknown>, name: string): Promise<string> {
-    if (!/^dsquare-site-[0-9a-f-]{36}$/i.test(name)) {
+    if (!/^dsquare-(?:site|builder)-[0-9a-f-]{36}$/i.test(name)) {
       throw new Error("Podman container name is invalid.");
     }
     const result = await this.call<{ Id?: unknown }>({
@@ -212,8 +212,8 @@ export class PodmanApiClient {
       body: {
         Cmd: command,
         AttachStdin: false,
-        AttachStdout: false,
-        AttachStderr: false,
+        AttachStdout: true,
+        AttachStderr: true,
         Tty: false,
         WorkingDir: "/workspace",
         User: "10001:10001",
@@ -259,6 +259,44 @@ export class PodmanApiClient {
       path: `/v1.40/exec/${encodeURIComponent(execId)}/start`,
       body: { Detach: true, Tty: false },
     }, [200, 201, 204]);
+  }
+
+  /** Run an attached, non-TTY exec and return bounded stdout/stderr bytes. */
+  async startAttachedExec(execId: string, maxOutputBytes = 2 * 1024 * 1024): Promise<Buffer> {
+    if (!/^[a-f0-9]{12,64}$/i.test(execId) ||
+        !Number.isInteger(maxOutputBytes) || maxOutputBytes < 1 || maxOutputBytes > 2 * 1024 * 1024) {
+      throw new Error("Podman attached exec parameters are invalid.");
+    }
+    const response = await this.transport({
+      method: "POST",
+      path: `/v1.40/exec/${encodeURIComponent(execId)}/start`,
+      body: { Detach: false, Tty: false },
+    });
+    if (response.statusCode !== 200) {
+      throw new PodmanApiError(response.statusCode, "Podman builder command could not start.");
+    }
+    if (response.body.byteLength > maxOutputBytes) {
+      throw new Error("Podman builder output exceeded its permitted limit.");
+    }
+    // Docker-compatible multiplex framing: stream byte, three reserved bytes,
+    // then a four-byte big-endian payload length.
+    const output: Buffer[] = [];
+    let offset = 0;
+    while (offset < response.body.byteLength) {
+      if (offset + 8 > response.body.byteLength) {
+        throw new Error("Podman returned a truncated builder output frame.");
+      }
+      const stream = response.body[offset]!;
+      const reserved = response.body.subarray(offset + 1, offset + 4);
+      const length = response.body.readUInt32BE(offset + 4);
+      if ((stream !== 1 && stream !== 2) || reserved.some((byte) => byte !== 0) ||
+          length > maxOutputBytes || offset + 8 + length > response.body.byteLength) {
+        throw new Error("Podman returned an invalid builder output frame.");
+      }
+      output.push(response.body.subarray(offset + 8, offset + 8 + length));
+      offset += 8 + length;
+    }
+    return Buffer.concat(output);
   }
 
   async inspectExec(execId: string): Promise<{ running: boolean; exitCode: number | null }> {
