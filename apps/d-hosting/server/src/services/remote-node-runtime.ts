@@ -16,7 +16,6 @@ import type { EncryptedEnvironmentVariable } from "./runtime-environment.js";
 import type { NodeProjectValidation } from "./node-project-validation.js";
 import type { NodeRuntimeSourceFile } from "./node-runtime-artifact.js";
 import { getAssignedDatabaseRuntimeConnection } from "./assigned-database-runtime-connection.js";
-import type { EncryptedDatabaseRuntimeConnection } from "./database-runtime-environment.js";
 
 export type StartRemoteNodeRuntimeInput = {
   resourceId: string;
