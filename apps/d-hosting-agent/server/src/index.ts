@@ -8,6 +8,7 @@ import { deleteStoredArtifact, readStoredArtifact, storeRuntimeArtifact } from "
 import { PodmanRuntimeProvider } from "./podman-runtime-provider.js";
 import { createPodmanSocketTransport } from "./podman-client.js";
 import { RuntimeRegistry } from "./runtime-registry.js";
+import { PodmanNodeBuildRunner, type NodeBuildRequest } from "./node-build-runner.js";
 import { redactRuntimeLogMessage } from "../../../d-hosting/server/src/services/runtime-logs.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -135,6 +136,8 @@ export function createRuntimeAgentApp(input: {
   secret: string;
   storageRoot: string;
   provider?: PodmanRuntimeProvider;
+  builder?: PodmanNodeBuildRunner;
+  builderEnabled?: boolean;
   trustedImage?: string;
   /** Must remain false in production until Linux isolation acceptance is complete. */
   executionEnabled?: boolean;
@@ -143,6 +146,7 @@ export function createRuntimeAgentApp(input: {
   const nonceStore = new PostgresNonceStore(input.pool);
   const registry = new RuntimeRegistry(input.pool);
   const executionEnabled = input.executionEnabled === true && Boolean(input.provider);
+  const builderEnabled = input.builderEnabled === true && Boolean(input.builder);
   app.disable("x-powered-by");
   app.use(express.raw({
     type: "*/*",
@@ -205,6 +209,45 @@ export function createRuntimeAgentApp(input: {
       response.status(201).json({ artifactId: artifact.artifactId, accepted: true });
     } catch {
       response.status(400).json({ error: "Runtime artifact was rejected." });
+    }
+  });
+
+  app.post("/v1/builds", async (request, response) => {
+    if (!/^application\\/json(?:\\s*;\\s*charset=utf-8)?$/i.test(request.headers["content-type"] ?? "")) {
+      response.status(415).json({ error: "Node build request must use application/json." });
+      return;
+    }
+    if (!builderEnabled || !input.builder) {
+      response.status(503).json({ error: "The isolated Node builder is not enabled on this agent." });
+      return;
+    }
+    let payload: unknown;
+    try {
+      payload = JSON.parse(getRawBody(request).toString("utf8"));
+    } catch {
+      response.status(400).json({ error: "Node build request must contain valid JSON." });
+      return;
+    }
+    if (!isRecord(payload) || !UUID.test(String(payload.sourceArtifactId)) ||
+        !UUID.test(String(payload.deploymentId)) || payload.sourceArtifactId === payload.deploymentId ||
+        !isRecord(payload.cacheAttestation)) {
+      response.status(400).json({ error: "Node build request identity or cache attestation is invalid." });
+      return;
+    }
+    try {
+      const result = await input.builder.build(payload as unknown as NodeBuildRequest);
+      response.status(201).json({
+        artifact: {
+          artifactId: result.artifactId,
+          sha256: result.sha256,
+          sizeBytes: result.sizeBytes,
+          fileCount: result.fileCount,
+        },
+        output: result.output.split(/\\r?\\n/).map(redactRuntimeLogMessage).join("\\n").slice(-64 * 1024),
+      });
+    } catch (error) {
+      console.error("Isolated Node build failed:", error instanceof Error ? error.message : "Unknown error");
+      response.status(422).json({ error: "The isolated Node build failed validation, execution or artifact packaging." });
     }
   });
 
