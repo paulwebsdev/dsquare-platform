@@ -15,6 +15,7 @@ import { buildRuntimeArtifactBundle } from "./runtime-artifact-bundle.js";
 import type { EncryptedEnvironmentVariable } from "./runtime-environment.js";
 import type { NodeProjectValidation } from "./node-project-validation.js";
 import type { NodeRuntimeSourceFile } from "./node-runtime-artifact.js";
+import type { EncryptedDatabaseRuntimeConnection } from "./database-runtime-environment.js";
 
 export type StartRemoteNodeRuntimeInput = {
   resourceId: string;
@@ -23,6 +24,8 @@ export type StartRemoteNodeRuntimeInput = {
   files: NodeRuntimeSourceFile[];
   validation: NodeProjectValidation;
   encryptedVariables: EncryptedEnvironmentVariable[];
+  databaseConnection?: EncryptedDatabaseRuntimeConnection;
+  hostingUserId?: string;
   processEnvironment?: NodeJS.ProcessEnv;
   agent: RuntimeAgentClientOptions;
 };
