@@ -17,7 +17,10 @@ function agentOptions() {
  * Rebuilds the complete Node custom-domain table from authoritative Hosting DB
  * state. Static websites remain served by the existing Hosting web process.
  */
-export async function syncPublishedNodeIngress(): Promise<{ routeCount: number; applied: boolean }> {
+export async function syncPublishedNodeIngress(excludeDomainId?: string): Promise<{ routeCount: number; applied: boolean }> {
+  if (excludeDomainId !== undefined && !UUID.test(excludeDomainId)) {
+    throw new Error("Ingress exclusion domain ID is invalid.");
+  }
   const result = await pool.query<{
     domain: string;
     resource_id: string;
