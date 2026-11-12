@@ -225,6 +225,31 @@ export class PodmanApiClient {
     return result.Id;
   }
 
+  /** Create a short-lived in-container HTTP probe without invoking a shell. */
+  async createRuntimeReadinessExec(containerId: string): Promise<string> {
+    if (!/^[a-f0-9]{12,64}$/i.test(containerId)) {
+      throw new Error("Podman runtime container identifier is invalid.");
+    }
+    const script = "fetch('http://127.0.0.1:3000/',{signal:AbortSignal.timeout(1200),redirect:'manual'}).then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))";
+    const result = await this.call<{ Id?: unknown }>({
+      method: "POST",
+      path: `/v1.40/containers/${encodeURIComponent(containerId)}/exec`,
+      body: {
+        Cmd: ["node", "-e", script],
+        AttachStdin: false,
+        AttachStdout: false,
+        AttachStderr: false,
+        Tty: false,
+        WorkingDir: "/app",
+        User: "10001:10001",
+      },
+    }, [201]);
+    if (typeof result?.Id !== "string" || !/^[a-f0-9]{12,64}$/i.test(result.Id)) {
+      throw new Error("Podman returned an invalid runtime readiness exec identifier.");
+    }
+    return result.Id;
+  }
+
   async startDetachedExec(execId: string): Promise<void> {
     if (!/^[a-f0-9]{12,64}$/i.test(execId)) {
       throw new Error("Podman builder exec identifier is invalid.");
