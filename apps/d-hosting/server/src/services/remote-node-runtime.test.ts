@@ -11,6 +11,26 @@ const deploymentId = "123e4567-e89b-42d3-a456-426614174001";
 const storageKey = "123e4567-e89b-42d3-a456-426614174002";
 const key = Buffer.alloc(32, 9).toString("base64");
 const processEnvironment = { HOSTING_SECRETS_KEY: key };
+const hostingUserId = "11111111-1111-4111-8111-111111111111";
+const databaseResourceId = "33333333-3333-4333-8333-333333333333";
+const databasePassword = "database-runtime-password";
+function approvedDatabaseConnection() {
+  const encrypted = encryptEnvironmentSecret(databasePassword, processEnvironment, `d-database:${hostingUserId}:${databaseResourceId}`);
+  return {
+    user_id: hostingUserId,
+    project_id: "22222222-2222-4222-8222-222222222222",
+    resource_id: databaseResourceId,
+    resource_name: "Customer Data",
+    schema_name: "db_09800acba6c642d093f09d8aa73c2515",
+    database_host: "database.internal",
+    database_port: 5432,
+    database_name: "d_database",
+    database_role: "dsq_app_33333333333343338333333333333333",
+    database_password_ciphertext: encrypted.ciphertext,
+    database_password_iv: encrypted.iv,
+    database_password_auth_tag: encrypted.authTag,
+  };
+}
 const validation = {
   valid: true as const,
   entrypoint: "server.js",
@@ -70,12 +90,14 @@ test("uploads the verified bundle before requesting remote runtime startup", asy
     assert.match(body.artifact.sha256, /^[a-f0-9]{64}$/);
     assert.ok(body.artifact.sizeBytes > 0);
     assert.equal(body.runtime.environment.APP_SECRET, "private-value");
+    assert.equal(body.runtime.environment.D_DATABASE_PASSWORD, databasePassword);
+    assert.equal(body.runtime.environment.D_DATABASE_RESOURCE_ID, databaseResourceId);
     assert.equal("HOSTING_SECRETS_KEY" in body.runtime.environment, false);
     return Response.json({ resourceId, deploymentId, state: "running" }, { status: 201 });
   });
 
   try {
-    const result = await startRemoteNodeRuntime(deploymentInput(root, fetchImpl));
+    const result = await startRemoteNodeRuntime({ ...deploymentInput(root, fetchImpl), hostingUserId, databaseConnection: approvedDatabaseConnection() });
     assert.deepEqual(result, {
       resourceId,
       deploymentId,
