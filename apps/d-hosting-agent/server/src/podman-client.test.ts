@@ -180,3 +180,32 @@ test("Podman client rejects malformed or oversized attached builder output", asy
   }));
   await assert.rejects(() => oversized.startAttachedExec("a".repeat(64), 8), /exceeded its permitted limit/);
 });
+
+
+test("Podman client lists only builder-labelled containers with valid deployment IDs", async () => {
+  const client = new PodmanApiClient(async (request) => {
+    assert.match(decodeURIComponent(request.path), /io.dsquare.builder/);
+    return {
+      statusCode: 200,
+      headers: {},
+      body: Buffer.from(JSON.stringify([
+        { Id: "a".repeat(64), Labels: {
+          "io.dsquare.builder": "true",
+          "io.dsquare.deployment-id": "11111111-1111-4111-8111-111111111111",
+        } },
+        { Id: "b".repeat(64), Labels: {
+          "io.dsquare.builder": "false",
+          "io.dsquare.deployment-id": "22222222-2222-4222-8222-222222222222",
+        } },
+        { Id: "bad", Labels: {
+          "io.dsquare.builder": "true",
+          "io.dsquare.deployment-id": "not-a-uuid",
+        } },
+      ])),
+    };
+  });
+  assert.deepEqual(await client.listManagedBuilderContainers(), [{
+    id: "a".repeat(64),
+    deploymentId: "11111111-1111-4111-8111-111111111111",
+  }]);
+});
