@@ -213,7 +213,7 @@ export function createRuntimeAgentApp(input: {
   });
 
   app.post("/v1/builds", async (request, response) => {
-    if (!/^application\\/json(?:\\s*;\\s*charset=utf-8)?$/i.test(request.headers["content-type"] ?? "")) {
+    if (!/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(request.headers["content-type"] ?? "")) {
       response.status(415).json({ error: "Node build request must use application/json." });
       return;
     }
@@ -243,7 +243,7 @@ export function createRuntimeAgentApp(input: {
           sizeBytes: result.sizeBytes,
           fileCount: result.fileCount,
         },
-        output: result.output.split(/\\r?\\n/).map(redactRuntimeLogMessage).join("\\n").slice(-64 * 1024),
+        output: result.output.split(/\r?\n/).map(redactRuntimeLogMessage).join("\n").slice(-64 * 1024),
       });
     } catch (error) {
       console.error("Isolated Node build failed:", error instanceof Error ? error.message : "Unknown error");
