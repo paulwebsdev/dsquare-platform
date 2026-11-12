@@ -48,9 +48,9 @@ test("creates a bounded Node 22 build plan with a read-only verified npm cache",
   assert.equal(result.plan.network, "none");
   assert.equal(result.plan.user, "10001:10001");
   assert.deepEqual(result.plan.install, [
-    "npm", "ci", "--offline", "--cache=/npm-cache", "--ignore-scripts", "--no-audit", "--no-fund",
+    "npm", "ci", "--offline", "--cache=/npm-cache", "--logs-dir=/tmp/npm-logs", "--ignore-scripts", "--no-audit", "--no-fund",
   ]);
-  assert.deepEqual(result.plan.build, ["npm", "run", "build", "--if-present", "--ignore-scripts"]);
+  assert.deepEqual(result.plan.build, ["npm", "run", "build", "--if-present", "--logs-dir=/tmp/npm-logs", "--ignore-scripts"]);
   assert.deepEqual(result.plan.cacheMount, { target: "/npm-cache", readOnly: true });
   assert.equal(result.plan.inputMount.readOnly, true);
   assert.equal(result.plan.outputMount.readOnly, false);
