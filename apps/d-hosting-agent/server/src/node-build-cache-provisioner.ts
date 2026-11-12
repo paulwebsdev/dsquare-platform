@@ -49,10 +49,11 @@ export const runNpmCacheCommand: NpmCacheCommandRunner = (args, cwd, timeoutMs) 
     const chunks: Buffer[] = [];
     let total = 0;
     let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const finish = (error?: Error) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       if (error) reject(error);
       else resolveOutput(Buffer.concat(chunks).toString("utf8"));
     };
@@ -72,7 +73,7 @@ export const runNpmCacheCommand: NpmCacheCommandRunner = (args, cwd, timeoutMs) 
       if (code !== 0) finish(new Error("npm cache command failed."));
       else finish();
     });
-    const timer = setTimeout(() => {
+    timer = setTimeout(() => {
       child.kill("SIGKILL");
       finish(new Error("npm cache command timed out."));
     }, timeoutMs);
