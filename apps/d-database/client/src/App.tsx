@@ -163,10 +163,10 @@ export default function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <a className="brand" href="#">
+        <button className="brand" type="button" onClick={() => setActivePage("Overview")} aria-label={`${product} overview`}>
           <span className="brand-mark">D</span>
           <span>DSQUARE<span className="brand-dot">.</span></span>
-        </a>
+        </button>
 
         <div className="workspace-label">WORKSPACE</div>
         <div className="workspace-switch">
@@ -311,7 +311,7 @@ export default function App() {
             <article className="panel activity-panel">
               <div className="panel-heading">
                 <div><h2>Recent activity</h2><p>Updates from your workspace</p></div>
-                <span className="activity-menu">•••</span>
+                <button className="text-button" type="button" onClick={() => setActivePage("Activity")}>View activity</button>
               </div>
               {recentActivity.length > 0 ? (
                 <div className="recent-projects">
