@@ -80,3 +80,51 @@ test("Podman client lists only validated DSquare-labelled containers", async () 
   assert.match(seenPath, /containers\/json\?all=true&filters=/);
   assert.match(decodeURIComponent(seenPath), /io.dsquare.managed/);
 });
+
+
+test("Podman client creates only the approved Node builder phases", async () => {
+  const calls: PodmanRequest[] = [];
+  const client = new PodmanApiClient(async (request) => {
+    calls.push(request);
+    return { statusCode: 201, headers: {}, body: Buffer.from(JSON.stringify({ Id: "c".repeat(64) })) };
+  });
+  const install = await client.createNodeBuildExec("a".repeat(64), "install");
+  const build = await client.createNodeBuildExec("a".repeat(64), "build");
+  assert.equal(install, "c".repeat(64));
+  assert.equal(build, "c".repeat(64));
+  assert.deepEqual((calls[0]?.body as { Cmd: string[] }).Cmd, [
+    "npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund",
+  ]);
+  assert.deepEqual((calls[1]?.body as { Cmd: string[] }).Cmd, [
+    "npm", "run", "build", "--if-present", "--ignore-scripts",
+  ]);
+  assert.equal((calls[0]?.body as { User: string }).User, "10001:10001");
+  await assert.rejects(() => client.createNodeBuildExec("short", "install"));
+});
+
+test("Podman client starts detached builder exec and inspects completion", async () => {
+  const calls: PodmanRequest[] = [];
+  const client = new PodmanApiClient(async (request) => {
+    calls.push(request);
+    if (request.path.endsWith("/start")) {
+      return { statusCode: 200, headers: {}, body: Buffer.alloc(0) };
+    }
+    return {
+      statusCode: 200, headers: {},
+      body: Buffer.from(JSON.stringify({ Running: false, ExitCode: 0 })),
+    };
+  });
+  await client.startDetachedExec("d".repeat(64));
+  const status = await client.inspectExec("d".repeat(64));
+  assert.deepEqual(status, { running: false, exitCode: 0 });
+  assert.equal(calls[0]?.method, "POST");
+  assert.deepEqual(calls[0]?.body, { Detach: true, Tty: false });
+  assert.match(calls[1]?.path ?? "", /exec\\/.+\\/json$/);
+});
+
+test("Podman client rejects malformed builder exec status", async () => {
+  const client = new PodmanApiClient(async () => ({
+    statusCode: 200, headers: {}, body: Buffer.from('{"Running":"false","ExitCode":"0"}'),
+  }));
+  await assert.rejects(() => client.inspectExec("e".repeat(64)), /invalid builder exec status/);
+});

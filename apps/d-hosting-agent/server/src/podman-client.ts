@@ -198,4 +198,61 @@ export class PodmanApiClient {
     }
     return response.body;
   }
+  /** Create a detached exec for the two explicitly supported builder phases. */
+  async createNodeBuildExec(containerId: string, phase: "install" | "build"): Promise<string> {
+    if (!/^[a-f0-9]{12,64}$/i.test(containerId)) {
+      throw new Error("Podman builder container identifier is invalid.");
+    }
+    const command = phase === "install"
+      ? ["npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"]
+      : ["npm", "run", "build", "--if-present", "--ignore-scripts"];
+    const result = await this.call<{ Id?: unknown }>({
+      method: "POST",
+      path: `/v1.40/containers/${encodeURIComponent(containerId)}/exec`,
+      body: {
+        Cmd: command,
+        AttachStdin: false,
+        AttachStdout: false,
+        AttachStderr: false,
+        Tty: false,
+        WorkingDir: "/workspace",
+        User: "10001:10001",
+      },
+    }, [201]);
+    if (typeof result?.Id !== "string" || !/^[a-f0-9]{12,64}$/i.test(result.Id)) {
+      throw new Error("Podman returned an invalid builder exec identifier.");
+    }
+    return result.Id;
+  }
+
+  async startDetachedExec(execId: string): Promise<void> {
+    if (!/^[a-f0-9]{12,64}$/i.test(execId)) {
+      throw new Error("Podman builder exec identifier is invalid.");
+    }
+    await this.call({
+      method: "POST",
+      path: `/v1.40/exec/${encodeURIComponent(execId)}/start`,
+      body: { Detach: true, Tty: false },
+    }, [200, 201, 204]);
+  }
+
+  async inspectExec(execId: string): Promise<{ running: boolean; exitCode: number | null }> {
+    if (!/^[a-f0-9]{12,64}$/i.test(execId)) {
+      throw new Error("Podman builder exec identifier is invalid.");
+    }
+    const result = await this.call<unknown>({
+      method: "GET",
+      path: `/v1.40/exec/${encodeURIComponent(execId)}/json`,
+    }, [200]);
+    if (!result || typeof result !== "object" || Array.isArray(result)) {
+      throw new Error("Podman returned an invalid builder exec status.");
+    }
+    const value = result as Record<string, unknown>;
+    if (typeof value.Running !== "boolean" ||
+        (value.ExitCode !== null && (!Number.isInteger(value.ExitCode) || (value.ExitCode as number) < 0))) {
+      throw new Error("Podman returned an invalid builder exec status.");
+    }
+    return { running: value.Running, exitCode: value.ExitCode as number | null };
+  }
+
 }
