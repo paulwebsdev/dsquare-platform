@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { encryptEnvironmentSecret } from "./environment-secrets.js";
+import { buildDatabaseRuntimeEnvironment } from "./database-runtime-environment.js";
 import {
   clearPreparedRuntimeEnvironment,
   prepareNodeRuntimeLaunch,
@@ -92,6 +93,55 @@ test("does not prepare artifacts for an invalid Node project", async () => {
       processEnvironment: environment,
     }), /valid Node.js project/);
     await assert.rejects(readFile(path.join(root, resourceId, "runtime-artifacts", deploymentId)));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+
+test("adds only the selected approved database connection to the isolated runtime spec", async () => {
+  const root = await fixture();
+  const hostingUserId = "11111111-1111-4111-8111-111111111111";
+  const databaseResourceId = "33333333-3333-4333-8333-333333333333";
+  const databasePassword = "database-runtime-password";
+  const { encryptEnvironmentSecret } = await import("./environment-secrets.js");
+  const encrypted = encryptEnvironmentSecret(
+    databasePassword,
+    environment,
+    `d-database:${hostingUserId}:${databaseResourceId}`,
+  );
+  try {
+    const launch = await prepareNodeRuntimeLaunch({
+      resourceId,
+      deploymentId,
+      storageRoot: root,
+      files: [{ originalName: "server.js", storageKey }],
+      validation,
+      encryptedVariables: [],
+      hostingUserId,
+      databaseConnection: {
+        user_id: hostingUserId,
+        project_id: "22222222-2222-4222-8222-222222222222",
+        resource_id: databaseResourceId,
+        resource_name: "Customer Data",
+        schema_name: "db_09800acba6c642d093f09d8aa73c2515",
+        database_host: "database.internal",
+        database_port: 5432,
+        database_name: "d_database",
+        database_role: "dsq_app_33333333333343338333333333333333",
+        database_password: databasePassword,
+        database_password_ciphertext: encrypted.ciphertext,
+        database_password_iv: encrypted.iv,
+        database_password_auth_tag: encrypted.authTag,
+      },
+      processEnvironment: environment,
+    });
+    assert.equal(launch.spec.environment.D_DATABASE_PASSWORD, databasePassword);
+    assert.equal(launch.spec.environment.D_DATABASE_RESOURCE_ID, databaseResourceId);
+    assert.equal(launch.spec.environment.PORT, "3000");
+    assert.equal(launch.spec.environment.HOSTING_SECRETS_KEY, undefined);
+    clearPreparedRuntimeEnvironment(launch);
+    assert.equal(launch.spec.environment.D_DATABASE_PASSWORD, undefined);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
