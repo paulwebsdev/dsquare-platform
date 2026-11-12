@@ -85,7 +85,7 @@ export function getRequiredNodeCacheIntegrities(packageLockJson: string): string
     if (typeof rawPackage.integrity !== "string") {
       throw new Error("Every registry package must include a SHA-512 integrity value.");
     }
-    const sha512 = rawPackage.integrity.split(/\\s+/).find((item) =>
+    const sha512 = rawPackage.integrity.split(/\s+/).find((item) =>
       /^sha512-[A-Za-z0-9+/]{86}==$/.test(item),
     );
     if (!sha512) throw new Error("Every registry package must include a valid SHA-512 integrity value.");
@@ -110,7 +110,7 @@ export function createNodeBuildCacheAttestation(input: {
 }): NodeBuildCacheAttestation {
   if (!validSigningKey(input.signingKey)) throw new Error("The builder cache signing key is not configured securely.");
   if (input.builderImage !== NODE_BUILDER_IMAGE) throw new Error("The builder image is not approved.");
-  if (!/^10\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$/.test(input.npmVersion)) {
+  if (!/^10\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(input.npmVersion)) {
     throw new Error("The builder cache must be provisioned with the approved npm 10 toolchain.");
   }
   if (input.npmCacheVerified !== true || !Number.isFinite(Date.parse(input.verifiedAt))) {
@@ -152,7 +152,7 @@ export function verifyNodeBuildCacheAttestation(input: {
   }
   if (attestation.schemaVersion !== 1 || attestation.npmCacheVerified !== true ||
       attestation.builderImage !== input.builderImage ||
-      !/^10\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$/.test(attestation.npmVersion) ||
+      !/^10\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(attestation.npmVersion) ||
       !Number.isFinite(Date.parse(attestation.verifiedAt)) ||
       !Array.isArray(attestation.verifiedCacheIntegrities) ||
       attestation.verifiedCacheIntegrities.some((item) => typeof item !== "string")) {
