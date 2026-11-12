@@ -128,7 +128,6 @@ test("adds only the selected approved database connection to the isolated runtim
         database_port: 5432,
         database_name: "d_database",
         database_role: "dsq_app_33333333333343338333333333333333",
-        database_password: databasePassword,
         database_password_ciphertext: encrypted.ciphertext,
         database_password_iv: encrypted.iv,
         database_password_auth_tag: encrypted.authTag,
