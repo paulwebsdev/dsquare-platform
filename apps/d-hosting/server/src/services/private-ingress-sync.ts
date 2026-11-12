@@ -48,7 +48,7 @@ export async function syncPublishedNodeIngress(excludeDomainId?: string): Promis
   }
   const agent = agentOptions();
   if (!agent) {
-    if (routes.length) throw new Error("Private runtime agent is not configured for Node custom domains.");
+    if (routes.length || excludeDomainId) throw new Error("Private runtime agent is not configured for Node custom domains.");
     return { routeCount: 0, applied: false };
   }
   await syncRuntimeAgentIngress(agent, routes, process.env.D_HOSTING_TLS_EMAIL?.trim() || undefined);
