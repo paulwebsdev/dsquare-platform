@@ -44,8 +44,11 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install locked dependencies
-        run: npm ci
+      - name: Synchronize workspace lockfile in the CI checkout
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      - name: Install dependencies without running package lifecycle scripts
+        run: npm ci --ignore-scripts
 
       - name: Type-check D Hosting API
         run: npm run typecheck --workspace=@dsquare/d-hosting-server
