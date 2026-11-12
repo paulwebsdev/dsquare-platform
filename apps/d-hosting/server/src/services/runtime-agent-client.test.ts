@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildRuntimeAgentArtifact, changeRuntimeAgentRuntimeState, checkRuntimeAgentHealth, createRuntimeAgentRuntime, deleteRuntimeAgentArtifact, deleteRuntimeAgentRuntime, getRuntimeAgentLogs, getRuntimeAgentRuntime, requestRuntimeAgent } from "./runtime-agent-client.js";
+import { buildRuntimeAgentArtifact, changeRuntimeAgentRuntimeState, checkRuntimeAgentHealth, createRuntimeAgentRuntime, deleteRuntimeAgentArtifact, deleteRuntimeAgentRuntime, getRuntimeAgentLogs, getRuntimeAgentRuntime, requestRuntimeAgent, syncRuntimeAgentIngress } from "./runtime-agent-client.js";
 
 const options = {
   baseUrl: "https://runtime.example.com",
@@ -273,4 +273,40 @@ test("rejects invalid Node build identities and malformed build results", async 
       output: "",
     })),
   }, { sourceArtifactId: RESOURCE_ID, deploymentId: DEPLOYMENT_ID }), /invalid built artifact metadata/);
+});
+
+
+test("synchronizes a complete verified ingress route set through the authenticated agent", async () => {
+  const routes = [{
+    domain: "www.example.com",
+    resourceId: RESOURCE_ID,
+    deploymentId: DEPLOYMENT_ID,
+  }];
+  const result = await syncRuntimeAgentIngress({
+    ...options,
+    fetchImpl: fakeFetch((url, init) => {
+      assert.equal(url.pathname, "/v1/ingress/routes");
+      assert.equal(init.method, "POST");
+      assert.deepEqual(JSON.parse(String(init.body)), {
+        routes,
+        tlsEmail: "ops@example.com",
+      });
+      return Response.json({ applied: true, routeCount: 1 });
+    }),
+  }, routes, "ops@example.com");
+  assert.deepEqual(result, { applied: true, routeCount: 1 });
+});
+
+test("rejects invalid private ingress routes and unconfirmed agent updates", async () => {
+  const fetchImpl = fakeFetch(() => Response.json({ applied: false, routeCount: 0 }));
+  await assert.rejects(syncRuntimeAgentIngress({ ...options, fetchImpl }, [{
+    domain: "example.com",
+    resourceId: "invalid",
+    deploymentId: DEPLOYMENT_ID,
+  }]), /route list is invalid/);
+  await assert.rejects(syncRuntimeAgentIngress({ ...options, fetchImpl }, [{
+    domain: "example.com",
+    resourceId: RESOURCE_ID,
+    deploymentId: DEPLOYMENT_ID,
+  }]), /did not confirm/);
 });
