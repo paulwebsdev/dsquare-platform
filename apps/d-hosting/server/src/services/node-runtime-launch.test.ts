@@ -4,7 +4,6 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { encryptEnvironmentSecret } from "./environment-secrets.js";
-import { buildDatabaseRuntimeEnvironment } from "./database-runtime-environment.js";
 import {
   clearPreparedRuntimeEnvironment,
   prepareNodeRuntimeLaunch,
