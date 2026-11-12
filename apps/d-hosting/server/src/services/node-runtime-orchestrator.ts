@@ -10,6 +10,7 @@ import {
   type RuntimeProvider,
 } from "./runtime-provider.js";
 import type { NodeRuntimeSourceFile } from "./node-runtime-artifact.js";
+import type { EncryptedDatabaseRuntimeConnection } from "./database-runtime-environment.js";
 
 export type StartNodeRuntimeInput = {
   resourceId: string;
@@ -18,6 +19,8 @@ export type StartNodeRuntimeInput = {
   files: NodeRuntimeSourceFile[];
   validation: NodeProjectValidation;
   encryptedVariables: EncryptedEnvironmentVariable[];
+  databaseConnection?: EncryptedDatabaseRuntimeConnection;
+  hostingUserId?: string;
   processEnvironment?: NodeJS.ProcessEnv;
 };
 
