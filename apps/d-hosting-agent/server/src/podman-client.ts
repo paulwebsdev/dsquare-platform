@@ -10,6 +10,7 @@ export type PodmanRequest = {
   method: "GET" | "POST" | "DELETE";
   path: string;
   body?: unknown;
+  timeoutMs?: number;
 };
 
 export type PodmanTransport = (request: PodmanRequest) => Promise<PodmanResponse>;
@@ -39,6 +40,11 @@ export function createPodmanSocketTransport(input: {
 
   return (operation) => new Promise((resolve, reject) => {
     const pathname = safePath(operation.path);
+    const requestTimeoutMs = operation.timeoutMs ?? timeoutMs;
+    if (!Number.isInteger(requestTimeoutMs) || requestTimeoutMs < 100 || requestTimeoutMs > 20 * 60 * 1000) {
+      reject(new Error("Podman API request timeout is invalid."));
+      return;
+    }
     const body = operation.body === undefined
       ? undefined
       : Buffer.from(JSON.stringify(operation.body), "utf8");
@@ -70,7 +76,7 @@ export function createPodmanSocketTransport(input: {
         body: Buffer.concat(chunks),
       }));
     });
-    req.setTimeout(timeoutMs, () => req.destroy(new Error("Podman API request timed out.")));
+    req.setTimeout(requestTimeoutMs, () => req.destroy(new Error("Podman API request timed out.")));
     req.on("error", reject);
     if (body) req.write(body);
     req.end();
@@ -262,15 +268,17 @@ export class PodmanApiClient {
   }
 
   /** Run an attached, non-TTY exec and return bounded stdout/stderr bytes. */
-  async startAttachedExec(execId: string, maxOutputBytes = 2 * 1024 * 1024): Promise<Buffer> {
+  async startAttachedExec(execId: string, maxOutputBytes = 2 * 1024 * 1024, timeoutMs = 10_000): Promise<Buffer> {
     if (!/^[a-f0-9]{12,64}$/i.test(execId) ||
-        !Number.isInteger(maxOutputBytes) || maxOutputBytes < 1 || maxOutputBytes > 2 * 1024 * 1024) {
+        !Number.isInteger(maxOutputBytes) || maxOutputBytes < 1 || maxOutputBytes > 2 * 1024 * 1024 ||
+        !Number.isInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 15 * 60 * 1000) {
       throw new Error("Podman attached exec parameters are invalid.");
     }
     const response = await this.transport({
       method: "POST",
       path: `/v1.40/exec/${encodeURIComponent(execId)}/start`,
       body: { Detach: false, Tty: false },
+      timeoutMs,
     });
     if (response.statusCode !== 200) {
       throw new PodmanApiError(response.statusCode, "Podman builder command could not start.");
