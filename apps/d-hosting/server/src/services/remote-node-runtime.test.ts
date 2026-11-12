@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { encryptEnvironmentSecret } from "./environment-secrets.js";
-import { startRemoteNodeRuntime } from "./remote-node-runtime.js";
+import { startBuiltRemoteNodeRuntime, startRemoteNodeRuntime } from "./remote-node-runtime.js";
 
 const resourceId = "123e4567-e89b-42d3-a456-426614174000";
 const deploymentId = "123e4567-e89b-42d3-a456-426614174001";
@@ -164,6 +164,80 @@ test("does not request runtime creation when artifact upload is rejected", async
       /upload failed with HTTP 413/,
     );
     assert.deepEqual(paths, [`PUT /v1/artifacts/${deploymentId}`]);
+    await assert.rejects(stat(path.join(root, resourceId, "runtime-artifacts", deploymentId)));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+
+test("uploads source, builds remotely, starts only the built artifact, then removes source", async () => {
+  const root = await fixture();
+  const paths: string[] = [];
+  const fetchImpl = fakeFetch((url, init) => {
+    paths.push(`${init.method} ${url.pathname}`);
+    if (init.method === "PUT") {
+      assert.equal(Buffer.from(init.body as Uint8Array).subarray(0, 8).toString("ascii"), "DSQART01");
+      return Response.json({ artifactId: url.pathname.split("/").at(-1), accepted: true });
+    }
+    if (url.pathname === "/v1/builds") {
+      const request = JSON.parse(String(init.body)) as { sourceArtifactId: string; deploymentId: string };
+      assert.notEqual(request.sourceArtifactId, request.deploymentId);
+      assert.equal(request.deploymentId, deploymentId);
+      return Response.json({
+        artifact: { artifactId: deploymentId, sha256: "c".repeat(64), sizeBytes: 4096, fileCount: 4 },
+        output: "[install] done\\n[build] done",
+      }, { status: 201 });
+    }
+    if (url.pathname === "/v1/runtimes") {
+      const request = JSON.parse(String(init.body)) as { artifact: { artifactId: string; fileCount: number } };
+      assert.equal(request.artifact.artifactId, deploymentId);
+      assert.equal(request.artifact.fileCount, 4);
+      return Response.json({ resourceId, deploymentId, state: "running" }, { status: 201 });
+    }
+    return Response.json({ artifactId: url.pathname.split("/").at(-1), deleted: true });
+  });
+
+  try {
+    const result = await startBuiltRemoteNodeRuntime(
+      deploymentInput(root, fetchImpl),
+      async () => approvedDatabaseConnection(),
+    );
+    assert.equal(result.state, "running");
+    assert.equal(result.artifactId, deploymentId);
+    assert.equal(result.fileCount, 4);
+    assert.match(result.buildOutput, /build/);
+    assert.equal(paths.length, 4);
+    assert.match(paths[0]!, /^PUT \/v1\/artifacts\//);
+    assert.equal(paths[1], "POST /v1/builds");
+    assert.equal(paths[2], "POST /v1/runtimes");
+    assert.match(paths[3]!, /^DELETE \/v1\/artifacts\//);
+    await assert.rejects(stat(path.join(root, resourceId, "runtime-artifacts", deploymentId)));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("removes the temporary source artifact when remote build fails", async () => {
+  const root = await fixture();
+  const paths: string[] = [];
+  const fetchImpl = fakeFetch((url, init) => {
+    paths.push(`${init.method} ${url.pathname}`);
+    if (init.method === "PUT") {
+      return Response.json({ artifactId: url.pathname.split("/").at(-1), accepted: true });
+    }
+    if (url.pathname === "/v1/builds") return new Response("build failed", { status: 422 });
+    return new Response(null, { status: 404 });
+  });
+  try {
+    await assert.rejects(
+      startBuiltRemoteNodeRuntime(deploymentInput(root, fetchImpl), async () => null),
+      /HTTP 422/,
+    );
+    assert.equal(paths.length, 3);
+    assert.match(paths[0]!, /^PUT \/v1\/artifacts\//);
+    assert.equal(paths[1], "POST /v1/builds");
+    assert.match(paths[2]!, /^DELETE \/v1\/artifacts\//);
     await assert.rejects(stat(path.join(root, resourceId, "runtime-artifacts", deploymentId)));
   } finally {
     await rm(root, { recursive: true, force: true });
