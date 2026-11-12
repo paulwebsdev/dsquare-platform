@@ -98,7 +98,7 @@ export default function DatabaseConnections() {
         <div>
           <div className="welcome-date">INTEGRATIONS</div>
           <h1>Database connections</h1>
-          <p>Connect a D Database resource to use with your hosted websites in a future release.</p>
+          <p>Authorize D Hosting to receive encrypted connection credentials for a D Database resource. Per-website assignment and live application access are not enabled yet.</p>
         </div>
         <button className="primary-button" onClick={startConnection} disabled={busy}>＋ Connect D Database</button>
       </div>
