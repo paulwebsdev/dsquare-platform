@@ -1,12 +1,8 @@
-import type { QueryResult, QueryResultRow } from "pg";
 import { pool } from "../config/database.js";
 import type { EncryptedDatabaseRuntimeConnection } from "./database-runtime-environment.js";
 
 type Queryable = {
-  query<T extends QueryResultRow = QueryResultRow>(
-    text: string,
-    values?: unknown[],
-  ): Promise<QueryResult<T>>;
+  query(text: string, values?: any[]): Promise<{ rows: any[]; rowCount: number | null }>;
 };
 
 /**
@@ -20,20 +16,7 @@ export async function getAssignedDatabaseRuntimeConnection(input: {
   queryable?: Queryable;
 }): Promise<EncryptedDatabaseRuntimeConnection | null> {
   const queryable = input.queryable ?? pool;
-  const result = await queryable.query<{
-    user_id: string;
-    project_id: string;
-    resource_id: string;
-    resource_name: string;
-    schema_name: string;
-    database_host: string;
-    database_port: number;
-    database_name: string;
-    database_role: string;
-    database_password_ciphertext: string;
-    database_password_iv: string;
-    database_password_auth_tag: string;
-  }>(
+  const result = await queryable.query(
     `SELECT c.database_user_id AS user_id,
             c.database_project_id AS project_id,
             c.database_resource_id AS resource_id,
