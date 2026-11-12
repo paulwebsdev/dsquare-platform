@@ -39,8 +39,7 @@ The provisioner:
 6. Produces an HMAC-signed attestation tied to the exact lockfile SHA-256,
    approved builder image and npm 10 version.
 
-The cache directory is created with owner-only permissions. Keep it isolated
-from other tenants and immutable after attestation. A failed download, cache
+The cache directory is created with owner-only permissions. It is mounted read-only into the builder and is keyed by the exact lockfile SHA-256. Keep it isolated from other tenants and immutable after attestation. A failed download, cache
 verification, or integrity check must fail the provisioning operation; it must
 never produce an attestation.
 
@@ -67,10 +66,25 @@ packages that require those hooks (including some native-module installation
 flows) are not supported by this initial profile. Do not weaken the offline or
 script restrictions to make an incompatible project build.
 
-## Not yet wired
+## Integrated builder path
 
-Unit 1 provides the policy, cache provisioning, integrity verification and
-attestation primitives. Unit 2 must connect the provisioner to the isolated
-builder lifecycle, safely transfer the cache/attestation, and mount the cache
-read-only into the build container. Until then, Node.js execution remains
-disabled.
+The Runtime Agent now exposes an authenticated `POST /v1/builds` endpoint when
+its builder is explicitly enabled. It verifies the uploaded source artifact,
+provisions or verifies the exact lockfile cache on the trusted Linux agent,
+creates a rootless networkless Podman builder, runs the offline install and
+build phases, stops the entire builder container, packages the output (including
+safe in-workspace npm binary links), stores the immutable runtime artifact, and
+cleans the temporary builder workspace. Startup reconciliation removes builder
+containers and workspaces left by an agent crash.
+
+The Hosting API has a remote build-and-start pipeline. It uploads an immutable
+source snapshot, requests the isolated build, starts the returned artifact,
+waits for the runtime readiness probe, and only then records and activates the
+Node deployment. Temporary source artifacts are deleted after the build.
+
+This does not complete the public ingress path or production activation. The
+builder requires a dedicated Linux host, rootless Podman, persistent cache and
+workspace roots, and an actual outbound firewall policy restricting cache
+provisioning to approved npm registry/CDN endpoints. Keep both builder and
+runtime execution disabled until ingress, rollback/redeployment, TLS, and
+Linux end-to-end acceptance are complete.
