@@ -539,6 +539,14 @@ export async function startRuntimeAgent(): Promise<void> {
   const runtimeRootValue = process.env.RUNTIME_AGENT_RUNTIME_ROOT?.trim();
   const containerRuntimeRoot = process.env.RUNTIME_AGENT_CONTAINER_RUNTIME_ROOT?.trim();
   let provider: PodmanRuntimeProvider | undefined;
+  let builder: PodmanNodeBuildRunner | undefined;
+  let builderEnabled = false;
+  const builderWorkspaceRootValue = process.env.RUNTIME_AGENT_BUILDER_WORKSPACE_ROOT?.trim();
+  const npmCacheRootValue = process.env.RUNTIME_AGENT_NPM_CACHE_ROOT?.trim();
+  const containerStorageRoot = process.env.RUNTIME_AGENT_CONTAINER_STORAGE_ROOT?.trim();
+  const containerBuilderWorkspaceRoot = process.env.RUNTIME_AGENT_CONTAINER_BUILDER_WORKSPACE_ROOT?.trim();
+  const containerNpmCacheRoot = process.env.RUNTIME_AGENT_CONTAINER_NPM_CACHE_ROOT?.trim();
+  const builderSigningKey = process.env.RUNTIME_AGENT_BUILDER_CACHE_SIGNING_KEY;
   if (podmanSocket && trustedImage && privateNetwork && runtimeRootValue && containerRuntimeRoot) {
     if (!podmanSocket.startsWith("/") || !runtimeRootValue.startsWith("/") ||
         !path.posix.isAbsolute(containerRuntimeRoot) ||
@@ -556,6 +564,49 @@ export async function startRuntimeAgent(): Promise<void> {
         path.posix.join(containerRuntimeRoot, artifactId),
     });
   }
+  const builderConfigured = Boolean(
+    podmanSocket && builderWorkspaceRootValue && npmCacheRootValue &&
+    containerStorageRoot && containerBuilderWorkspaceRoot && containerNpmCacheRoot &&
+    builderSigningKey && Buffer.byteLength(builderSigningKey, "utf8") >= 32
+  );
+  if (builderConfigured) {
+    const roots = [
+      builderWorkspaceRootValue!, npmCacheRootValue!, containerStorageRoot!,
+      containerBuilderWorkspaceRoot!, containerNpmCacheRoot!,
+    ];
+    if (roots.some((value) => !path.posix.isAbsolute(value) || /[\\r\\n\\0:]/.test(value))) {
+      await pool.end();
+      throw new Error("Builder host and container mount roots must be safe absolute Linux paths.");
+    }
+    const transport = createPodmanSocketTransport({ socketPath: podmanSocket! });
+    const mapContainerPath = (hostPath: string): string => {
+      const absolute = path.resolve(hostPath);
+      const mappings = [
+        { host: storageRoot, container: containerStorageRoot! },
+        { host: path.resolve(builderWorkspaceRootValue!), container: containerBuilderWorkspaceRoot! },
+        { host: path.resolve(npmCacheRootValue!), container: containerNpmCacheRoot! },
+      ];
+      for (const mapping of mappings) {
+        const relative = path.relative(mapping.host, absolute);
+        if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) {
+          return relative
+            ? path.posix.join(mapping.container, ...relative.split(path.sep))
+            : mapping.container;
+        }
+      }
+      throw new Error("Builder mount path is outside the configured Podman host roots.");
+    };
+    builder = new PodmanNodeBuildRunner({
+      transport,
+      storageRoot,
+      workspaceRoot: path.resolve(builderWorkspaceRootValue!),
+      cacheRoot: path.resolve(npmCacheRootValue!),
+      signingKey: builderSigningKey!,
+      containerPath: mapContainerPath,
+    });
+    builderEnabled = process.env.RUNTIME_AGENT_BUILDER_ENABLED === "true";
+  }
+
   const registry = new RuntimeRegistry(pool);
   try {
     if (provider) {
@@ -569,7 +620,7 @@ export async function startRuntimeAgent(): Promise<void> {
   }
 
   // Production execution is deliberately hard-disabled until Linux acceptance tests pass.
-  const app = createRuntimeAgentApp({ pool, secret, storageRoot, provider, executionEnabled: false });
+  const app = createRuntimeAgentApp({ pool, secret, storageRoot, provider, builder, builderEnabled, executionEnabled: false });
   const port = Number(process.env.RUNTIME_AGENT_PORT || 5003);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     await pool.end();
@@ -577,7 +628,8 @@ export async function startRuntimeAgent(): Promise<void> {
   }
   const server = app.listen(port, host, () => {
     console.log(`D Hosting Runtime Agent listening on port ${port}`);
-    console.log("Runtime provider: disabled (customer code execution is blocked).");
+    console.log("Runtime provider: disabled (customer runtime execution is blocked).");
+    console.log(`Isolated builder: ${builderEnabled ? "enabled" : "disabled"}.`);
   });
   const shutdown = () => {
     server.close(() => void pool.end());
