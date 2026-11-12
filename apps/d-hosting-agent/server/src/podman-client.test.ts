@@ -166,7 +166,7 @@ test("Podman client captures bounded multiplexed builder output", async () => {
   payload.copy(frame, 8);
   const client = new PodmanApiClient(async (request) => {
     assert.equal(request.method, "POST");
-    assert.match(request.path, /exec\\/.+\\/start$/);
+    assert.match(request.path, /exec\/.+\/start$/);
     assert.deepEqual(request.body, { Detach: false, Tty: false });
     return { statusCode: 200, headers: { "content-type": "application/vnd.docker.raw-stream" }, body: frame };
   });
