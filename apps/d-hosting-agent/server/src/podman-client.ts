@@ -204,8 +204,8 @@ export class PodmanApiClient {
       throw new Error("Podman builder container identifier is invalid.");
     }
     const command = phase === "install"
-      ? ["npm", "ci", "--offline", "--cache=/npm-cache", "--ignore-scripts", "--no-audit", "--no-fund"]
-      : ["npm", "run", "build", "--if-present", "--ignore-scripts"];
+      ? ["npm", "ci", "--offline", "--cache=/npm-cache", "--logs-dir=/tmp/npm-logs", "--ignore-scripts", "--no-audit", "--no-fund"]
+      : ["npm", "run", "build", "--if-present", "--logs-dir=/tmp/npm-logs", "--ignore-scripts"];
     const result = await this.call<{ Id?: unknown }>({
       method: "POST",
       path: `/v1.40/containers/${encodeURIComponent(containerId)}/exec`,
