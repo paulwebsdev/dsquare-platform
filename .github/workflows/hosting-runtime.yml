@@ -23,6 +23,10 @@ on:
 jobs:
   runtime:
     runs-on: ubuntu-latest
+    env:
+      DB_NAME: dsquare_test
+      DB_USER: dsquare_test
+      DB_PASSWORD_BASE64: dGVzdA==
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
