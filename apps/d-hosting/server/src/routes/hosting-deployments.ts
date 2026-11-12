@@ -479,9 +479,9 @@ async function deployNodeWebsite(
       const source = path.join(storageRoot, resourceId, file.storage_key);
       if (!existsSync(source)) throw new Error("A stored website file is missing.");
       const snapshotKey = randomUUID();
+      snapshotKeys.push(snapshotKey);
       snapshotBytes += await copyNodeSnapshotFile(source, path.join(storageRoot, resourceId, snapshotKey));
       if (snapshotBytes > 100 * 1024 * 1024) throw new Error("Node deployment exceeds the 100 MB snapshot limit.");
-      snapshotKeys.push(snapshotKey);
       snapshotManifest.push({ ...file, storage_key: snapshotKey });
     }
     await client.query("COMMIT");
