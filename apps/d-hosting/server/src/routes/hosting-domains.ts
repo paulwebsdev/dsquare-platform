@@ -244,7 +244,9 @@ router.delete("/:resourceId/domains/:domainId", async (req, res) => {
 
   try {
     const existing = await pool.query(
-      `SELECT d.id FROM hosting_custom_domains d
+      `SELECT d.id, r.site_type, r.status AS resource_status
+       FROM hosting_custom_domains d
+       INNER JOIN hosting_resources r ON r.id = d.resource_id AND r.project_id = d.project_id
        INNER JOIN projects p ON p.id = d.project_id
        WHERE d.id = $1 AND d.project_id = $2 AND d.resource_id = $3
          AND p.owner_id = $4 LIMIT 1`,
@@ -255,7 +257,9 @@ router.delete("/:resourceId/domains/:domainId", async (req, res) => {
     }
 
     try {
-      await syncPublishedNodeIngress(domainId);
+      if (existing.rows[0].site_type === "node" && existing.rows[0].resource_status === "published") {
+        await syncPublishedNodeIngress(domainId);
+      }
     } catch (error) {
       console.error("Domain ingress removal failed:", error instanceof Error ? error.message : error);
       return res.status(503).json({
