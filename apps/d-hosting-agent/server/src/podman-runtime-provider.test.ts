@@ -58,6 +58,12 @@ async function setup() {
     if (request.path.startsWith("/v1.40/containers/create")) {
       return { statusCode: 201, headers: {}, body: Buffer.from(JSON.stringify({ Id: containerId })) };
     }
+    if (request.method === "POST" && request.path.endsWith("/exec")) {
+      return { statusCode: 201, headers: {}, body: Buffer.from(JSON.stringify({ Id: "e".repeat(64) })) };
+    }
+    if (request.path.includes("/exec/") && request.path.endsWith("/json")) {
+      return { statusCode: 200, headers: {}, body: Buffer.from('{"Running":false,"ExitCode":0}') };
+    }
     if (request.path.endsWith("/json")) {
       return { statusCode: 200, headers: {}, body: Buffer.from('{"State":{"Status":"running"}}') };
     }
@@ -91,6 +97,9 @@ test("creates and starts an isolated container, then manages its lifecycle", asy
       `/var/lib/dsquare/runtime-workspaces/${artifactId}:/app:ro`,
     ]);
     assert.equal(config.HostConfig.PortBindings, undefined);
+    const probeCall = fixture.calls.find((call) => call.method === "POST" && call.path.endsWith("/exec"));
+    assert.ok(probeCall, "runtime must be probed from inside its private container");
+    assert.deepEqual((probeCall.body as { Cmd: string[] }).Cmd.slice(0, 2), ["node", "-e"]);
 
     await fixture.provider.stop(containerId);
     await fixture.provider.restart(containerId);
