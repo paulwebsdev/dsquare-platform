@@ -11,7 +11,7 @@ const MAX_TOTAL_FILE_BYTES = 100 * 1024 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SHA256 = /^[a-f0-9]{64}$/i;
 
-type ManifestFile = { path: string; sizeBytes: number; sha256: string };
+type ManifestFile = { path: string; sizeBytes: number; sha256: string; executable?: true };
 type BundleManifest = {
   version: 1;
   artifactId: string;
@@ -103,13 +103,19 @@ export async function storeRuntimeArtifact(
   for (const entry of manifest.files) {
     if (!isRecord(entry) || !safeArtifactPath(entry.path) ||
         !Number.isSafeInteger(entry.sizeBytes) || (entry.sizeBytes as number) < 0 ||
-        (entry.sizeBytes as number) > MAX_FILE_BYTES || !SHA256.test(String(entry.sha256))) {
+        (entry.sizeBytes as number) > MAX_FILE_BYTES || !SHA256.test(String(entry.sha256)) ||
+        (entry.executable !== undefined && typeof entry.executable !== "boolean")) {
       throw new Error("Runtime artifact contains an invalid file entry.");
     }
     const filePath = entry.path as string;
     if (seen.has(filePath)) throw new Error("Runtime artifact contains duplicate file paths.");
     seen.add(filePath);
-    files.push({ path: filePath, sizeBytes: entry.sizeBytes as number, sha256: entry.sha256 as string });
+    files.push({
+      path: filePath,
+      sizeBytes: entry.sizeBytes as number,
+      sha256: entry.sha256 as string,
+      ...(entry.executable === true ? { executable: true as const } : {}),
+    });
     totalBytes += entry.sizeBytes as number;
     if (totalBytes > MAX_TOTAL_FILE_BYTES) throw new Error("Runtime artifact exceeds the total file limit.");
   }
@@ -162,7 +168,7 @@ export async function storeRuntimeArtifact(
       const target = path.resolve(temporaryDirectory, ...file.path.split("/"));
       ensureInside(temporaryDirectory, target);
       await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
-      const handle = await open(target, "wx", 0o600);
+      const handle = await open(target, "wx", file.executable ? 0o500 : 0o400);
       try {
         await handle.writeFile(payloads[index]!);
         await handle.sync();
@@ -251,7 +257,13 @@ export async function verifyStoredArtifactContents(
     if (!isRecord(entry) || !safeArtifactPath(entry.path) ||
         !Number.isSafeInteger(entry.sizeBytes) || (entry.sizeBytes as number) < 0 ||
         !SHA256.test(String(entry.sha256)) || expected.has(entry.path)) return false;
-    const file = { path: entry.path, sizeBytes: entry.sizeBytes as number, sha256: String(entry.sha256) };
+    if (entry.executable !== undefined && typeof entry.executable !== "boolean") return false;
+    const file: ManifestFile = {
+      path: entry.path,
+      sizeBytes: entry.sizeBytes as number,
+      sha256: String(entry.sha256),
+      ...(entry.executable === true ? { executable: true as const } : {}),
+    };
     expected.set(file.path, file);
     totalBytes += file.sizeBytes;
   }
@@ -284,7 +296,8 @@ export async function verifyStoredArtifactContents(
         continue;
       }
       const manifestFile = expected.get(relative);
-      if (!stat.isFile() || !manifestFile || stat.size !== manifestFile.sizeBytes) return false;
+      if (!stat.isFile() || !manifestFile || stat.size !== manifestFile.sizeBytes ||
+          Boolean(stat.mode & 0o111) !== (manifestFile.executable === true)) return false;
       actualFiles.add(relative);
       let bytes: Buffer;
       try {
