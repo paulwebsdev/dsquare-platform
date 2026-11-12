@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -124,6 +124,7 @@ test("rejects a build without the exact lockfile's signed cache attestation", as
       cacheRoot: path.join(root, "caches"),
       signingKey,
       containerPath: (hostPath) => hostPath,
+      allowRegistryEgress: false,
     });
     await assert.rejects(() => runner.build({
       sourceArtifactId, deploymentId,
