@@ -24,7 +24,7 @@ test("lists tables with bearer authorization", async () => {
   const originalFetch = globalThis.fetch;
   let requestUrl = "";
   let authorization = "";
-  globalThis.fetch = (async (input, init) => {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     requestUrl = String(input);
     authorization = new Headers(init?.headers).get("authorization") || "";
     return new Response(JSON.stringify({ success: true, tables: ["customers"] }), {
