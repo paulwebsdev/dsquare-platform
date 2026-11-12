@@ -164,6 +164,9 @@ export class PodmanRuntimeProvider {
   async restart(containerId: string): Promise<void> {
     this.assertContainerId(containerId);
     await this.client.restartContainer(containerId);
+    // A successful Podman restart only means the container process was relaunched.
+    // Wait until the website is accepting private HTTP traffic before reporting success.
+    await this.waitForReadiness(containerId);
   }
 
   async inspect(containerId: string): Promise<Record<string, unknown>> {
