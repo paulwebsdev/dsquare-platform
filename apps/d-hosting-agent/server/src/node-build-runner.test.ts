@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createNodeBuildCacheAttestation, NODE_BUILDER_IMAGE } from "./node-build-cache.js";
-import { storeRuntimeArtifact } from "./artifact-store.js";
+import { createRuntimeArtifactBundle, storeRuntimeArtifact } from "./artifact-store.js";
 import { PodmanNodeBuildRunner } from "./node-build-runner.js";
 import type { PodmanRequest, PodmanResponse } from "./podman-client.js";
 
@@ -117,9 +117,17 @@ test("builds an immutable runtime artifact inside a networkless isolated Podman 
 test("rejects a build without the exact lockfile's signed cache attestation", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "dsquare-node-builder-reject-"));
   try {
+    const sourceDirectory = path.join(root, "source");
+    const storageRoot = path.join(root, "artifacts");
+    await mkdir(sourceDirectory);
+    await writeFile(path.join(sourceDirectory, "package.json"), packageJson);
+    await writeFile(path.join(sourceDirectory, "package-lock.json"), packageLockJson);
+    await writeFile(path.join(sourceDirectory, "server.js"), "console.log('server')");
+    const bundle = await createRuntimeArtifactBundle(sourceArtifactId, sourceDirectory);
+    await storeRuntimeArtifact(storageRoot, sourceArtifactId, bundle.bytes);
     const runner = new PodmanNodeBuildRunner({
       transport: async () => { throw new Error("Podman must not be called."); },
-      storageRoot: path.join(root, "artifacts"),
+      storageRoot,
       workspaceRoot: path.join(root, "workspaces"),
       cacheRoot: path.join(root, "caches"),
       signingKey,
