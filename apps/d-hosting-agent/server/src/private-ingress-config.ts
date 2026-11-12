@@ -11,10 +11,10 @@ export type PrivateIngressRoute = {
 
 export function normalizePrivateIngressDomain(value: string): string {
   if (typeof value !== "string" || !value || value.length > 253 ||
-      /[/:?#@\\\\\\s\u0000-\u001f\u007f]/.test(value)) {
+      /[/:?#@\\\s\u0000-\u001f\u007f]/.test(value)) {
     throw new Error("Ingress domain is invalid.");
   }
-  const domain = domainToASCII(value.trim().replace(/\\.$/, "")).toLowerCase();
+  const domain = domainToASCII(value.trim().replace(/\.$/, "")).toLowerCase();
   if (!domain || domain.length > 253 || isIP(domain) !== 0 ||
       domain === "localhost" || domain.endsWith(".localhost") ||
       domain.endsWith(".local") || domain.endsWith(".internal") ||
@@ -33,9 +33,8 @@ export function normalizePrivateIngressDomain(value: string): string {
 }
 
 /**
- * Renders a deterministic Caddy configuration for verified, published Node
- * domains only. Caddy owns public TLS; the only upstreams are private runtime
- * aliases on the dedicated Podman network.
+ * Renders deterministic Caddy routing for verified, published Node domains.
+ * Caddy owns public TLS; upstreams are private aliases on the Podman network.
  */
 export function renderPrivateIngressConfig(
   routes: PrivateIngressRoute[],
@@ -59,23 +58,23 @@ export function renderPrivateIngressConfig(
   }
 
   const email = tlsEmail?.trim();
-  if (email && (email.length > 254 || /[\\r\\n{}]/.test(email) ||
-      !/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(email))) {
+  if (email && (email.length > 254 || /[\r\n{}]/.test(email) ||
+      !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))) {
     throw new Error("TLS contact email is invalid.");
   }
 
   const lines = [
     "{",
     "  admin localhost:2019",
-    ...(email ? [`  email ${email}`] : []),
+    ...(email ? ["  email " + email] : []),
     "}",
     "",
   ];
   for (const route of normalized) {
     lines.push(
-      `${route.domain} {`,
+      route.domain + " {",
       "  encode gzip zstd",
-      `  reverse_proxy dsquare-site-${route.resourceId}${INTERNAL_SUFFIX}:3000 {`,
+      "  reverse_proxy dsquare-site-" + route.resourceId + INTERNAL_SUFFIX + ":3000 {",
       "    header_up Host {host}",
       "    header_up X-Forwarded-Host {host}",
       "    header_up X-Forwarded-Proto {scheme}",
@@ -93,5 +92,5 @@ export function renderPrivateIngressConfig(
       "",
     );
   }
-  return lines.join("\\n");
+  return lines.join("\n");
 }
