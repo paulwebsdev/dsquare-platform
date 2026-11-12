@@ -227,17 +227,20 @@ test("removes the temporary source artifact when remote build fails", async () =
       return Response.json({ artifactId: url.pathname.split("/").at(-1), accepted: true });
     }
     if (url.pathname === "/v1/builds") return new Response("build failed", { status: 422 });
-    return new Response(null, { status: 404 });
+    if (init.method === "GET") return new Response(null, { status: 404 });
+    return Response.json({ artifactId: url.pathname.split("/").at(-1), deleted: true });
   });
   try {
     await assert.rejects(
       startBuiltRemoteNodeRuntime(deploymentInput(root, fetchImpl), async () => null),
       /HTTP 422/,
     );
-    assert.equal(paths.length, 3);
+    assert.equal(paths.length, 5);
     assert.match(paths[0]!, /^PUT \/v1\/artifacts\//);
     assert.equal(paths[1], "POST /v1/builds");
-    assert.match(paths[2]!, /^DELETE \/v1\/artifacts\//);
+    assert.equal(paths[2], `GET /v1/runtimes/${resourceId}`);
+    assert.equal(paths[3], `DELETE /v1/artifacts/${deploymentId}`);
+    assert.match(paths[4]!, /^DELETE \/v1\/artifacts\//);
     await assert.rejects(stat(path.join(root, resourceId, "runtime-artifacts", deploymentId)));
   } finally {
     await rm(root, { recursive: true, force: true });
