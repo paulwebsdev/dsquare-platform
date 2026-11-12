@@ -76,8 +76,7 @@ export function renderPrivateIngressJsonConfig(
               handle: [{
                 handler: "reverse_proxy",
                 upstreams: [{
-                  dial: "dsquare-site-" + route.resourceId + "-" + route.deploymentId +
-                    ".runtime.dsquare.internal:3000",
+                  dial: "dsquare-site-" + route.resourceId + ".runtime.dsquare.internal:3000",
                 }],
                 headers: {
                   request: {
