@@ -59,7 +59,7 @@ export function createDDatabaseClient(options: DDatabaseClientOptions): DDatabas
       const result = await request<{ tables: string[] }>("/tables");
       return result.tables;
     },
-    select<T = Record<string, unknown>>(table: string, query = {}) {
+    select<T = Record<string, unknown>>(table: string, query: { limit?: number; offset?: number } = {}) {
       const params = new URLSearchParams();
       if (query.limit !== undefined) params.set("limit", String(query.limit));
       if (query.offset !== undefined) params.set("offset", String(query.offset));
