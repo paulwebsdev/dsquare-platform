@@ -38,4 +38,5 @@ test("accepts safe environment names and rejects reserved or malformed names", (
   assert.equal(isValidEnvironmentName("1INVALID"), false);
   assert.equal(isValidEnvironmentName("NODE_OPTIONS"), false);
   assert.equal(isValidEnvironmentName("HOSTING_SECRETS_KEY"), false);
+  assert.equal(isValidEnvironmentName("D_DATABASE_URL"), false);
 });
