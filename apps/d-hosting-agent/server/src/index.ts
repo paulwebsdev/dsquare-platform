@@ -10,6 +10,7 @@ import { createPodmanSocketTransport } from "./podman-client.js";
 import { RuntimeRegistry } from "./runtime-registry.js";
 import { PodmanNodeBuildRunner, type NodeBuildRequest } from "./node-build-runner.js";
 import { redactRuntimeLogMessage } from "../../../d-hosting/server/src/services/runtime-logs.js";
+import { applyPrivateIngressConfig, renderPrivateIngressJsonConfig, type PrivateIngressJsonRoute } from "./private-ingress-controller.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_BODY_BYTES = 100 * 1024 * 1024;
@@ -138,6 +139,7 @@ export function createRuntimeAgentApp(input: {
   provider?: PodmanRuntimeProvider;
   builder?: PodmanNodeBuildRunner;
   builderEnabled?: boolean;
+  ingressAdminUrl?: string;
   trustedImage?: string;
   /** Must remain false in production until Linux isolation acceptance is complete. */
   executionEnabled?: boolean;
@@ -178,7 +180,7 @@ export function createRuntimeAgentApp(input: {
   });
 
   app.get("/v1/health", (_request, response) => {
-    response.status(200).json({ status: "ready", providerConfigured: Boolean(input.provider), executionEnabled, builderConfigured: Boolean(input.builder), builderEnabled });
+    response.status(200).json({ status: "ready", providerConfigured: Boolean(input.provider), executionEnabled, builderConfigured: Boolean(input.builder), builderEnabled, ingressConfigured: Boolean(input.ingressAdminUrl) });
   });
 
   app.get("/healthz", (_request, response) => {
@@ -209,6 +211,50 @@ export function createRuntimeAgentApp(input: {
       response.status(201).json({ artifactId: artifact.artifactId, accepted: true });
     } catch {
       response.status(400).json({ error: "Runtime artifact was rejected." });
+    }
+  });
+
+  app.post("/v1/ingress/routes", async (request, response) => {
+    if (!/^application\\/json(?:\\s*;\\s*charset=utf-8)?$/i.test(request.headers["content-type"] ?? "")) {
+      response.status(415).json({ error: "Ingress route updates must use application/json." });
+      return;
+    }
+    if (!input.ingressAdminUrl) {
+      response.status(503).json({ error: "The private Caddy ingress admin endpoint is not configured." });
+      return;
+    }
+    let payload: unknown;
+    try {
+      payload = JSON.parse(getRawBody(request).toString("utf8"));
+    } catch {
+      response.status(400).json({ error: "Ingress route update must contain valid JSON." });
+      return;
+    }
+    if (!isRecord(payload) || !Array.isArray(payload.routes) || payload.routes.length > 2_000 ||
+        (payload.tlsEmail !== undefined && typeof payload.tlsEmail !== "string")) {
+      response.status(400).json({ error: "Ingress route update payload is invalid." });
+      return;
+    }
+    const routes: PrivateIngressJsonRoute[] = [];
+    for (const value of payload.routes) {
+      if (!isRecord(value) || typeof value.domain !== "string" ||
+          typeof value.resourceId !== "string" || typeof value.deploymentId !== "string") {
+        response.status(400).json({ error: "Ingress route entry is invalid." });
+        return;
+      }
+      routes.push({
+        domain: value.domain,
+        resourceId: value.resourceId,
+        deploymentId: value.deploymentId,
+      });
+    }
+    try {
+      const config = renderPrivateIngressJsonConfig(routes, payload.tlsEmail as string | undefined);
+      await applyPrivateIngressConfig({ adminUrl: input.ingressAdminUrl, config });
+      response.status(200).json({ applied: true, routeCount: routes.length });
+    } catch (error) {
+      console.error("Private ingress update failed:", error instanceof Error ? error.message : "Unknown error");
+      response.status(502).json({ error: "Private ingress configuration could not be applied." });
     }
   });
 
@@ -626,7 +672,8 @@ export async function startRuntimeAgent(): Promise<void> {
   }
 
   // Production execution is deliberately hard-disabled until Linux acceptance tests pass.
-  const app = createRuntimeAgentApp({ pool, secret, storageRoot, provider, builder, builderEnabled, executionEnabled: false });
+  const ingressAdminUrl = process.env.RUNTIME_AGENT_CADDY_ADMIN_URL?.trim();
+  const app = createRuntimeAgentApp({ pool, secret, storageRoot, provider, builder, builderEnabled, ingressAdminUrl, executionEnabled: false });
   const port = Number(process.env.RUNTIME_AGENT_PORT || 5003);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     await pool.end();
@@ -636,6 +683,7 @@ export async function startRuntimeAgent(): Promise<void> {
     console.log(`D Hosting Runtime Agent listening on port ${port}`);
     console.log("Runtime provider: disabled (customer runtime execution is blocked).");
     console.log(`Isolated builder: ${builderEnabled ? "enabled" : "disabled"}.`);
+    console.log(`Private ingress controller: ${ingressAdminUrl ? "configured" : "disabled"}.`);
   });
   const shutdown = () => {
     server.close(() => void pool.end());
