@@ -60,9 +60,6 @@ export async function prepareNodeRuntimeLaunch(input: {
           processEnvironment: input.processEnvironment,
         })
       : {};
-    if (!input.databaseConnection && input.hostingUserId) {
-      throw new Error("A D Database connection is required when a Hosting account ID is supplied.");
-    }
     const spec = buildNodeContainerSpec({
       resourceId: input.resourceId,
       validation: input.validation,
