@@ -16,7 +16,7 @@ type ResourceEntry = { project: Project; resource: Resource };
 type ProjectList = { projects?: Project[]; message?: string };
 type ResourceList = { resources?: Resource[]; message?: string };
 
-export function ResourceDirectory({ onOpenProjects }: { onOpenProjects: () => void }) {
+export function ResourceDirectory({ onOpenProjects, onOpenResource }: { onOpenProjects: () => void; onOpenResource: (projectId: string, resourceId: string) => void }) {
   const [entries, setEntries] = useState<ResourceEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -71,7 +71,7 @@ export function ResourceDirectory({ onOpenProjects }: { onOpenProjects: () => vo
             <div className="pm-card-top"><div className="pm-project-avatar">{resource.name.charAt(0).toUpperCase()}</div><span className={`pm-status ${resource.status}`}>{resource.status}</span></div>
             <h3>{resource.name}</h3>
             <p className="pm-card-description">{project.name} · {resource.site_type === "node" ? "Node.js website" : resource.engine || resource.site_type || "Resource"}</p>
-            <div className="pm-card-footer"><span>Updated {resource.updated_at ? new Date(resource.updated_at).toLocaleDateString() : "—"}</span><button onClick={onOpenProjects}>Manage projects →</button></div>
+            <div className="pm-card-footer"><span>Updated {resource.updated_at ? new Date(resource.updated_at).toLocaleDateString() : "—"}</span><button onClick={() => onOpenResource(project.id, resource.id)}>Open resource →</button></div>
           </article>
         ))}</div> : <div className="pm-empty panel"><div className="pm-empty-icon">◈</div><h2>{search ? "No matching resources" : "No resources yet"}</h2><p>{search ? "Try another search term." : "Create a website or database inside one of your projects to see it here."}</p><button className="primary-button" onClick={onOpenProjects}>Go to projects</button></div>}
     </section>
