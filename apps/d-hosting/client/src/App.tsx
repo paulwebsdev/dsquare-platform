@@ -147,10 +147,10 @@ export default function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <a className="brand" href="#">
+        <button className="brand" type="button" onClick={() => setActivePage("Overview")} aria-label={`${product} overview`}>
           <span className="brand-mark">D</span>
           <span>DSQUARE<span className="brand-dot">.</span></span>
-        </a>
+        </button>
 
         <div className="workspace-label">WORKSPACE</div>
         <div className="workspace-switch">
