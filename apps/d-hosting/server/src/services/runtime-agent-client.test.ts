@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { changeRuntimeAgentRuntimeState, checkRuntimeAgentHealth, createRuntimeAgentRuntime, deleteRuntimeAgentArtifact, deleteRuntimeAgentRuntime, getRuntimeAgentLogs, getRuntimeAgentRuntime, requestRuntimeAgent } from "./runtime-agent-client.js";
+import { buildRuntimeAgentArtifact, changeRuntimeAgentRuntimeState, checkRuntimeAgentHealth, createRuntimeAgentRuntime, deleteRuntimeAgentArtifact, deleteRuntimeAgentRuntime, getRuntimeAgentLogs, getRuntimeAgentRuntime, requestRuntimeAgent } from "./runtime-agent-client.js";
 
 const options = {
   baseUrl: "https://runtime.example.com",
@@ -233,4 +233,44 @@ test("retrieves bounded runtime logs through the typed authenticated client", as
     ...options,
     fetchImpl: fakeFetch(() => Response.json({ resourceId: RESOURCE_ID, logs: 42 })),
   }, RESOURCE_ID), /invalid runtime logs/);
+});
+
+
+test("requests an isolated Node build and validates the immutable artifact response", async () => {
+  const result = await buildRuntimeAgentArtifact({
+    ...options,
+    fetchImpl: fakeFetch((url, init) => {
+      assert.equal(url.pathname, "/v1/builds");
+      assert.equal(init.method, "POST");
+      assert.deepEqual(JSON.parse(String(init.body)), {
+        sourceArtifactId: RESOURCE_ID,
+        deploymentId: DEPLOYMENT_ID,
+      });
+      return Response.json({
+        artifact: {
+          artifactId: DEPLOYMENT_ID,
+          sha256: "b".repeat(64),
+          sizeBytes: 4096,
+          fileCount: 12,
+        },
+        output: "[install] complete\\n[build] complete",
+      }, { status: 201 });
+    }),
+  }, { sourceArtifactId: RESOURCE_ID, deploymentId: DEPLOYMENT_ID });
+  assert.equal(result.artifact.artifactId, DEPLOYMENT_ID);
+  assert.equal(result.artifact.fileCount, 12);
+});
+
+test("rejects invalid Node build identities and malformed build results", async () => {
+  await assert.rejects(buildRuntimeAgentArtifact({
+    ...options,
+    fetchImpl: fakeFetch(() => { throw new Error("must not call transport"); }),
+  }, { sourceArtifactId: "bad", deploymentId: DEPLOYMENT_ID }));
+  await assert.rejects(buildRuntimeAgentArtifact({
+    ...options,
+    fetchImpl: fakeFetch(() => Response.json({
+      artifact: { artifactId: RESOURCE_ID, sha256: "bad", sizeBytes: 0, fileCount: 0 },
+      output: "",
+    })),
+  }, { sourceArtifactId: RESOURCE_ID, deploymentId: DEPLOYMENT_ID }), /invalid built artifact metadata/);
 });
