@@ -10,8 +10,8 @@ import { NODE_BUILDER_IMAGE, verifyNodeBuildCacheAttestation, type NodeBuildCach
 export type NodeBuildPlan = {
   image: typeof NODE_BUILDER_IMAGE;
   cacheMount: { target: "/npm-cache"; readOnly: true };
-  install: ["npm", "ci", "--offline", "--cache=/npm-cache", "--ignore-scripts", "--no-audit", "--no-fund"];
-  build: ["npm", "run", "build", "--if-present", "--ignore-scripts"];
+  install: ["npm", "ci", "--offline", "--cache=/npm-cache", "--logs-dir=/tmp/npm-logs", "--ignore-scripts", "--no-audit", "--no-fund"];
+  build: ["npm", "run", "build", "--if-present", "--logs-dir=/tmp/npm-logs", "--ignore-scripts"];
   network: "none";
   user: "10001:10001";
   memoryBytes: number;
@@ -115,8 +115,8 @@ export function createNodeBuildPlan(input: {
     plan: {
       image: NODE_BUILDER_IMAGE,
       cacheMount: { target: "/npm-cache", readOnly: true },
-      install: ["npm", "ci", "--offline", "--cache=/npm-cache", "--ignore-scripts", "--no-audit", "--no-fund"],
-      build: ["npm", "run", "build", "--if-present", "--ignore-scripts"],
+      install: ["npm", "ci", "--offline", "--cache=/npm-cache", "--logs-dir=/tmp/npm-logs", "--ignore-scripts", "--no-audit", "--no-fund"],
+      build: ["npm", "run", "build", "--if-present", "--logs-dir=/tmp/npm-logs", "--ignore-scripts"],
       network: "none",
       user: "10001:10001",
       memoryBytes, nanoCpus, pidsLimit,
