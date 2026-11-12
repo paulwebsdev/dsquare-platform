@@ -131,6 +131,14 @@ export default function DeveloperApiKeys() {
           </article>
           {resourceId ? <>
             <article className="pm-detail panel">
+              <div className="pm-form-heading"><div><h2>Connect your website backend</h2><p>Use the server-side SDK from a trusted Node.js backend. The package is in the DSquare monorepo and is not published to npm yet. Never expose an API key in browser code.</p></div></div>
+              <p className="pm-card-description">Install or link the local <code>packages/d-database-sdk</code> package in your backend, then configure these server environment variables:</p>
+              <pre className="pm-code-block"><code>{`D_DATABASE_URL=https://your-d-database-api-origin\nD_DATABASE_PROJECT_ID=${projectId}\nD_DATABASE_RESOURCE_ID=${resourceId}\nD_DATABASE_API_KEY=dsq_live_your_secret`}</code></pre>
+              <p className="pm-card-description">Example backend usage:</p>
+              <pre className="pm-code-block"><code>{`import { createDDatabaseClient } from "@dsquare/d-database";\n\nconst db = createDDatabaseClient({\n  baseUrl: process.env.D_DATABASE_URL!,\n  apiKey: process.env.D_DATABASE_API_KEY!,\n  projectId: process.env.D_DATABASE_PROJECT_ID!,\n  resourceId: process.env.D_DATABASE_RESOURCE_ID!,\n});\n\nconst tables = await db.listTables();\nconst rows = await db.select("your_table", { limit: 25, offset: 0 });`}</code></pre>
+              <p className="pm-card-description">The SDK is server-only. A browser-ready public client is not available because row-level public access policies are not enabled.</p>
+            </article>
+            <article className="pm-detail panel">
               <div className="pm-form-heading"><div><h2>Create an API key</h2><p>Use secret keys only in trusted server-side code. Never put them in browser JavaScript, public repositories, or client-side environment variables.</p></div></div>
               <form className="wb-form" onSubmit={createKey}>
                 <label htmlFor="developer-key-name">Key name</label>
