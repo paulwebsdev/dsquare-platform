@@ -120,7 +120,7 @@ test("dereferences safe npm-style binary symlinks and preserves executable mode"
     assert.equal(await readFile(storedBinary, "utf8"), "#!/usr/bin/env node\\nconsole.log('cli')");
     const { stat } = await import("node:fs/promises");
     assert.ok((await stat(storedBinary)).mode & 0o111);
-    assert.equal(stored.fileCount, 2);
+    assert.equal(stored.fileCount, 3);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
