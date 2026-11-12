@@ -87,6 +87,7 @@ test("builds an immutable runtime artifact inside a networkless isolated Podman 
     const runner = new PodmanNodeBuildRunner({
       transport, storageRoot, workspaceRoot, cacheRoot, signingKey,
       containerPath: (hostPath) => hostPath,
+      allowRegistryEgress: false,
     });
     const result = await runner.build({ sourceArtifactId, deploymentId, cacheAttestation: attestation });
     assert.equal(result.artifactId, deploymentId);
