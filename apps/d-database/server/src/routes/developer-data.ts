@@ -29,7 +29,8 @@ router.get("/tables", requireDeveloperScope("read"), async (_req, res) => {
 
 // Read paginated rows from one table. Arbitrary SQL is never accepted.
 router.get("/tables/:tableName/rows", requireDeveloperScope("read"), async (req, res) => {
-  const tableName = req.params.tableName || "";
+  const rawTableName = req.params.tableName;
+  const tableName = typeof rawTableName === "string" ? rawTableName : "";
   const limit = Number(req.query.limit ?? 50);
   const offset = Number(req.query.offset ?? 0);
   if (!IDENTIFIER_PATTERN.test(tableName)) return res.status(400).json({ success: false, message: "Invalid table name." });
