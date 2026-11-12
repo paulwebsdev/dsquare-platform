@@ -17,8 +17,8 @@ export type NodeBuildPlan = {
   memoryBytes: number;
   nanoCpus: number;
   pidsLimit: number;
-  inputMount: { target: "/workspace"; readOnly: true };
-  outputMount: { target: "/output"; readOnly: false };
+  inputMount: { target: "/input"; readOnly: true };
+  outputMount: { target: "/workspace"; readOnly: false };
   timeoutMs: number;
   maxOutputBytes: number;
 };
@@ -120,8 +120,8 @@ export function createNodeBuildPlan(input: {
       network: "none",
       user: "10001:10001",
       memoryBytes, nanoCpus, pidsLimit,
-      inputMount: { target: "/workspace", readOnly: true },
-      outputMount: { target: "/output", readOnly: false },
+      inputMount: { target: "/input", readOnly: true },
+      outputMount: { target: "/workspace", readOnly: false },
       timeoutMs, maxOutputBytes,
     },
   };
