@@ -22,6 +22,7 @@ export type PodmanRuntimeProviderOptions = {
   networkName: string;
   /** Absolute Linux path visible to Podman for the workspace bind mount. */
   containerWorkspacePath?: (workspacePath: string, artifactId: string) => string;
+  readinessTimeoutMs?: number;
 };
 
 /**
@@ -36,6 +37,10 @@ export class PodmanRuntimeProvider {
   constructor(options: PodmanRuntimeProviderOptions) {
     if (!options.trustedImage.trim() || !options.networkName.trim()) {
       throw new Error("Podman provider requires a trusted image and private network.");
+    }
+    const readinessTimeoutMs = options.readinessTimeoutMs ?? 30_000;
+    if (!Number.isInteger(readinessTimeoutMs) || readinessTimeoutMs < 1_000 || readinessTimeoutMs > 120_000) {
+      throw new Error("Runtime readiness timeout must be between 1 and 120 seconds.");
     }
     this.client = new PodmanApiClient(options.transport);
     this.options = options;
@@ -72,6 +77,7 @@ export class PodmanRuntimeProvider {
       });
       containerId = await this.client.createContainer(config, request.runtime.name);
       await this.client.startContainer(containerId);
+      await this.waitForReadiness(containerId);
       return { containerId, workspacePath };
     } catch (error) {
       const cleanupErrors: unknown[] = [];
@@ -92,6 +98,33 @@ export class PodmanRuntimeProvider {
       }
       throw error;
     }
+  }
+
+  /**
+   * Do not report a deployment as started until its Node process accepts HTTP
+   * traffic on the private container interface. A 4xx response still proves
+   * the application is listening; 5xx, connection failures and timeouts retry.
+   */
+  private async waitForReadiness(containerId: string): Promise<void> {
+    const deadline = Date.now() + (this.options.readinessTimeoutMs ?? 30_000);
+    let lastError: unknown;
+    while (Date.now() < deadline) {
+      try {
+        const execId = await this.client.createRuntimeReadinessExec(containerId);
+        await this.client.startDetachedExec(execId);
+        let status = await this.client.inspectExec(execId);
+        while (status.running && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          status = await this.client.inspectExec(execId);
+        }
+        if (!status.running && status.exitCode === 0) return;
+        lastError = new Error("Website did not accept a successful private HTTP readiness probe.");
+      } catch (error) {
+        lastError = error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+    throw new Error("Website runtime did not become ready before the startup deadline.", { cause: lastError });
   }
 
   /** Adopt a container whose reservation survived a process crash, and remove only labelled DSquare orphans. */
