@@ -33,7 +33,7 @@ export async function prepareNodeRuntimeLaunch(input: {
   files: NodeRuntimeSourceFile[];
   validation: NodeProjectValidation;
   encryptedVariables: EncryptedEnvironmentVariable[];
-  databaseConnection?: DatabaseConnectionCredentials & {
+  databaseConnection?: Omit<DatabaseConnectionCredentials, "database_password"> & {
     database_password_ciphertext: string;
     database_password_iv: string;
     database_password_auth_tag: string;
