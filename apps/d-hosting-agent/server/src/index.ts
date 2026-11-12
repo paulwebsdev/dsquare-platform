@@ -230,7 +230,7 @@ export function createRuntimeAgentApp(input: {
     }
     if (!isRecord(payload) || !UUID.test(String(payload.sourceArtifactId)) ||
         !UUID.test(String(payload.deploymentId)) || payload.sourceArtifactId === payload.deploymentId ||
-        !isRecord(payload.cacheAttestation)) {
+        (payload.cacheAttestation !== undefined && !isRecord(payload.cacheAttestation))) {
       response.status(400).json({ error: "Node build request identity or cache attestation is invalid." });
       return;
     }
