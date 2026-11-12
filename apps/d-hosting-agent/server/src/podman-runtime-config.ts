@@ -73,6 +73,15 @@ export function buildPodmanContainerConfig(input: {
       "io.dsquare.deployment-id": input.deploymentId,
       "io.dsquare.artifact-id": input.artifactId,
     },
+    NetworkingConfig: {
+      EndpointsConfig: {
+        [input.networkName]: {
+          // Matches getBackendRouteTarget() exactly. The proxy must share this
+          // private network; no host port is published for customer containers.
+          Aliases: [`dsquare-site-${input.resourceId}.runtime.dsquare.internal`],
+        },
+      },
+    },
     HostConfig: {
       Binds: [`${input.artifactDirectory}:/app:ro`],
       Memory: runtime.memoryBytes,

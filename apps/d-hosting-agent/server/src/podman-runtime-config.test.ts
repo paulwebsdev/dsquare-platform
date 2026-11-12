@@ -34,6 +34,13 @@ test("builds a restricted Podman config without publishing a host port", () => {
   assert.deepEqual(config.HostConfig.CapDrop, ["ALL"]);
   assert.equal(config.HostConfig.NetworkMode, "dsquare-hosting-internal");
   assert.deepEqual(config.ExposedPorts, { "3000/tcp": {} });
+  assert.deepEqual(config.NetworkingConfig, {
+    EndpointsConfig: {
+      "dsquare-hosting-internal": {
+        Aliases: [`dsquare-site-${resourceId}.runtime.dsquare.internal`],
+      },
+    },
+  });
   assert.deepEqual(config.Labels, {
     "io.dsquare.managed": "true",
     "io.dsquare.resource-id": resourceId,
