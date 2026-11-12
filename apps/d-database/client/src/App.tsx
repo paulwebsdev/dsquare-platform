@@ -3,6 +3,7 @@ import "./style.css";
 import ProjectManager from "./components/ProjectManager";
 import AuthScreen, { type AuthUser } from "./components/AuthScreen";
 import HostingApproval from "./components/HostingApproval";
+import DeveloperApiKeys from "./components/DeveloperApiKeys";
 import { HelpSupport, ResourceDirectory, UsageBilling, WorkspaceActivity, WorkspaceSettings } from "./components/WorkspacePages";
 
 type Theme = "light" | "dark" | "system";
@@ -19,6 +20,7 @@ const navigation = [
   { label: "Overview", icon: "◫" },
   { label: "Projects", icon: "▦" },
   { label: "Resources", icon: "◈" },
+  { label: "API Keys", icon: "⌘" },
   { label: "Usage & Billing", icon: "▤" },
   { label: "Activity", icon: "◷" },
   { label: "Settings", icon: "⚙" }
@@ -229,6 +231,8 @@ export default function App() {
             <ProjectManager onProjectsChange={refreshProjectSummary} />
           ) : activePage === "Resources" ? (
             <ResourceDirectory onOpenProjects={() => setActivePage("Projects")} />
+          ) : activePage === "API Keys" ? (
+            <DeveloperApiKeys />
           ) : activePage === "Activity" ? (
             <WorkspaceActivity onOpenProjects={() => setActivePage("Projects")} />
           ) : activePage === "Usage & Billing" ? (
