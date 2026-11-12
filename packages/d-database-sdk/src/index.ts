@@ -24,6 +24,15 @@ export type DDatabaseClient = {
     table: string,
     values: Record<string, unknown>,
   ): Promise<T>;
+  update<T = Record<string, unknown>>(
+    table: string,
+    values: Record<string, unknown>,
+    where: Record<string, unknown>,
+  ): Promise<{ updatedCount: number; rows: T[] }>;
+  delete<T = Record<string, unknown>>(
+    table: string,
+    where: Record<string, unknown>,
+  ): Promise<{ deletedCount: number; rows: T[] }>;
 };
 
 type ApiResponse<T> = T & { success?: boolean; message?: string };
@@ -72,6 +81,18 @@ export function createDDatabaseClient(options: DDatabaseClientOptions): DDatabas
         body: JSON.stringify({ values }),
       });
       return result.row;
+    },
+    update<T = Record<string, unknown>>(table: string, values: Record<string, unknown>, where: Record<string, unknown>) {
+      return request<{ updatedCount: number; rows: T[] }>(`/tables/${encodeURIComponent(table)}/rows`, {
+        method: "PATCH",
+        body: JSON.stringify({ values, where }),
+      });
+    },
+    delete<T = Record<string, unknown>>(table: string, where: Record<string, unknown>) {
+      return request<{ deletedCount: number; rows: T[] }>(`/tables/${encodeURIComponent(table)}/rows`, {
+        method: "DELETE",
+        body: JSON.stringify({ where }),
+      });
     },
   };
 }
