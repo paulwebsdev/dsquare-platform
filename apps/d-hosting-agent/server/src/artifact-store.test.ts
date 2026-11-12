@@ -95,7 +95,7 @@ test("refuses symlinks in build output packaging", async () => {
     await mkdir(workspace);
     await writeFile(path.join(root, "outside.txt"), "outside");
     await symlink(path.join(root, "outside.txt"), path.join(workspace, "linked.txt"));
-    await assert.rejects(() => createRuntimeArtifactBundle(artifactId, workspace), /inside the workspace/);
+    await assert.rejects(() => createRuntimeArtifactBundle(artifactId, workspace), /escaped its storage directory/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
