@@ -25,6 +25,8 @@ type Resource = {
 type ResourceManagerProps = {
   project: Project;
   onBack: () => void;
+  initialResourceId?: string | null;
+  onInitialResourceOpened?: () => void;
 };
 
 type ListResponse = {
@@ -43,6 +45,8 @@ type SingleResponse = {
 export default function ProjectResources({
   project,
   onBack,
+  initialResourceId,
+  onInitialResourceOpened,
 }: ResourceManagerProps) {
   const product = import.meta.env.VITE_PRODUCT_NAME || "DSquare";
   const isDatabase = import.meta.env.VITE_PRODUCT_KIND === "database";
@@ -83,6 +87,16 @@ export default function ProjectResources({
 
         if (!cancelled) {
           setResources(data.resources || []);
+          if (initialResourceId) {
+            const detailResponse = await fetch(`${baseUrl}/${encodeURIComponent(initialResourceId)}`);
+            const detail = await detailResponse.json() as SingleResponse;
+            if (!detailResponse.ok) throw new Error(detail.message || "Could not open the selected resource.");
+            if (!cancelled) {
+              setSelectedResource(detail.resource);
+              setManagingResource(true);
+              onInitialResourceOpened?.();
+            }
+          }
         }
       } catch (err) {
         if (!cancelled) {
@@ -100,7 +114,7 @@ export default function ProjectResources({
     return () => {
       cancelled = true;
     };
-  }, [baseUrl, showArchived]);
+  }, [baseUrl, showArchived, initialResourceId]);
 
   async function reloadResources() {
     const response = await fetch(
