@@ -47,3 +47,37 @@ test("lists tables with bearer authorization", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+
+test("updates rows using PATCH with explicit filters", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestMethod = "";
+  let requestBody = "";
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    requestMethod = init?.method || "";
+    requestBody = String(init?.body || "");
+    return new Response(JSON.stringify({ success: true, updatedCount: 1, rows: [{ id: "1", name: "Ada" }] }), { status: 200 });
+  }) as typeof fetch;
+  try {
+    const client = createDDatabaseClient({ baseUrl: "https://database.example.com", apiKey: "dsq_live_example", projectId: "p", resourceId: "r" });
+    const result = await client.update("customers", { name: "Ada" }, { id: "1" });
+    assert.equal(requestMethod, "PATCH");
+    assert.deepEqual(JSON.parse(requestBody), { values: { name: "Ada" }, where: { id: "1" } });
+    assert.equal(result.updatedCount, 1);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("deletes rows using DELETE with explicit filters", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestMethod = "";
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    requestMethod = init?.method || "";
+    return new Response(JSON.stringify({ success: true, deletedCount: 1, rows: [{ id: "1" }] }), { status: 200 });
+  }) as typeof fetch;
+  try {
+    const client = createDDatabaseClient({ baseUrl: "https://database.example.com", apiKey: "dsq_live_example", projectId: "p", resourceId: "r" });
+    const result = await client.delete("customers", { id: "1" });
+    assert.equal(requestMethod, "DELETE");
+    assert.equal(result.deletedCount, 1);
+  } finally { globalThis.fetch = originalFetch; }
+});
