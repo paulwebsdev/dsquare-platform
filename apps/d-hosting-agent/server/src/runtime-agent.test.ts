@@ -248,6 +248,7 @@ test("provides authenticated runtime capability status without enabling executio
       executionEnabled: false,
       builderConfigured: false,
       builderEnabled: false,
+      ingressConfigured: false,
     });
     const unauthenticated = await fetch(`http://127.0.0.1:${address.port}${pathname}`);
     assert.equal(unauthenticated.status, 401);
