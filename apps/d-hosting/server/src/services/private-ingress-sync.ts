@@ -34,7 +34,9 @@ export async function syncPublishedNodeIngress(excludeDomainId?: string): Promis
        AND r.status = 'published'
        AND r.site_type = 'node'
        AND r.active_deployment_id IS NOT NULL
+       AND ($1::uuid IS NULL OR d.id <> $1::uuid)
      ORDER BY d.domain ASC`,
+    [excludeDomainId ?? null],
   );
   const routes: RuntimeAgentIngressRoute[] = result.rows.map((row) => ({
     domain: row.domain,
