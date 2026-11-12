@@ -7,7 +7,7 @@
  */
 export type NodeBuildPlan = {
   image: "docker.io/library/node:22-bookworm-slim";
-  install: ["npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"];
+  install: ["npm", "ci", "--offline", "--ignore-scripts", "--no-audit", "--no-fund"];
   build: ["npm", "run", "build", "--if-present", "--ignore-scripts"];
   network: "none";
   user: "10001:10001";
@@ -32,9 +32,9 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Validates the exact project metadata needed before a sandboxed npm build.
- * npm lifecycle scripts are deliberately disabled; projects requiring native
- * install hooks are not supported by this initial builder profile.
+ * Validates metadata before a sandboxed npm build. The builder must provide a
+ * verified pre-populated npm cache: dependency installation is offline and cannot
+ * reach arbitrary package registries. npm lifecycle scripts remain disabled.
  */
 export function createNodeBuildPlan(input: {
   packageJson: string;
@@ -101,7 +101,7 @@ export function createNodeBuildPlan(input: {
     valid: true,
     plan: {
       image: "docker.io/library/node:22-bookworm-slim",
-      install: ["npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"],
+      install: ["npm", "ci", "--offline", "--ignore-scripts", "--no-audit", "--no-fund"],
       build: ["npm", "run", "build", "--if-present", "--ignore-scripts"],
       network: "none",
       user: "10001:10001",
