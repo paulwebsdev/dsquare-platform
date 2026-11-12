@@ -12,8 +12,7 @@ import {
   type NodeRuntimeSourceFile,
 } from "./node-runtime-artifact.js";
 import type { NodeProjectValidation } from "./node-project-validation.js";
-import { buildDatabaseRuntimeEnvironment } from "./database-runtime-environment.js";
-import type { DatabaseConnectionCredentials } from "./database-connection-credentials.js";
+import { buildDatabaseRuntimeEnvironment, type EncryptedDatabaseRuntimeConnection } from "./database-runtime-environment.js";
 
 export type PreparedNodeRuntimeLaunch = {
   artifactDirectory: string;
@@ -33,11 +32,7 @@ export async function prepareNodeRuntimeLaunch(input: {
   files: NodeRuntimeSourceFile[];
   validation: NodeProjectValidation;
   encryptedVariables: EncryptedEnvironmentVariable[];
-  databaseConnection?: Omit<DatabaseConnectionCredentials, "database_password"> & {
-    database_password_ciphertext: string;
-    database_password_iv: string;
-    database_password_auth_tag: string;
-  };
+  databaseConnection?: EncryptedDatabaseRuntimeConnection;
   hostingUserId?: string;
   processEnvironment?: NodeJS.ProcessEnv;
 }): Promise<PreparedNodeRuntimeLaunch> {
