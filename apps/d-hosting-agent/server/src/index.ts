@@ -611,6 +611,10 @@ export async function startRuntimeAgent(): Promise<void> {
 
   const registry = new RuntimeRegistry(pool);
   try {
+    if (builder) {
+      const removedBuilders = await builder.reconcile();
+      console.log(`Builder recovery: removed ${removedBuilders} abandoned build containers.`);
+    }
     if (provider) {
       const recovered = await provider.reconcile(registry);
       console.log(`Runtime recovery: adopted ${recovered.adopted}, removed ${recovered.removed} orphaned containers.`);
