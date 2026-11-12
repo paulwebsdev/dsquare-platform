@@ -106,6 +106,7 @@ export default function DatabaseConnections() {
       {notice && <div className="panel" role="status" style={{ padding: 14, marginBottom: 16 }}>{notice}</div>}
       <article className="panel" style={{ padding: 22 }}>
         <h2>Connected resources</h2>
+        <p className="pm-card-description">Connections are securely stored and can be revoked here. They are not yet attached to individual websites, and Node.js execution remains disabled until the isolated runtime is deployed.</p>
         {busy && <p>Processing connection...</p>}
         {loading ? <p>Loading connections...</p> : connections.length === 0 ? (
           <p>No database resources connected yet. Connect a resource you own to get started.</p>
