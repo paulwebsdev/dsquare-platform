@@ -128,3 +128,26 @@ test("Podman client rejects malformed builder exec status", async () => {
   }));
   await assert.rejects(() => client.inspectExec("e".repeat(64)), /invalid builder exec status/);
 });
+
+
+test("Podman client creates an in-container HTTP readiness probe without a shell", async () => {
+  let seen: PodmanRequest | undefined;
+  const client = new PodmanApiClient(async (request) => {
+    seen = request;
+    return {
+      statusCode: 201,
+      headers: {},
+      body: Buffer.from(JSON.stringify({ Id: "f".repeat(64) })),
+    };
+  });
+  const id = await client.createRuntimeReadinessExec("a".repeat(64));
+  assert.equal(id, "f".repeat(64));
+  assert.equal(seen?.method, "POST");
+  assert.match(seen?.path ?? "", /containers\/a{64}\/exec$/);
+  const body = seen?.body as { Cmd: string[]; User: string; WorkingDir: string };
+  assert.equal(body.Cmd[0], "node");
+  assert.equal(body.Cmd[1], "-e");
+  assert.equal(body.User, "10001:10001");
+  assert.equal(body.WorkingDir, "/app");
+  assert.doesNotMatch(body.Cmd.join(" "), /sh -c|bash/);
+});
