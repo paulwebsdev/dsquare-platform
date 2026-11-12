@@ -172,7 +172,6 @@ export default function App() {
         <div className="workspace-switch">
           <span className="workspace-icon">{product.charAt(0)}</span>
           <span className="workspace-name">{product}</span>
-          <span className="workspace-arrow">⌄</span>
         </div>
 
         <div className="nav-label">MENU</div>
