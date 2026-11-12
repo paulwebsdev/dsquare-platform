@@ -16,7 +16,7 @@ export function normalizePrivateIngressDomain(value: string): string {
   }
   const domain = domainToASCII(value.trim().replace(/\.$/, "")).toLowerCase();
   if (!domain || domain.length > 253 || isIP(domain) !== 0 ||
-      /^\\d{1,3}(\\.\\d{1,3}){3}$/.test(domain) ||
+      /^\d{1,3}(\.\d{1,3}){3}$/.test(domain) ||
       domain === "localhost" || domain.endsWith(".localhost") ||
       domain.endsWith(".local") || domain.endsWith(".internal") ||
       domain.endsWith(".test") || domain.endsWith(".example") ||
