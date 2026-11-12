@@ -580,6 +580,43 @@ async function deployNodeWebsite(
     for (const key of snapshotKeys) {
       await rm(path.join(storageRoot, resourceId, key), { force: true }).catch(() => undefined);
     }
+
+    // Preserve a failed deployment history entry without changing the active
+    // deployment pointer. Use a fresh short transaction and owner check.
+    try {
+      await client.query("BEGIN");
+      const current = await client.query(
+        `SELECT r.id FROM hosting_resources r
+         INNER JOIN projects p ON p.id = r.project_id
+         WHERE r.id = $1 AND r.project_id = $2 AND p.owner_id = $3
+         FOR UPDATE OF r`,
+        [resourceId, projectId, userId],
+      );
+      if (current.rowCount === 1) {
+        const numberResult = await client.query(
+          `SELECT COALESCE(MAX(deployment_number), 0) + 1 AS next_number
+           FROM hosting_deployments WHERE resource_id = $1`,
+          [resourceId],
+        );
+        await client.query(
+          `INSERT INTO hosting_deployments
+             (id, project_id, resource_id, deployment_number, status, file_manifest,
+              error_summary, finished_at, created_by)
+           VALUES ($1, $2, $3, $4, 'failed', $5::jsonb, $6, NOW(), $7)`,
+          [
+            deploymentId, projectId, resourceId, Number(numberResult.rows[0].next_number),
+            JSON.stringify(snapshotManifest),
+            "Deployment failed during isolated build, runtime startup or activation.",
+            userId,
+          ],
+        );
+      }
+      await client.query("COMMIT");
+    } catch (historyError) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      console.error("Could not record failed Node deployment:", historyError instanceof Error ? historyError.message : "Unknown error");
+    }
+
     console.error("Node deployment failed:", error instanceof Error ? error.message : "Unknown error");
     return response.status(502).json({
       success: false,
