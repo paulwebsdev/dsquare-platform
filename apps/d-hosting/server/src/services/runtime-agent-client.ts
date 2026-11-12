@@ -209,6 +209,7 @@ export type RuntimeAgentHealth = {
   status: "ready";
   providerConfigured: boolean;
   executionEnabled: boolean;
+  ingressConfigured?: boolean;
 };
 
 /** Checks the authenticated private agent endpoint without enabling deployments. */
@@ -226,6 +227,39 @@ export async function checkRuntimeAgentHealth(
     throw new Error("Runtime agent returned an invalid health response.");
   }
   return result as RuntimeAgentHealth;
+}
+
+export type RuntimeAgentIngressRoute = {
+  domain: string;
+  resourceId: string;
+  deploymentId: string;
+};
+
+/** Replaces the complete private ingress table through the authenticated agent. */
+export async function syncRuntimeAgentIngress(
+  options: RuntimeAgentClientOptions,
+  routes: RuntimeAgentIngressRoute[],
+  tlsEmail?: string,
+): Promise<{ applied: true; routeCount: number }> {
+  if (!Array.isArray(routes) || routes.length > 2_000 ||
+      routes.some((route) =>
+        !RUNTIME_UUID.test(route.resourceId) ||
+        !RUNTIME_UUID.test(route.deploymentId) ||
+        typeof route.domain !== "string" || route.domain.length > 253
+      )) {
+    throw new Error("Private ingress route list is invalid.");
+  }
+  const result = await requestRuntimeAgent<unknown>(options, {
+    method: "POST",
+    path: "/v1/ingress/routes",
+    body: { routes, ...(tlsEmail ? { tlsEmail } : {}) },
+  });
+  if (!result || typeof result !== "object" ||
+      (result as Record<string, unknown>).applied !== true ||
+      (result as Record<string, unknown>).routeCount !== routes.length) {
+    throw new Error("Runtime agent did not confirm private ingress synchronization.");
+  }
+  return result as { applied: true; routeCount: number };
 }
 
 export type RuntimeAgentState = "running" | "stopped";
