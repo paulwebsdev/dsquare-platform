@@ -104,6 +104,9 @@ test("creates and starts an isolated container, then manages its lifecycle", asy
     await fixture.provider.stop(containerId);
     await fixture.provider.restart(containerId);
     assert.deepEqual(await fixture.provider.inspect(containerId), { State: { Status: "running" } });
+    const restartIndex = fixture.calls.findIndex((call) => call.path.endsWith("/restart?t=10"));
+    const postRestartProbeIndex = fixture.calls.findIndex((call, index) => index > restartIndex && call.method === "POST" && call.path.endsWith("/exec"));
+    assert.ok(postRestartProbeIndex > restartIndex, "restart must be followed by a private readiness probe");
     assert.equal((await fixture.provider.logs(containerId)).toString(), "runtime logs");
     assert.equal(await fixture.provider.remove(containerId, artifactId), true);
     await assert.rejects(lstat(path.join(fixture.runtimeRoot, artifactId)));
