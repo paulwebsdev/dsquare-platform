@@ -4,6 +4,7 @@ import { domainToASCII } from "node:url";
 import { resolveTxt } from "node:dns/promises";
 import { pool } from "../config/database.js";
 import { requireAuth } from "../middleware/require-auth.js";
+import { syncPublishedNodeIngress } from "../services/private-ingress-sync.js";
 
 const router = Router({ mergeParams: true });
 const UUID_PATTERN =
@@ -209,9 +210,20 @@ router.post("/:resourceId/domains/:domainId/verify", async (req, res) => {
       [domainId]
     );
 
+    try {
+      await syncPublishedNodeIngress();
+    } catch (error) {
+      console.error("Verified domain ingress synchronization failed:", error instanceof Error ? error.message : error);
+      return res.status(503).json({
+        success: false,
+        message: "Domain ownership is verified, but private routing is not ready yet. The domain remains verified and can be synchronized after ingress is configured.",
+        domain: { id: domainId, domain: domainRecord.domain, status: "verified" },
+      });
+    }
+
     return res.json({
       success: true,
-      message: "Domain ownership verified. DNS routing and HTTPS activation are separate setup steps.",
+      message: "Domain ownership verified. Published Node websites are synchronized to private HTTPS ingress.",
       domain: { id: domainId, domain: domainRecord.domain, status: "verified" },
     });
   } catch (error) {
@@ -243,7 +255,16 @@ router.delete("/:resourceId/domains/:domainId", async (req, res) => {
       return res.status(404).json({ success: false, message: "Custom domain not found." });
     }
 
-    return res.json({ success: true, message: "Custom domain removed." });
+    try {
+      await syncPublishedNodeIngress();
+    } catch (error) {
+      console.error("Removed domain ingress synchronization failed:", error instanceof Error ? error.message : error);
+      return res.status(503).json({
+        success: false,
+        message: "The domain was removed from Hosting, but the private ingress route update is pending.",
+      });
+    }
+    return res.json({ success: true, message: "Custom domain removed and private ingress synchronized." });
   } catch (error) {
     return sendError(error, res);
   }
