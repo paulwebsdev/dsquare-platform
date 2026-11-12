@@ -34,6 +34,11 @@ jobs:
     name: Hosting and runtime-agent tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      DB_NAME: dsquare_ci_placeholder
+      DB_USER: dsquare_ci_placeholder
+      DB_PASSWORD_BASE64: dGVzdA==
+      HOSTING_SECRETS_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
