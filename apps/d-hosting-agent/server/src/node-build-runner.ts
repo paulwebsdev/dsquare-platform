@@ -116,6 +116,30 @@ export class PodmanNodeBuildRunner {
     this.options = options;
   }
 
+  /** Remove builder containers and disposable workspaces left by an agent crash. */
+  async reconcile(): Promise<number> {
+    const root = path.resolve(this.options.workspaceRoot);
+    await mkdir(root, { recursive: true, mode: 0o700 });
+    const rootStat = await lstat(root);
+    if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+      throw new Error("Builder workspace root must be a real directory.");
+    }
+    const containers = await this.client.listManagedBuilderContainers();
+    for (const container of containers) {
+      await this.client.removeContainer(container.id);
+      const workspace = path.join(root, container.deploymentId);
+      const relative = path.relative(root, workspace);
+      if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+        throw new Error("Recovered builder workspace escaped its root.");
+      }
+      const workspaceStat = await lstat(workspace).catch(() => null);
+      if (workspaceStat?.isDirectory() && !workspaceStat.isSymbolicLink()) {
+        await rm(workspace, { recursive: true, force: false });
+      }
+    }
+    return containers.length;
+  }
+
   async build(request: NodeBuildRequest): Promise<NodeBuildResult> {
     if (!UUID.test(request.sourceArtifactId) || !UUID.test(request.deploymentId) ||
         request.sourceArtifactId === request.deploymentId) {
@@ -183,7 +207,7 @@ export class PodmanNodeBuildRunner {
         Cmd: ["node", "-e", "setInterval(()=>{},2147483647)"],
         Env: ["HOME=/tmp", "npm_config_update_notifier=false"],
         Labels: {
-          "io.dsquare.managed": "true",
+          "io.dsquare.managed": "builder",
           "io.dsquare.builder": "true",
           "io.dsquare.deployment-id": request.deploymentId,
         },
