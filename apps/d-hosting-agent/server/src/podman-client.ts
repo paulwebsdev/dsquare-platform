@@ -231,13 +231,15 @@ export class PodmanApiClient {
     return response.body;
   }
   /** Create a detached exec for the two explicitly supported builder phases. */
-  async createNodeBuildExec(containerId: string, phase: "install" | "build"): Promise<string> {
+  async createNodeBuildExec(containerId: string, phase: "version" | "install" | "build"): Promise<string> {
     if (!/^[a-f0-9]{12,64}$/i.test(containerId)) {
       throw new Error("Podman builder container identifier is invalid.");
     }
-    const command = phase === "install"
-      ? ["npm", "ci", "--offline", "--cache=/npm-cache", "--logs-dir=/tmp/npm-logs", "--ignore-scripts", "--no-audit", "--no-fund"]
-      : ["npm", "run", "build", "--if-present", "--logs-dir=/tmp/npm-logs", "--ignore-scripts"];
+    const command = phase === "version"
+      ? ["npm", "--version"]
+      : phase === "install"
+        ? ["npm", "ci", "--offline", "--cache=/npm-cache", "--logs-dir=/tmp/npm-logs", "--ignore-scripts", "--no-audit", "--no-fund"]
+        : ["npm", "run", "build", "--if-present", "--logs-dir=/tmp/npm-logs", "--ignore-scripts"];
     const result = await this.call<{ Id?: unknown }>({
       method: "POST",
       path: `/v1.40/containers/${encodeURIComponent(containerId)}/exec`,
