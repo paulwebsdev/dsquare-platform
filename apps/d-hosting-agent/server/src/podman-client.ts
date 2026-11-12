@@ -153,6 +153,32 @@ export class PodmanApiClient {
     return managed;
   }
 
+  async listManagedBuilderContainers(): Promise<Array<{ id: string; deploymentId: string }>> {
+    const filters = encodeURIComponent(JSON.stringify({ label: ["io.dsquare.builder=true"] }));
+    const rows = await this.call<unknown>({
+      method: "GET",
+      path: `/v1.40/containers/json?all=true&filters=${filters}`,
+    }, [200]);
+    if (!Array.isArray(rows) || rows.length > 10_000) {
+      throw new Error("Podman returned an invalid builder-container list.");
+    }
+    const managed: Array<{ id: string; deploymentId: string }> = [];
+    for (const row of rows) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      const item = row as Record<string, unknown>;
+      if (!item.Labels || typeof item.Labels !== "object" || Array.isArray(item.Labels)) continue;
+      const labels = item.Labels as Record<string, unknown>;
+      if (labels["io.dsquare.builder"] !== "true") continue;
+      if (typeof item.Id !== "string" || !/^[a-f0-9]{12,64}$/i.test(item.Id) ||
+          typeof labels["io.dsquare.deployment-id"] !== "string" ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(labels["io.dsquare.deployment-id"])) {
+        continue;
+      }
+      managed.push({ id: item.Id, deploymentId: labels["io.dsquare.deployment-id"] });
+    }
+    return managed;
+  }
+
   async createContainer(config: Record<string, unknown>, name: string): Promise<string> {
     if (!/^dsquare-(?:site|builder)-[0-9a-f-]{36}$/i.test(name)) {
       throw new Error("Podman container name is invalid.");
