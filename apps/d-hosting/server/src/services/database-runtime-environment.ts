@@ -1,6 +1,13 @@
 import { decryptEnvironmentSecret } from "./environment-secrets.js";
 import type { DatabaseConnectionCredentials } from "./database-connection-credentials.js";
 
+export type EncryptedDatabaseRuntimeConnection =
+  Omit<DatabaseConnectionCredentials, "database_password"> & {
+    database_password_ciphertext: string;
+    database_password_iv: string;
+    database_password_auth_tag: string;
+  };
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SCHEMA = /^db_[0-9a-f]{32}$/;
 const ROLE = /^dsq_app_[0-9a-f]{32}$/;
