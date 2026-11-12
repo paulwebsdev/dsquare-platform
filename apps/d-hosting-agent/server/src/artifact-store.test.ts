@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -95,7 +95,32 @@ test("refuses symlinks in build output packaging", async () => {
     await mkdir(workspace);
     await writeFile(path.join(root, "outside.txt"), "outside");
     await symlink(path.join(root, "outside.txt"), path.join(workspace, "linked.txt"));
-    await assert.rejects(() => createRuntimeArtifactBundle(artifactId, workspace), /symbolic links/);
+    await assert.rejects(() => createRuntimeArtifactBundle(artifactId, workspace), /inside the workspace/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+
+test("dereferences safe npm-style binary symlinks and preserves executable mode", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "dsquare-build-output-bin-"));
+  const workspace = path.join(root, "workspace");
+  const storage = path.join(root, "storage");
+  try {
+    await mkdir(path.join(workspace, "node_modules", "tool", "bin"), { recursive: true });
+    await mkdir(path.join(workspace, "node_modules", ".bin"), { recursive: true });
+    const executable = path.join(workspace, "node_modules", "tool", "bin", "cli.js");
+    await writeFile(executable, "#!/usr/bin/env node\\nconsole.log('cli')");
+    await chmod(executable, 0o755);
+    await symlink("../tool/bin/cli.js", path.join(workspace, "node_modules", ".bin", "tool"));
+    await writeFile(path.join(workspace, "server.js"), "console.log('server')");
+    const bundle = await createRuntimeArtifactBundle(artifactId, workspace);
+    const stored = await storeRuntimeArtifact(storage, artifactId, bundle.bytes);
+    const storedBinary = path.join(storage, artifactId, "node_modules", ".bin", "tool");
+    assert.equal(await readFile(storedBinary, "utf8"), "#!/usr/bin/env node\\nconsole.log('cli')");
+    const { stat } = await import("node:fs/promises");
+    assert.ok((await stat(storedBinary)).mode & 0o111);
+    assert.equal(stored.fileCount, 2);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
