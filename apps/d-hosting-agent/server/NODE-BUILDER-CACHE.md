@@ -82,9 +82,6 @@ source snapshot, requests the isolated build, starts the returned artifact,
 waits for the runtime readiness probe, and only then records and activates the
 Node deployment. Temporary source artifacts are deleted after the build.
 
-This does not complete the public ingress path or production activation. The
-builder requires a dedicated Linux host, rootless Podman, persistent cache and
-workspace roots, and an actual outbound firewall policy restricting cache
-provisioning to approved npm registry/CDN endpoints. Keep both builder and
-runtime execution disabled until ingress, rollback/redeployment, TLS, and
-Linux end-to-end acceptance are complete.
+The private ingress configuration renderer is also in place: it validates public hostnames, produces deterministic Caddy reverse-proxy routes to private runtime aliases, strips untrusted forwarded headers, and sets bounded upstream timeouts. The Caddy container lifecycle, authenticated domain-route synchronization, and DNS/TLS issuance checks are not yet wired end to end.
+
+The builder requires a dedicated Linux host, rootless Podman, persistent cache and workspace roots, and an actual outbound firewall policy restricting cache provisioning to approved npm registry/CDN endpoints. Keep both builder and runtime execution disabled until the ingress container, route synchronization, rollback/redeployment, TLS, and Linux end-to-end acceptance are complete.
