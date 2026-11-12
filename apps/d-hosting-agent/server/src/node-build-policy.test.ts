@@ -52,8 +52,8 @@ test("creates a bounded Node 22 build plan with a read-only verified npm cache",
   ]);
   assert.deepEqual(result.plan.build, ["npm", "run", "build", "--if-present", "--logs-dir=/tmp/npm-logs", "--ignore-scripts"]);
   assert.deepEqual(result.plan.cacheMount, { target: "/npm-cache", readOnly: true });
-  assert.equal(result.plan.inputMount.readOnly, true);
-  assert.equal(result.plan.outputMount.readOnly, false);
+  assert.deepEqual(result.plan.inputMount, { target: "/input", readOnly: true });
+  assert.deepEqual(result.plan.outputMount, { target: "/workspace", readOnly: false });
 });
 
 test("rejects missing cache attestations, invalid signatures and changed lockfiles", () => {
