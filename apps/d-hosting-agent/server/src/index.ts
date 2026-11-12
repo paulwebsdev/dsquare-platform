@@ -215,7 +215,7 @@ export function createRuntimeAgentApp(input: {
   });
 
   app.post("/v1/ingress/routes", async (request, response) => {
-    if (!/^application\\/json(?:\\s*;\\s*charset=utf-8)?$/i.test(request.headers["content-type"] ?? "")) {
+    if (!/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(request.headers["content-type"] ?? "")) {
       response.status(415).json({ error: "Ingress route updates must use application/json." });
       return;
     }
