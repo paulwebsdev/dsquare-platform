@@ -12,7 +12,7 @@ const ROLE = /^dsq_app_[0-9a-f]{32}$/;
  */
 export function buildDatabaseRuntimeEnvironment(input: {
   hostingUserId: string;
-  connection: DatabaseConnectionCredentials & {
+  connection: Omit<DatabaseConnectionCredentials, "database_password"> & {
     database_password_ciphertext: string;
     database_password_iv: string;
     database_password_auth_tag: string;
