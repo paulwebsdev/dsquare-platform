@@ -130,8 +130,8 @@ export async function startBuiltRemoteNodeRuntime(
       artifactId: sourceArtifactId,
       artifactDirectory: launch.artifactDirectory,
     });
-    await uploadRuntimeAgentArtifact(input.agent, sourceArtifactId, sourceBundle.bytes);
     sourceUploaded = true;
+    await uploadRuntimeAgentArtifact(input.agent, sourceArtifactId, sourceBundle.bytes);
 
     buildAttempted = true;
     const built = await buildRuntimeAgentArtifact(input.agent, {
@@ -154,10 +154,11 @@ export async function startBuiltRemoteNodeRuntime(
       buildOutput: built.output,
     };
   } catch (error) {
-    if (runtimeCreated) {
-      await deleteRuntimeAgentRuntime(input.agent, input.resourceId).catch(() => undefined);
-    }
-    if (builtArtifactCreated) {
+    if (buildAttempted) {
+      const current = await getRuntimeAgentRuntime(input.agent, input.resourceId).catch(() => null);
+      if (current?.deploymentId === input.deploymentId) {
+        await deleteRuntimeAgentRuntime(input.agent, input.resourceId).catch(() => undefined);
+      }
       await deleteRuntimeAgentArtifact(input.agent, input.deploymentId).catch(() => undefined);
     }
     throw error;
