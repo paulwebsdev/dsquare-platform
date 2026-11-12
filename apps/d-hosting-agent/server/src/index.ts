@@ -567,7 +567,8 @@ export async function startRuntimeAgent(): Promise<void> {
   const builderConfigured = Boolean(
     podmanSocket && builderWorkspaceRootValue && npmCacheRootValue &&
     containerStorageRoot && containerBuilderWorkspaceRoot && containerNpmCacheRoot &&
-    builderSigningKey && Buffer.byteLength(builderSigningKey, "utf8") >= 32
+    builderSigningKey && Buffer.byteLength(builderSigningKey, "utf8") >= 32 &&
+    process.env.RUNTIME_AGENT_NPM_REGISTRY_EGRESS_RESTRICTED === "true"
   );
   if (builderConfigured) {
     const roots = [
@@ -603,6 +604,7 @@ export async function startRuntimeAgent(): Promise<void> {
       cacheRoot: path.resolve(npmCacheRootValue!),
       signingKey: builderSigningKey!,
       containerPath: mapContainerPath,
+      allowRegistryEgress: true,
     });
     builderEnabled = process.env.RUNTIME_AGENT_BUILDER_ENABLED === "true";
   }
