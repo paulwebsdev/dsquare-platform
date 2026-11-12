@@ -59,5 +59,6 @@ export function decryptEnvironmentSecret(
 
 export function isValidEnvironmentName(name: string): boolean {
   return /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name) &&
+    !name.startsWith("D_DATABASE_") &&
     !new Set(["PATH", "HOME", "PORT", "NODE_OPTIONS", "NODE_PATH", "HOSTING_SECRETS_KEY"]).has(name);
 }
