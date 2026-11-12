@@ -93,10 +93,10 @@ test("Podman client creates only the approved Node builder phases", async () => 
   assert.equal(install, "c".repeat(64));
   assert.equal(build, "c".repeat(64));
   assert.deepEqual((calls[0]?.body as { Cmd: string[] }).Cmd, [
-    "npm", "ci", "--offline", "--cache=/npm-cache", "--ignore-scripts", "--no-audit", "--no-fund",
+    "npm", "ci", "--offline", "--cache=/npm-cache", "--logs-dir=/tmp/npm-logs", "--ignore-scripts", "--no-audit", "--no-fund",
   ]);
   assert.deepEqual((calls[1]?.body as { Cmd: string[] }).Cmd, [
-    "npm", "run", "build", "--if-present", "--ignore-scripts",
+    "npm", "run", "build", "--if-present", "--logs-dir=/tmp/npm-logs", "--ignore-scripts",
   ]);
   assert.equal((calls[0]?.body as { User: string }).User, "10001:10001");
   await assert.rejects(() => client.createNodeBuildExec("short", "install"));
