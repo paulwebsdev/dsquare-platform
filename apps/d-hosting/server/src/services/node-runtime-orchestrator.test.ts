@@ -12,6 +12,26 @@ const deploymentId = "123e4567-e89b-42d3-a456-426614174001";
 const storageKey = "123e4567-e89b-42d3-a456-426614174002";
 const key = Buffer.alloc(32, 9).toString("base64");
 const processEnvironment = { HOSTING_SECRETS_KEY: key };
+const hostingUserId = "11111111-1111-4111-8111-111111111111";
+const databaseResourceId = "33333333-3333-4333-8333-333333333333";
+const databasePassword = "database-runtime-password";
+function approvedDatabaseConnection() {
+  const encrypted = encryptEnvironmentSecret(databasePassword, processEnvironment, `d-database:${hostingUserId}:${databaseResourceId}`);
+  return {
+    user_id: hostingUserId,
+    project_id: "22222222-2222-4222-8222-222222222222",
+    resource_id: databaseResourceId,
+    resource_name: "Customer Data",
+    schema_name: "db_09800acba6c642d093f09d8aa73c2515",
+    database_host: "database.internal",
+    database_port: 5432,
+    database_name: "d_database",
+    database_role: "dsq_app_33333333333343338333333333333333",
+    database_password_ciphertext: encrypted.ciphertext,
+    database_password_iv: encrypted.iv,
+    database_password_auth_tag: encrypted.authTag,
+  };
+}
 const validation = {
   valid: true as const,
   entrypoint: "server.js",
@@ -44,15 +64,17 @@ test("hands a prepared website to the isolated provider and clears secret refere
     async start(spec: Parameters<RuntimeProvider["start"]>[0]) {
       capturedSpec = spec;
       assert.equal(spec.environment.APP_SECRET, "private-value");
+      assert.equal(spec.environment.D_DATABASE_PASSWORD, databasePassword);
       return { containerId: "provider-instance-1" };
     },
   } as RuntimeProvider;
 
   try {
-    const result = await startNodeRuntime(input(root), provider);
+    const result = await startNodeRuntime({ ...input(root), hostingUserId, databaseConnection: approvedDatabaseConnection() }, provider);
     assert.equal(result.containerId, "provider-instance-1");
     assert.equal(result.fileCount, 1);
     assert.equal(capturedSpec?.environment.APP_SECRET, undefined);
+    assert.equal(capturedSpec?.environment.D_DATABASE_PASSWORD, undefined);
     assert.equal(await readFile(path.join(result.artifactDirectory, "server.js"), "utf8"), "console.log('isolated');");
   } finally {
     await rm(root, { recursive: true, force: true });
