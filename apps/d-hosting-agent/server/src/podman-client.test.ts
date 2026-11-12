@@ -119,7 +119,7 @@ test("Podman client starts detached builder exec and inspects completion", async
   assert.deepEqual(status, { running: false, exitCode: 0 });
   assert.equal(calls[0]?.method, "POST");
   assert.deepEqual(calls[0]?.body, { Detach: true, Tty: false });
-  assert.match(calls[1]?.path ?? "", /exec\\/.+\\/json$/);
+  assert.match(calls[1]?.path ?? "", /exec\/.+\/json$/);
 });
 
 test("Podman client rejects malformed builder exec status", async () => {
