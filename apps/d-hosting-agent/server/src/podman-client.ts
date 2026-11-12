@@ -48,6 +48,7 @@ export function createPodmanSocketTransport(input: {
     const body = operation.body === undefined
       ? undefined
       : Buffer.from(JSON.stringify(operation.body), "utf8");
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
     const req = httpRequest({
       socketPath: input.socketPath,
       path: pathname,
@@ -70,14 +71,25 @@ export function createPodmanSocketTransport(input: {
         }
         chunks.push(chunk);
       });
-      response.on("end", () => resolve({
-        statusCode: response.statusCode ?? 0,
-        headers: response.headers,
-        body: Buffer.concat(chunks),
-      }));
+      response.on("end", () => {
+        if (deadlineTimer) clearTimeout(deadlineTimer);
+        resolve({
+          statusCode: response.statusCode ?? 0,
+          headers: response.headers,
+          body: Buffer.concat(chunks),
+        });
+      });
+      response.on("error", (error) => {
+        if (deadlineTimer) clearTimeout(deadlineTimer);
+        reject(error);
+      });
     });
+    deadlineTimer = setTimeout(() => req.destroy(new Error("Podman API request timed out.")), requestTimeoutMs);
     req.setTimeout(requestTimeoutMs, () => req.destroy(new Error("Podman API request timed out.")));
-    req.on("error", reject);
+    req.on("error", (error) => {
+      if (deadlineTimer) clearTimeout(deadlineTimer);
+      reject(error);
+    });
     if (body) req.write(body);
     req.end();
   });
