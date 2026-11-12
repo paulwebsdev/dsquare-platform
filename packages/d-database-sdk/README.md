@@ -14,7 +14,7 @@ The package is currently in the DSquare monorepo and has not yet been published 
 
 In D Database, create a developer API key for the exact project and database resource your application needs. Choose the minimum permissions:
 - `read`: list tables and read paginated rows.
-- `write`: insert rows (the key must also have `read` if it needs read operations).
+- `write`: insert, update, and delete rows (the key must also have `read` if it needs read operations).
 
 Keys can be revoked. The secret is shown only once when created.
 
@@ -38,6 +38,8 @@ const created = await db.insert("customers", {
   name: "Ada Lovelace",
   email: "ada@example.com",
 });
+await db.update("customers", { name: "Ada Byron" }, { email: "ada@example.com" });
+await db.delete("customers", { email: "ada@example.com" });
 ```
 
 ## Browser applications
@@ -49,5 +51,7 @@ Do not call this server SDK directly from browser code: its secret API key must 
 - `listTables()`
 - `select(table, { limit, offset })`
 - `insert(table, values)`
+- `update(table, values, where)`
+- `delete(table, where)`
 
-Reads are paginated (1–100 rows per request). Table and column names are validated and values are parameterized. Updates, deletes, transactions, realtime subscriptions, and browser-direct access are not part of this initial SDK release.
+Reads are paginated (1–100 rows per request). Table and column names are validated and values are parameterized. Update and delete operations require explicit equality filters; empty filters are rejected to prevent accidental whole-table mutations. Transactions, realtime subscriptions, and browser-direct access are not part of this initial SDK release.
