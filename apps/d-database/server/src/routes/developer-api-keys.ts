@@ -69,6 +69,7 @@ router.post("/", async (req, res) => {
       [res.locals.userId, projectId, resourceId, name, prefix, tokenHash, [...new Set(scopes)], expiry],
     );
 
+    res.setHeader("Cache-Control", "no-store");
     return res.status(201).json({
       success: true,
       message: "API key created. Copy it now; it will not be shown again.",
