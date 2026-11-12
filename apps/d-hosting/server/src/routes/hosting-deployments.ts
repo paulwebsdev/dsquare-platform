@@ -269,7 +269,7 @@ router.post("/:resourceId/deployments/:deploymentId/activate", async (req, res) 
   try {
     await client.query("BEGIN");
     const resource = await client.query(
-      `SELECT r.id, r.status
+      `SELECT r.id, r.status, r.site_type, r.active_deployment_id
        FROM hosting_resources r
        INNER JOIN projects p ON p.id = r.project_id
        WHERE r.id = $1 AND r.project_id = $2 AND p.owner_id = $3
@@ -283,6 +283,14 @@ router.post("/:resourceId/deployments/:deploymentId/activate", async (req, res) 
     if (resource.rows[0].status === "archived") {
       await client.query("ROLLBACK");
       return res.status(409).json({ success: false, message: "Restore this website before activating a deployment." });
+    }
+    if (resource.rows[0].site_type === "node" &&
+        resource.rows[0].active_deployment_id !== deploymentId) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        success: false,
+        message: "Node.js rollback is not available until deployment-specific runtime switching is enabled. The current live runtime was left unchanged.",
+      });
     }
 
     const deployment = await client.query(
