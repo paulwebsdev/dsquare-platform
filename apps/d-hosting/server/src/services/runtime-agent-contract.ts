@@ -5,6 +5,11 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const SHA256_PATTERN = /^[a-f0-9]{64}$/i;
 const MAX_ARTIFACT_BYTES = 100 * 1024 * 1024;
 const MAX_ARTIFACT_FILES = 2_000;
+const PLATFORM_DATABASE_ENVIRONMENT_NAMES = new Set([
+  "D_DATABASE_URL", "D_DATABASE_HOST", "D_DATABASE_PORT", "D_DATABASE_NAME",
+  "D_DATABASE_USER", "D_DATABASE_PASSWORD", "D_DATABASE_SCHEMA",
+  "D_DATABASE_PROJECT_ID", "D_DATABASE_RESOURCE_ID",
+]);
 
 export type RuntimeArtifactDescriptor = {
   artifactId: string;
@@ -82,7 +87,8 @@ export function buildRemoteRuntimeCreateRequest(input: {
       }
       continue;
     }
-    if (!isValidEnvironmentName(name) || typeof value !== "string" || value.length > 16384) {
+    if ((!isValidEnvironmentName(name) && !PLATFORM_DATABASE_ENVIRONMENT_NAMES.has(name)) ||
+        typeof value !== "string" || value.length > 16384) {
       throw new Error("Runtime environment contains an invalid variable.");
     }
   }
