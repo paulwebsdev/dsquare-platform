@@ -33,7 +33,7 @@ export async function requireDeveloperKey(
       `SELECT k.id, k.project_id, k.resource_id, k.scopes,
               r.status AS resource_status, r.schema_name
        FROM developer_api_keys k
-       JOIN projects p ON p.id = k.project_id AND p.owner_id = k.user_id
+       JOIN projects p ON p.id = k.project_id AND p.owner_id = k.user_id AND p.status = 'active'
        JOIN database_resources r
          ON r.id = k.resource_id AND r.project_id = k.project_id
        WHERE k.token_hash = $1
