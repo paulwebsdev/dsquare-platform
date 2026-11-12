@@ -235,6 +235,19 @@ export class PodmanNodeBuildRunner {
       );
       await this.client.startContainer(containerId);
       const deadline = Date.now() + plan.timeoutMs;
+      const versionExec = await this.client.createNodeBuildExec(containerId, "version");
+      const versionOutput = await this.client.startAttachedExec(
+        versionExec,
+        1024,
+        Math.min(15 * 60 * 1000, plan.timeoutMs),
+      );
+      const versionStatus = await this.client.inspectExec(versionExec);
+      const actualNpmVersion = versionOutput.toString("utf8").trim();
+      if (versionStatus.running || versionStatus.exitCode !== 0 ||
+          actualNpmVersion !== cacheAttestation.npmVersion) {
+        throw new Error("The isolated builder npm version does not match the signed cache attestation.");
+      }
+      output = `[version] ${actualNpmVersion}`;
       for (const phase of ["install", "build"] as const) {
         const remaining = deadline - Date.now();
         if (remaining < 1_000) throw new Error("Node build exceeded its total time limit.");
