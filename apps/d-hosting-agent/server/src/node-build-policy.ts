@@ -1,3 +1,5 @@
+import { NODE_BUILDER_IMAGE, verifyNodeBuildCacheAttestation, type NodeBuildCacheAttestation } from "./node-build-cache.js";
+
 /**
  * Security policy for the isolated Node dependency builder.
  *
@@ -6,8 +8,9 @@
  * Hosting API process.
  */
 export type NodeBuildPlan = {
-  image: "docker.io/library/node:22-bookworm-slim";
-  install: ["npm", "ci", "--offline", "--ignore-scripts", "--no-audit", "--no-fund"];
+  image: typeof NODE_BUILDER_IMAGE;
+  cacheMount: { target: "/npm-cache"; readOnly: true };
+  install: ["npm", "ci", "--offline", "--cache=/npm-cache", "--ignore-scripts", "--no-audit", "--no-fund"];
   build: ["npm", "run", "build", "--if-present", "--ignore-scripts"];
   network: "none";
   user: "10001:10001";
@@ -41,6 +44,8 @@ export function createNodeBuildPlan(input: {
   packageLockJson: string;
   uploadedPaths: string[];
   limits?: { memoryBytes?: number; nanoCpus?: number; pidsLimit?: number; timeoutMs?: number; maxOutputBytes?: number };
+  cacheAttestation?: NodeBuildCacheAttestation;
+  cacheSigningKey?: string;
 }): NodeBuildPlanResult {
   if (Buffer.byteLength(input.packageJson, "utf8") > MAX_MANIFEST_BYTES ||
       Buffer.byteLength(input.packageLockJson, "utf8") > MAX_LOCK_BYTES) {
@@ -83,6 +88,14 @@ export function createNodeBuildPlan(input: {
     return { valid: false, error: "The isolated builder supports Node.js 22 projects only." };
   }
 
+  const cache = verifyNodeBuildCacheAttestation({
+    packageLockJson: input.packageLockJson,
+    attestation: input.cacheAttestation,
+    signingKey: input.cacheSigningKey,
+    builderImage: NODE_BUILDER_IMAGE,
+  });
+  if (!cache.valid) return { valid: false, error: cache.error };
+
   const limits = input.limits ?? {};
   const memoryBytes = limits.memoryBytes ?? 512 * 1024 * 1024;
   const nanoCpus = limits.nanoCpus ?? 1_000_000_000;
@@ -100,8 +113,9 @@ export function createNodeBuildPlan(input: {
   return {
     valid: true,
     plan: {
-      image: "docker.io/library/node:22-bookworm-slim",
-      install: ["npm", "ci", "--offline", "--ignore-scripts", "--no-audit", "--no-fund"],
+      image: NODE_BUILDER_IMAGE,
+      cacheMount: { target: "/npm-cache", readOnly: true },
+      install: ["npm", "ci", "--offline", "--cache=/npm-cache", "--ignore-scripts", "--no-audit", "--no-fund"],
       build: ["npm", "run", "build", "--if-present", "--ignore-scripts"],
       network: "none",
       user: "10001:10001",
