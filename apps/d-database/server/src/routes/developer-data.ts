@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { pool } from "../config/database.js";
 import { requireDeveloperScope } from "../middleware/require-developer-key.js";
+import { buildDeveloperDeleteQuery, buildDeveloperUpdateQuery } from "../services/developer-query.js";
 
 const router = Router({ mergeParams: true });
 const IDENTIFIER_PATTERN = /^[a-z][a-z0-9_]{0,62}$/;
@@ -99,6 +100,83 @@ router.post("/tables/:tableName/rows", requireDeveloperScope("write"), async (re
     }
     console.error("Developer row insert failed:", error instanceof Error ? error.message : error);
     return res.status(500).json({ success: false, message: "Could not insert the database row." });
+  }
+});
+
+
+async function getTableColumns(schemaName: string, tableName: string): Promise<Set<string> | null> {
+  const result = await pool.query(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_schema = $1 AND table_name = $2`,
+    [schemaName, tableName],
+  );
+  return result.rowCount ? new Set(result.rows.map((row) => row.column_name as string)) : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+// Update rows using explicit equality filters. Empty filters are rejected to prevent table-wide changes.
+router.patch("/tables/:tableName/rows", requireDeveloperScope("write"), async (req, res) => {
+  const rawTableName = req.params.tableName;
+  const tableName = typeof rawTableName === "string" ? rawTableName : "";
+  const body = req.body as Record<string, unknown>;
+  if (!IDENTIFIER_PATTERN.test(tableName) || !isRecord(body?.values) || !isRecord(body?.where)) {
+    return res.status(400).json({ success: false, message: "Provide a valid table, values object, and non-empty where object." });
+  }
+  const key = res.locals.developerKey as { schema_name: string };
+  try {
+    const allowed = await getTableColumns(key.schema_name, tableName);
+    if (!allowed) return res.status(404).json({ success: false, message: "Table not found." });
+    const query = buildDeveloperUpdateQuery({
+      schemaName: key.schema_name,
+      tableName,
+      allowedColumns: allowed,
+      values: body.values,
+      where: body.where,
+    });
+    const result = await pool.query(query.text, query.values);
+    return res.json({ success: true, table: tableName, updatedCount: result.rowCount ?? 0, rows: result.rows });
+  } catch (error) {
+    const code = (error as { code?: string })?.code;
+    if (error instanceof Error && /invalid columns/i.test(error.message)) {
+      return res.status(400).json({ success: false, message: "Provide valid existing columns and at least one equality filter." });
+    }
+    if (["23505", "23503", "23502", "23514"].includes(String(code))) {
+      return res.status(409).json({ success: false, message: "The update conflicts with a database constraint." });
+    }
+    console.error("Developer row update failed:", error instanceof Error ? error.message : error);
+    return res.status(500).json({ success: false, message: "Could not update database rows." });
+  }
+});
+
+// Delete rows using explicit equality filters. Empty filters are rejected to prevent table-wide deletion.
+router.delete("/tables/:tableName/rows", requireDeveloperScope("write"), async (req, res) => {
+  const rawTableName = req.params.tableName;
+  const tableName = typeof rawTableName === "string" ? rawTableName : "";
+  const body = req.body as Record<string, unknown>;
+  if (!IDENTIFIER_PATTERN.test(tableName) || !isRecord(body?.where)) {
+    return res.status(400).json({ success: false, message: "Provide a valid table and non-empty where object." });
+  }
+  const key = res.locals.developerKey as { schema_name: string };
+  try {
+    const allowed = await getTableColumns(key.schema_name, tableName);
+    if (!allowed) return res.status(404).json({ success: false, message: "Table not found." });
+    const query = buildDeveloperDeleteQuery({
+      schemaName: key.schema_name,
+      tableName,
+      allowedColumns: allowed,
+      where: body.where,
+    });
+    const result = await pool.query(query.text, query.values);
+    return res.json({ success: true, table: tableName, deletedCount: result.rowCount ?? 0, rows: result.rows });
+  } catch (error) {
+    if (error instanceof Error && /invalid columns/i.test(error.message)) {
+      return res.status(400).json({ success: false, message: "Provide valid existing columns and at least one equality filter." });
+    }
+    console.error("Developer row delete failed:", error instanceof Error ? error.message : error);
+    return res.status(500).json({ success: false, message: "Could not delete database rows." });
   }
 });
 
