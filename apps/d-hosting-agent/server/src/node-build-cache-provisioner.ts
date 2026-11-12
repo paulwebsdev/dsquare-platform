@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { mkdir, lstat, chmod, readFile } from "node:fs/promises";
+import { mkdir, lstat, chmod, stat } from "node:fs/promises";
+import { createReadStream } from "node:fs";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import {
@@ -89,8 +90,13 @@ async function verifyCacheContent(cacheDirectory: string, integrity: string): Pr
     cacheDirectory, "_cacache", "content-v2", "sha512",
     hex.slice(0, 2), hex.slice(2, 4), hex.slice(4),
   );
-  const content = await readFile(contentPath);
-  const actual = createHash("sha512").update(content).digest();
+  const fileInfo = await stat(contentPath);
+  if (!fileInfo.isFile() || fileInfo.size > 100 * 1024 * 1024) {
+    throw new Error("A cached npm package exceeds the permitted size.");
+  }
+  const hash = createHash("sha512");
+  for await (const chunk of createReadStream(contentPath)) hash.update(chunk);
+  const actual = hash.digest();
   if (!actual.equals(expected)) throw new Error("A cached npm package failed its SHA-512 integrity check.");
 }
 
@@ -107,12 +113,22 @@ export async function provisionNodeBuildCache(input: {
   verifiedAt?: string;
   runCommand?: NpmCacheCommandRunner;
 }): Promise<{ attestation: NodeBuildCacheAttestation; packageCount: number }> {
+  if (Buffer.byteLength(input.packageLockJson, "utf8") > 20 * 1024 * 1024) {
+    throw new Error("The npm lockfile exceeds the cache provisioning limit.");
+  }
   const cacheDirectory = resolve(input.cacheDirectory);
   if (!input.cacheDirectory || !cacheDirectory.startsWith("/") || cacheDirectory === "/") {
     throw new Error("A dedicated absolute Linux npm cache directory is required.");
   }
   const packages = requiredPackages(input.packageLockJson);
+  if (packages.length > 1000) throw new Error("The npm lockfile contains too many packages for cache provisioning.");
   const runCommand = input.runCommand ?? runNpmCacheCommand;
+  const deadline = Date.now() + 30 * 60 * 1000;
+  const runWithinDeadline = (args: string[], requestedTimeoutMs: number) => {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error("npm cache provisioning exceeded its total time limit.");
+    return runCommand(args, cacheDirectory, Math.min(requestedTimeoutMs, remaining));
+  };
   await mkdir(cacheDirectory, { recursive: true, mode: 0o700 });
   const info = await lstat(cacheDirectory);
   if (!info.isDirectory() || info.isSymbolicLink()) {
@@ -120,24 +136,24 @@ export async function provisionNodeBuildCache(input: {
   }
   await chmod(cacheDirectory, 0o700);
 
-  const npmVersion = (await runCommand(["--version"], cacheDirectory, 15_000)).trim();
+  const npmVersion = (await runWithinDeadline(["--version"], 15_000)).trim();
   if (!/^10\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(npmVersion)) {
     throw new Error("The cache worker must use the approved npm 10 toolchain.");
   }
 
   for (const item of packages) {
-    await runCommand([
+    await runWithinDeadline([
       "cache", "add", item.resolved,
       "--cache", cacheDirectory,
       "--registry", "https://registry.npmjs.org/",
       "--ignore-scripts", "--no-audit", "--no-fund",
       "--userconfig=/dev/null", "--globalconfig=/dev/null",
-    ], cacheDirectory, 5 * 60 * 1000);
+    ], 5 * 60 * 1000);
   }
-  await runCommand([
+  await runWithinDeadline([
     "cache", "verify", "--cache", cacheDirectory,
     "--userconfig=/dev/null", "--globalconfig=/dev/null",
-  ], cacheDirectory, 5 * 60 * 1000);
+  ], 5 * 60 * 1000);
 
   const integrities = getRequiredNodeCacheIntegrities(input.packageLockJson);
   for (const integrity of integrities) await verifyCacheContent(cacheDirectory, integrity);
