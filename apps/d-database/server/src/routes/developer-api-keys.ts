@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { Router } from "express";
+import { Router, type Request } from "express";
 import { pool } from "../config/database.js";
 
 const router = Router({ mergeParams: true });
@@ -10,7 +10,7 @@ function validIds(projectId: string, resourceId: string) {
 }
 
 // List key metadata only. Secret values are never returned after creation.
-router.get("/", async (req, res) => {
+router.get("/", async (req: Request<{ projectId: string; resourceId: string }>, res) => {
   const { projectId = "", resourceId = "" } = req.params;
   if (!validIds(projectId, resourceId)) return res.status(400).json({ success: false, message: "Invalid project or resource ID." });
 
@@ -30,7 +30,7 @@ router.get("/", async (req, res) => {
 });
 
 // Create a resource-bound key. The raw key is returned once only.
-router.post("/", async (req, res) => {
+router.post("/", async (req: Request<{ projectId: string; resourceId: string }>, res) => {
   const { projectId = "", resourceId = "" } = req.params;
   if (!validIds(projectId, resourceId)) return res.status(400).json({ success: false, message: "Invalid project or resource ID." });
 
@@ -83,7 +83,7 @@ router.post("/", async (req, res) => {
 });
 
 // Revoke a key without deleting its audit metadata.
-router.delete("/:keyId", async (req, res) => {
+router.delete("/:keyId", async (req: Request<{ projectId: string; resourceId: string; keyId: string }>, res) => {
   const { projectId = "", resourceId = "", keyId = "" } = req.params;
   if (!validIds(projectId, resourceId) || !UUID_PATTERN.test(keyId)) {
     return res.status(400).json({ success: false, message: "Invalid project, resource, or key ID." });
