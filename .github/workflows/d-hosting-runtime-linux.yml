@@ -1,0 +1,90 @@
+name: D Hosting Linux Runtime Checks
+
+on:
+  pull_request:
+    paths:
+      - "apps/d-hosting/**"
+      - "apps/d-hosting-agent/**"
+      - "packages/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/d-hosting-runtime-linux.yml"
+  push:
+    branches:
+      - main
+      - "feat/**"
+    paths:
+      - "apps/d-hosting/**"
+      - "apps/d-hosting-agent/**"
+      - "packages/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/d-hosting-runtime-linux.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d-hosting-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  application-checks:
+    name: Hosting and runtime-agent tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Type-check D Hosting API
+        run: npm run typecheck --workspace=@dsquare/d-hosting-server
+
+      - name: Test D Hosting API
+        run: npm test --workspace=@dsquare/d-hosting-server
+
+      - name: Type-check runtime agent
+        run: npm run typecheck --workspace=@dsquare/d-hosting-agent-server
+
+      - name: Test runtime agent
+        run: npm test --workspace=@dsquare/d-hosting-agent-server
+
+  podman-linux-smoke:
+    name: Rootless Podman Linux smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes podman
+
+      - name: Verify Podman host and cgroup support
+        run: |
+          podman --version
+          podman info --format '{{.Host.CgroupsVersion}}'
+
+      - name: Run a restricted Node.js 22 container
+        run: |
+          podman run --rm --pull=always \
+            --network=none \
+            --user 10001:10001 \
+            --read-only \
+            --cap-drop=all \
+            --security-opt=no-new-privileges \
+            --pids-limit=64 \
+            --memory=256m \
+            --cpus=0.5 \
+            --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+            docker.io/library/node:22-bookworm-slim \
+            node -e "if (process.version.split('.')[0] !== 'v22') process.exit(1); console.log('Restricted Node runtime OK:', process.version)"
