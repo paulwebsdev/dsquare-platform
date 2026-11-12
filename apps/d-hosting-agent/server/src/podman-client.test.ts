@@ -7,6 +7,20 @@ test("Podman socket transport requires a Linux absolute socket path", () => {
   assert.throws(() => createPodmanSocketTransport({ socketPath: "relative.sock" }));
 });
 
+test("Podman client verifies the Unix-socket API before enabling execution", async () => {
+  const client = new PodmanApiClient(async (request) => {
+    assert.equal(request.method, "GET");
+    assert.equal(request.path, "/v1.40/_ping");
+    return { statusCode: 200, headers: {}, body: Buffer.from("OK") };
+  });
+  await client.ping();
+
+  const unavailable = new PodmanApiClient(async () => ({
+    statusCode: 503, headers: {}, body: Buffer.from("unavailable"),
+  }));
+  await assert.rejects(unavailable.ping(), /health check failed/);
+});
+
 test("Podman client creates a named container through the versioned API", async () => {
   const calls: PodmanRequest[] = [];
   const transport = async (request: PodmanRequest): Promise<PodmanResponse> => {

@@ -117,6 +117,14 @@ export class PodmanApiClient {
     }
   }
 
+  /** Confirms the configured Unix socket reaches a live Podman API. */
+  async ping(): Promise<void> {
+    const response = await this.transport({ method: "GET", path: "/v1.40/_ping" });
+    if (response.statusCode !== 200 || response.body.toString("utf8").trim() !== "OK") {
+      throw new PodmanApiError(response.statusCode, "Podman API health check failed.");
+    }
+  }
+
   async listManagedContainers(): Promise<PodmanManagedContainer[]> {
     const filters = encodeURIComponent(JSON.stringify({ label: ["io.dsquare.managed=true"] }));
     const rows = await this.call<unknown>({

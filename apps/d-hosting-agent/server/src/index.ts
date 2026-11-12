@@ -525,8 +525,23 @@ export async function startRuntimeAgent(): Promise<void> {
     throw error;
   }
 
-  // Production execution is deliberately hard-disabled until Linux acceptance tests pass.
-  const app = createRuntimeAgentApp({ pool, secret, storageRoot, provider, executionEnabled: false });
+  // Execution is opt-in and fails closed unless the Podman socket is healthy.
+  // Keep false until the dedicated Linux host passes the documented acceptance checks.
+  const executionRequested = process.env.RUNTIME_AGENT_EXECUTION_ENABLED === "true";
+  if (executionRequested && !provider) {
+    await pool.end();
+    throw new Error("Runtime execution was requested but the Podman provider is not fully configured.");
+  }
+  if (executionRequested && provider) {
+    try {
+      await provider.checkAvailability();
+    } catch {
+      await pool.end();
+      throw new Error("Runtime execution was requested but the Podman API health check failed.");
+    }
+  }
+  const executionEnabled = executionRequested && Boolean(provider);
+  const app = createRuntimeAgentApp({ pool, secret, storageRoot, provider, executionEnabled });
   const port = Number(process.env.RUNTIME_AGENT_PORT || 5003);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     await pool.end();
@@ -534,7 +549,7 @@ export async function startRuntimeAgent(): Promise<void> {
   }
   const server = app.listen(port, host, () => {
     console.log(`D Hosting Runtime Agent listening on port ${port}`);
-    console.log("Runtime provider: disabled (customer code execution is blocked).");
+    console.log(`Runtime execution: ${executionEnabled ? "enabled" : "disabled (set RUNTIME_AGENT_EXECUTION_ENABLED=true only after Linux acceptance)"}.`);
   });
   const shutdown = () => {
     server.close(() => void pool.end());

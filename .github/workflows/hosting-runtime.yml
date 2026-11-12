@@ -1,0 +1,40 @@
+name: D Hosting runtime checks
+
+on:
+  pull_request:
+    paths:
+      - "apps/d-hosting/**"
+      - "apps/d-hosting-agent/**"
+      - "packages/d-database-sdk/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/hosting-runtime.yml"
+  push:
+    branches:
+      - feat/hosting-runtime-batch-1
+    paths:
+      - "apps/d-hosting/**"
+      - "apps/d-hosting-agent/**"
+      - "packages/d-database-sdk/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/hosting-runtime.yml"
+
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Typecheck D Hosting API
+        run: npm run typecheck --workspace=@dsquare/d-hosting-server
+      - name: Test D Hosting API
+        run: npm test --workspace=@dsquare/d-hosting-server
+      - name: Typecheck D Hosting Runtime Agent
+        run: npm run typecheck --workspace=@dsquare/d-hosting-agent-server
+      - name: Test D Hosting Runtime Agent
+        run: npm test --workspace=@dsquare/d-hosting-agent-server
