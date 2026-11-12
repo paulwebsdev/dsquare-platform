@@ -132,3 +132,45 @@ test("rejects a build without the exact lockfile's signed cache attestation", as
     await rm(root, { recursive: true, force: true });
   }
 });
+
+
+test("reconciles abandoned builder containers and removes only their workspace", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "dsquare-builder-recovery-"));
+  const workspaceRoot = path.join(root, "workspaces");
+  const deployment = "33333333-3333-4333-8333-333333333333";
+  const abandoned = path.join(workspaceRoot, deployment);
+  await mkdir(abandoned, { recursive: true });
+  await writeFile(path.join(abandoned, "partial.txt"), "partial");
+  const calls: string[] = [];
+  const runner = new PodmanNodeBuildRunner({
+    transport: async (request) => {
+      calls.push(request.method + " " + request.path);
+      if (request.method === "GET") {
+        return {
+          statusCode: 200, headers: {},
+          body: Buffer.from(JSON.stringify([{
+            Id: "d".repeat(64),
+            Labels: {
+              "io.dsquare.builder": "true",
+              "io.dsquare.deployment-id": deployment,
+            },
+          }])),
+        };
+      }
+      return { statusCode: 204, headers: {}, body: Buffer.alloc(0) };
+    },
+    storageRoot: path.join(root, "artifacts"),
+    workspaceRoot,
+    cacheRoot: path.join(root, "caches"),
+    signingKey,
+    containerPath: (hostPath) => hostPath,
+    allowRegistryEgress: false,
+  });
+  try {
+    assert.equal(await runner.reconcile(), 1);
+    assert.deepEqual(calls.map((call) => call.split(" ")[0]), ["GET", "DELETE"]);
+    await assert.rejects(stat(abandoned));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
