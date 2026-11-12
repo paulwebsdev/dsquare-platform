@@ -8,6 +8,7 @@ import { buildRemoteRuntimeCreateRequest } from "./runtime-agent-contract.js";
 import {
   buildRuntimeAgentArtifact,
   createRuntimeAgentRuntime,
+  getRuntimeAgentRuntime,
   deleteRuntimeAgentArtifact,
   deleteRuntimeAgentRuntime,
   uploadRuntimeAgentArtifact,
@@ -123,8 +124,7 @@ export async function startBuiltRemoteNodeRuntime(
   });
   const sourceArtifactId = randomUUID();
   let sourceUploaded = false;
-  let builtArtifactCreated = false;
-  let runtimeCreated = false;
+  let buildAttempted = false;
   try {
     const sourceBundle = await buildRuntimeArtifactBundle({
       artifactId: sourceArtifactId,
@@ -133,12 +133,11 @@ export async function startBuiltRemoteNodeRuntime(
     await uploadRuntimeAgentArtifact(input.agent, sourceArtifactId, sourceBundle.bytes);
     sourceUploaded = true;
 
+    buildAttempted = true;
     const built = await buildRuntimeAgentArtifact(input.agent, {
       sourceArtifactId,
       deploymentId: input.deploymentId,
     });
-    builtArtifactCreated = true;
-
     const request = buildRemoteRuntimeCreateRequest({
       resourceId: input.resourceId,
       deploymentId: input.deploymentId,
@@ -146,8 +145,6 @@ export async function startBuiltRemoteNodeRuntime(
       artifact: built.artifact,
     });
     const started = await createRuntimeAgentRuntime(input.agent, request);
-    runtimeCreated = true;
-
     return {
       resourceId: started.resourceId,
       deploymentId: started.deploymentId,
