@@ -7,11 +7,14 @@ import { pool } from "../config/database.js";
 import { requireAuth } from "../middleware/require-auth.js";
 import { getWebsiteFileCandidates } from "../services/website-file-resolution.js";
 import { validateNodeProject } from "../services/node-project-validation.js";
+import { startBuiltRemoteNodeRuntime } from "../services/remote-node-runtime.js";
 import {
   checkRuntimeAgentHealth,
   getRuntimeAgentRuntime,
   getRuntimeAgentLogs,
   changeRuntimeAgentRuntimeState,
+  deleteRuntimeAgentArtifact,
+  deleteRuntimeAgentRuntime,
 } from "../services/runtime-agent-client.js";
 
 const router = Router({ mergeParams: true });
@@ -372,11 +375,193 @@ router.post("/:resourceId/validate-node", async (req, res) => {
   }
 });
 
+
+
+/**
+ * Node deployments are built remotely and activated only after the private
+ * runtime agent confirms its readiness probe. No database transaction is held
+ * open while the remote builder or runtime is working.
+ */
+async function deployNodeWebsite(
+  projectId: string,
+  resourceId: string,
+  userId: string,
+  response: import("express").Response,
+) {
+  const agent = runtimeAgentOptions();
+  if (!agent) {
+    return response.status(503).json({
+      success: false,
+      message: "The private Linux builder and runtime agent are not configured.",
+    });
+  }
+
+  const client = await pool.connect();
+  const deploymentId = randomUUID();
+  const snapshotKeys: string[] = [];
+  let snapshotManifest: ManifestFile[] = [];
+  let runtimeStarted = false;
+  try {
+    await client.query("BEGIN");
+    const resource = await client.query(
+      `SELECT r.id, r.status, r.site_type
+       FROM hosting_resources r
+       INNER JOIN projects p ON p.id = r.project_id
+       WHERE r.id = $1 AND r.project_id = $2 AND p.owner_id = $3
+       FOR UPDATE OF r`,
+      [resourceId, projectId, userId],
+    );
+    if (resource.rowCount !== 1) {
+      await client.query("ROLLBACK");
+      return response.status(404).json({ success: false, message: "Website resource not found." });
+    }
+    if (resource.rows[0].site_type !== "node") {
+      await client.query("ROLLBACK");
+      return response.status(409).json({ success: false, message: "This deployment path is only for Node.js websites." });
+    }
+    if (resource.rows[0].status === "archived") {
+      await client.query("ROLLBACK");
+      return response.status(409).json({ success: false, message: "Restore this website before deploying." });
+    }
+
+    const files = await client.query(
+      `SELECT original_name, storage_key, mime_type, size_bytes
+       FROM hosting_files
+       WHERE project_id = $1 AND resource_id = $2
+       ORDER BY original_name ASC`,
+      [projectId, resourceId],
+    );
+    const sourceFiles = files.rows as ManifestFile[];
+    const uploadedPaths = sourceFiles.map((file) => file.original_name);
+    const packageFile = sourceFiles.find((file) => file.original_name === "package.json");
+    let packageJson = "";
+    if (packageFile && UUID_PATTERN.test(packageFile.storage_key)) {
+      packageJson = await readFile(path.join(storageRoot, resourceId, packageFile.storage_key), "utf8");
+    }
+    const validation = validateNodeProject(packageJson, uploadedPaths);
+    if (!validation.valid) {
+      await client.query("ROLLBACK");
+      return response.status(422).json({ success: false, message: validation.error, validation });
+    }
+    if (sourceFiles.length < 1 || sourceFiles.length > 2_000) {
+      await client.query("ROLLBACK");
+      return response.status(422).json({ success: false, message: "Node deployment must contain between 1 and 2,000 files." });
+    }
+
+    for (const file of sourceFiles) {
+      if (!UUID_PATTERN.test(file.storage_key)) throw new Error("A stored website file has an invalid storage key.");
+      const source = path.join(storageRoot, resourceId, file.storage_key);
+      if (!existsSync(source)) throw new Error("A stored website file is missing.");
+      const snapshotKey = randomUUID();
+      await copyFile(source, path.join(storageRoot, resourceId, snapshotKey));
+      snapshotKeys.push(snapshotKey);
+      snapshotManifest.push({ ...file, storage_key: snapshotKey });
+    }
+    await client.query("COMMIT");
+
+    const environmentRows = await pool.query(
+      `SELECT name, encrypted_value AS ciphertext,
+              encryption_iv AS iv, encryption_auth_tag AS "authTag"
+       FROM hosting_environment_variables
+       WHERE resource_id = $1
+       ORDER BY name ASC`,
+      [resourceId],
+    );
+    const started = await startBuiltRemoteNodeRuntime({
+      resourceId,
+      deploymentId,
+      storageRoot,
+      files: snapshotManifest.map((file) => ({
+        originalName: file.original_name,
+        storageKey: file.storage_key,
+      })),
+      validation,
+      encryptedVariables: environmentRows.rows,
+      hostingUserId: userId,
+      agent,
+    });
+    runtimeStarted = true;
+
+    await client.query("BEGIN");
+    const currentResource = await client.query(
+      `SELECT r.id, r.status
+       FROM hosting_resources r
+       INNER JOIN projects p ON p.id = r.project_id
+       WHERE r.id = $1 AND r.project_id = $2 AND p.owner_id = $3
+       FOR UPDATE OF r`,
+      [resourceId, projectId, userId],
+    );
+    if (currentResource.rowCount !== 1 || currentResource.rows[0].status === "archived") {
+      throw new Error("Website ownership or availability changed during deployment.");
+    }
+    const numberResult = await client.query(
+      `SELECT COALESCE(MAX(deployment_number), 0) + 1 AS next_number
+       FROM hosting_deployments WHERE resource_id = $1`,
+      [resourceId],
+    );
+    const deploymentNumber = Number(numberResult.rows[0].next_number);
+    const inserted = await client.query(
+      `INSERT INTO hosting_deployments
+         (id, project_id, resource_id, deployment_number, status, file_manifest,
+          error_summary, finished_at, created_by)
+       VALUES ($1, $2, $3, $4, 'succeeded', $5::jsonb, NULL, NOW(), $6)
+       RETURNING id, project_id, resource_id, deployment_number, status,
+                 file_manifest, error_summary, started_at, finished_at, created_at`,
+      [deploymentId, projectId, resourceId, deploymentNumber, JSON.stringify(snapshotManifest), userId],
+    );
+    await client.query(
+      `UPDATE hosting_resources
+       SET active_deployment_id = $3, status = 'published', updated_at = NOW()
+       WHERE id = $1 AND project_id = $2`,
+      [resourceId, projectId, deploymentId],
+    );
+    await client.query(
+      `INSERT INTO hosting_runtime_instances
+         (resource_id, provider, status, deployment_id, started_at, stopped_at, updated_at)
+       VALUES ($1, 'podman', 'running', $2, NOW(), NULL, NOW())
+       ON CONFLICT (resource_id) DO UPDATE
+       SET provider = 'podman', status = 'running', deployment_id = EXCLUDED.deployment_id,
+           started_at = NOW(), stopped_at = NULL, updated_at = NOW()`,
+      [resourceId, deploymentId],
+    );
+    await client.query("COMMIT");
+
+    return response.status(201).json({
+      success: true,
+      message: "Node.js website built in isolation, started, health-checked and activated.",
+      deployment: inserted.rows[0],
+      runtime: { state: started.state, deploymentId: started.deploymentId },
+    });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    if (runtimeStarted) {
+      await deleteRuntimeAgentRuntime(agent, resourceId).catch(() => undefined);
+      await deleteRuntimeAgentArtifact(agent, deploymentId).catch(() => undefined);
+    }
+    console.error("Node deployment failed:", error instanceof Error ? error.message : "Unknown error");
+    return response.status(502).json({
+      success: false,
+      message: "Node.js deployment failed during isolated build, runtime startup or activation. The previous active deployment was not changed.",
+    });
+  } finally {
+    client.release();
+  }
+}
+
 // Create an immutable snapshot of validated static website files.
 router.post("/:resourceId/deployments", async (req, res) => {
   const { projectId = "", resourceId = "" } = params(req);
   if (!UUID_PATTERN.test(projectId) || !UUID_PATTERN.test(resourceId)) {
     return res.status(400).json({ success: false, message: "Invalid project or website ID." });
+  }
+
+
+  const existingResource = await ownedResource(projectId, resourceId, String(res.locals.userId || ""));
+  if (existingResource.rowCount !== 1) {
+    return res.status(404).json({ success: false, message: "Website resource not found." });
+  }
+  if (existingResource.rows[0].site_type === "node") {
+    return deployNodeWebsite(projectId, resourceId, String(res.locals.userId || ""), res);
   }
 
   const client = await pool.connect();
