@@ -55,6 +55,7 @@ function deploymentInput(storageRoot: string, fetchImpl: typeof fetch) {
     validation,
     encryptedVariables: [{ name: "APP_SECRET", ...secret }],
     processEnvironment,
+    hostingUserId,
     agent: {
       baseUrl: "https://runtime.example.com",
       secret: "0123456789abcdef0123456789abcdef",
@@ -97,7 +98,7 @@ test("uploads the verified bundle before requesting remote runtime startup", asy
   });
 
   try {
-    const result = await startRemoteNodeRuntime({ ...deploymentInput(root, fetchImpl), hostingUserId, databaseConnection: approvedDatabaseConnection() });
+    const result = await startRemoteNodeRuntime(deploymentInput(root, fetchImpl), async () => approvedDatabaseConnection());
     assert.deepEqual(result, {
       resourceId,
       deploymentId,
@@ -134,7 +135,7 @@ test("removes a remotely accepted artifact if runtime creation fails", async () 
 
   try {
     await assert.rejects(
-      startRemoteNodeRuntime(deploymentInput(root, fetchImpl)),
+      startRemoteNodeRuntime(deploymentInput(root, fetchImpl), async () => null),
       /HTTP 500/,
     );
     assert.deepEqual(paths, [
