@@ -22,6 +22,8 @@ test("Podman client creates a named container through the versioned API", async 
   assert.equal(id, "a".repeat(64));
   assert.equal(calls[0]?.method, "POST");
   assert.match(calls[0]?.path ?? "", /^\/v1\.40\/containers\/create\?name=/);
+  const builderId = await client.createContainer({}, "dsquare-builder-11111111-1111-4111-8111-111111111111");
+  assert.equal(builderId, "a".repeat(64));
   await assert.rejects(() => client.createContainer({}, "untrusted-name"), /container name is invalid/);
 });
 
@@ -150,4 +152,31 @@ test("Podman client creates an in-container HTTP readiness probe without a shell
   assert.equal(body.User, "10001:10001");
   assert.equal(body.WorkingDir, "/app");
   assert.doesNotMatch(body.Cmd.join(" "), /sh -c|bash/);
+});
+
+
+test("Podman client captures bounded multiplexed builder output", async () => {
+  const payload = Buffer.from("build completed");
+  const frame = Buffer.alloc(8 + payload.length);
+  frame[0] = 1;
+  frame.writeUInt32BE(payload.length, 4);
+  payload.copy(frame, 8);
+  const client = new PodmanApiClient(async (request) => {
+    assert.equal(request.method, "POST");
+    assert.match(request.path, /exec\\/.+\\/start$/);
+    assert.deepEqual(request.body, { Detach: false, Tty: false });
+    return { statusCode: 200, headers: { "content-type": "application/vnd.docker.raw-stream" }, body: frame };
+  });
+  assert.equal((await client.startAttachedExec("a".repeat(64))).toString(), "build completed");
+});
+
+test("Podman client rejects malformed or oversized attached builder output", async () => {
+  const malformed = new PodmanApiClient(async () => ({
+    statusCode: 200, headers: {}, body: Buffer.from([1, 0, 0]),
+  }));
+  await assert.rejects(() => malformed.startAttachedExec("a".repeat(64)), /truncated builder output/);
+  const oversized = new PodmanApiClient(async () => ({
+    statusCode: 200, headers: {}, body: Buffer.alloc(9),
+  }));
+  await assert.rejects(() => oversized.startAttachedExec("a".repeat(64), 8), /exceeded its permitted limit/);
 });
