@@ -246,6 +246,8 @@ test("provides authenticated runtime capability status without enabling executio
       status: "ready",
       providerConfigured: false,
       executionEnabled: false,
+      builderConfigured: false,
+      builderEnabled: false,
     });
     const unauthenticated = await fetch(`http://127.0.0.1:${address.port}${pathname}`);
     assert.equal(unauthenticated.status, 401);
@@ -307,6 +309,8 @@ test("keeps customer execution disabled by default even when a provider is confi
       status: "ready",
       providerConfigured: true,
       executionEnabled: false,
+      builderConfigured: false,
+      builderEnabled: false,
     });
   } finally {
     await new Promise<void>((resolve, reject) =>
