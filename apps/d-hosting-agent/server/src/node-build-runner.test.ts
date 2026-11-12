@@ -141,8 +141,11 @@ test("reconciles abandoned builder containers and removes only their workspace",
   const workspaceRoot = path.join(root, "workspaces");
   const deployment = "33333333-3333-4333-8333-333333333333";
   const abandoned = path.join(workspaceRoot, deployment);
+  const orphaned = path.join(workspaceRoot, "44444444-4444-4444-8444-444444444444");
   await mkdir(abandoned, { recursive: true });
+  await mkdir(orphaned, { recursive: true });
   await writeFile(path.join(abandoned, "partial.txt"), "partial");
+  await writeFile(path.join(orphaned, "orphan.txt"), "orphan");
   const calls: string[] = [];
   const runner = new PodmanNodeBuildRunner({
     transport: async (request) => {
@@ -169,9 +172,10 @@ test("reconciles abandoned builder containers and removes only their workspace",
     allowRegistryEgress: false,
   });
   try {
-    assert.equal(await runner.reconcile(), 1);
+    assert.equal(await runner.reconcile(), 2);
     assert.deepEqual(calls.map((call) => call.split(" ")[0]), ["GET", "DELETE"]);
     await assert.rejects(stat(abandoned));
+    await assert.rejects(stat(orphaned));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
