@@ -586,7 +586,13 @@ router.post("/:resourceId/deployments", async (req, res) => {
   }
 
 
-  const existingResource = await ownedResource(projectId, resourceId, String(res.locals.userId || ""));
+  let existingResource;
+  try {
+    existingResource = await ownedResource(projectId, resourceId, String(res.locals.userId || ""));
+  } catch (error) {
+    console.error("Deployment resource lookup failed:", error instanceof Error ? error.message : error);
+    return res.status(500).json({ success: false, message: "Could not load website resource." });
+  }
   if (existingResource.rowCount !== 1) {
     return res.status(404).json({ success: false, message: "Website resource not found." });
   }
