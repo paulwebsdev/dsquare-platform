@@ -13,6 +13,9 @@ type Project = {
 
 type ProjectManagerProps = {
   onProjectsChange: () => Promise<void>;
+  initialProjectId?: string | null;
+  initialResourceId?: string | null;
+  onInitialResourceOpened?: () => void;
 };
 
 type ListResponse = {
@@ -30,6 +33,9 @@ type SingleResponse = {
 
 export default function ProjectManager({
   onProjectsChange,
+  initialProjectId,
+  initialResourceId,
+  onInitialResourceOpened,
 }: ProjectManagerProps) {
   const product = import.meta.env.VITE_PRODUCT_NAME || "DSquare";
   const projectType = import.meta.env.VITE_PRODUCT_KIND === "database" ? "database" : "website";
@@ -74,6 +80,23 @@ export default function ProjectManager({
   useEffect(() => {
     void loadProjects();
   }, [showArchived]);
+
+  useEffect(() => {
+    let active = true;
+    if (!initialProjectId) return;
+    fetch(`/api/v1/projects/${encodeURIComponent(initialProjectId)}`, { credentials: "same-origin" })
+      .then(async (response) => {
+        const data = await response.json() as SingleResponse;
+        if (!response.ok) throw new Error(data.message || "Could not open the selected project.");
+        if (active) {
+          setSelectedProject(data.project);
+          setManagingResources(true);
+          onInitialResourceOpened?.();
+        }
+      })
+      .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "Could not open the selected project."); });
+    return () => { active = false; };
+  }, [initialProjectId]);
 
   function startCreate() {
     setSelectedProject(null);
@@ -328,6 +351,8 @@ export default function ProjectManager({
         <ProjectResources
           project={selectedProject}
           onBack={() => setManagingResources(false)}
+          initialResourceId={initialResourceId}
+          onInitialResourceOpened={onInitialResourceOpened}
         />
       ) : selectedProject ? (
         <article className="pm-detail panel">
