@@ -91,9 +91,12 @@ test("rejects stored file tampering and unexpected files before materialization"
     const header = Buffer.alloc(4);
     header.writeUInt32BE(manifestBytes.byteLength, 0);
     await storeRuntimeArtifact(storage, artifactId, Buffer.concat([Buffer.from("DSQART01"), header, manifestBytes, bytes]));
+    await chmod(path.join(artifact, "index.js"), 0o600);
     await writeFile(path.join(artifact, "index.js"), "tampered");
     await assert.rejects(materializeRuntimeWorkspace(storage, artifactId, runtime), /integrity check/);
+    await chmod(path.join(artifact, "index.js"), 0o600);
     await writeFile(path.join(artifact, "index.js"), bytes);
+    await chmod(path.join(artifact, "index.js"), 0o400);
     await writeFile(path.join(artifact, "unexpected.txt"), "not in manifest");
     await assert.rejects(materializeRuntimeWorkspace(storage, artifactId, runtime), /integrity check/);
     await assert.rejects(lstat(path.join(runtime, artifactId)));
