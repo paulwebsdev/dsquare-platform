@@ -15,6 +15,7 @@ import { buildRuntimeArtifactBundle } from "./runtime-artifact-bundle.js";
 import type { EncryptedEnvironmentVariable } from "./runtime-environment.js";
 import type { NodeProjectValidation } from "./node-project-validation.js";
 import type { NodeRuntimeSourceFile } from "./node-runtime-artifact.js";
+import { getAssignedDatabaseRuntimeConnection } from "./assigned-database-runtime-connection.js";
 import type { EncryptedDatabaseRuntimeConnection } from "./database-runtime-environment.js";
 
 export type StartRemoteNodeRuntimeInput = {
@@ -24,8 +25,7 @@ export type StartRemoteNodeRuntimeInput = {
   files: NodeRuntimeSourceFile[];
   validation: NodeProjectValidation;
   encryptedVariables: EncryptedEnvironmentVariable[];
-  databaseConnection?: EncryptedDatabaseRuntimeConnection;
-  hostingUserId?: string;
+  hostingUserId: string;
   processEnvironment?: NodeJS.ProcessEnv;
   agent: RuntimeAgentClientOptions;
 };
@@ -40,8 +40,16 @@ export type StartRemoteNodeRuntimeInput = {
  */
 export async function startRemoteNodeRuntime(
   input: StartRemoteNodeRuntimeInput,
+  loadAssignedConnection: typeof getAssignedDatabaseRuntimeConnection = getAssignedDatabaseRuntimeConnection,
 ): Promise<{ resourceId: string; deploymentId: string; artifactId: string; fileCount: number; state: "running" }> {
-  const launch = await prepareNodeRuntimeLaunch(input);
+  const databaseConnection = await loadAssignedConnection({
+    hostingUserId: input.hostingUserId,
+    resourceId: input.resourceId,
+  });
+  const launch = await prepareNodeRuntimeLaunch({
+    ...input,
+    ...(databaseConnection ? { databaseConnection, hostingUserId: input.hostingUserId } : {}),
+  });
   let artifactId: string | undefined;
   let artifactUploaded = false;
 
