@@ -538,6 +538,9 @@ async function deployNodeWebsite(
       await deleteRuntimeAgentRuntime(agent, resourceId).catch(() => undefined);
       await deleteRuntimeAgentArtifact(agent, deploymentId).catch(() => undefined);
     }
+    for (const key of snapshotKeys) {
+      await rm(path.join(storageRoot, resourceId, key), { force: true }).catch(() => undefined);
+    }
     console.error("Node deployment failed:", error instanceof Error ? error.message : "Unknown error");
     return response.status(502).json({
       success: false,
