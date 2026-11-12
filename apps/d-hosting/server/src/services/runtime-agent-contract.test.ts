@@ -16,7 +16,7 @@ const validation = { valid: true } as NodeProjectValidation;
 const spec = buildNodeContainerSpec({
   resourceId,
   validation,
-  artifactDirectory: "C:\\runtime\\artifact",
+  artifactDirectory: "/runtime/artifact",
   environment: { NODE_ENV: "production", D_DATABASE_PASSWORD: "secret", D_DATABASE_RESOURCE_ID: "resource" },
   processEnvironment: {},
 });
