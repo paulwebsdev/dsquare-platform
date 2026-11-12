@@ -9,6 +9,7 @@ import {
   verifyStoredArtifactContents,
 } from "./artifact-store.js";
 import { createNodeBuildPlan } from "./node-build-policy.js";
+import { provisionNodeBuildCache } from "./node-build-cache-provisioner.js";
 import type { NodeBuildCacheAttestation } from "./node-build-cache.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -18,7 +19,7 @@ const CONTAINER_ID = /^[a-f0-9]{12,64}$/i;
 export type NodeBuildRequest = {
   sourceArtifactId: string;
   deploymentId: string;
-  cacheAttestation: NodeBuildCacheAttestation;
+  cacheAttestation?: NodeBuildCacheAttestation;
   limits?: { memoryBytes?: number; nanoCpus?: number; pidsLimit?: number; timeoutMs?: number; maxOutputBytes?: number };
 };
 
@@ -39,6 +40,7 @@ export type NodeBuildRunnerOptions = {
   /** Map host paths to paths visible inside the rootless Podman service. */
   containerPath: (hostPath: string) => string;
   builderImage?: string;
+  allowRegistryEgress: boolean;
 };
 
 function ensureSafeLinuxMount(value: string): string {
@@ -128,12 +130,21 @@ export class PodmanNodeBuildRunner {
     const uploadedPaths = parseArtifactPaths(await readFile(metadataPath, "utf8"));
     const packageJson = await readFile(path.join(sourceDirectory, "package.json"), "utf8");
     const packageLockJson = await readFile(path.join(sourceDirectory, "package-lock.json"), "utf8");
+    const lockfileSha256 = createHash("sha256").update(packageLockJson, "utf8").digest("hex");
+    const cacheHostPath = path.join(path.resolve(this.options.cacheRoot), lockfileSha256);
+    const cacheAttestation = request.cacheAttestation ?? (this.options.allowRegistryEgress
+      ? (await provisionNodeBuildCache({
+          packageLockJson,
+          cacheDirectory: cacheHostPath,
+          signingKey: this.options.signingKey,
+        })).attestation
+      : undefined);
     const planResult = createNodeBuildPlan({
       packageJson,
       packageLockJson,
       uploadedPaths,
       limits: request.limits,
-      cacheAttestation: request.cacheAttestation,
+      cacheAttestation,
       cacheSigningKey: this.options.signingKey,
     });
     if (!planResult.valid) throw new Error(planResult.error);
@@ -142,7 +153,9 @@ export class PodmanNodeBuildRunner {
       throw new Error("Configured Node builder image does not match the approved image.");
     }
 
-    const cacheHostPath = path.join(path.resolve(this.options.cacheRoot), request.cacheAttestation.lockfileSha256);
+    if (!cacheAttestation || cacheAttestation.lockfileSha256 !== lockfileSha256) {
+      throw new Error("A verified npm cache for this exact lockfile is required.");
+    }
     const cacheStat = await lstat(cacheHostPath).catch(() => null);
     if (!cacheStat?.isDirectory() || cacheStat.isSymbolicLink()) {
       throw new Error("The verified npm cache directory is unavailable.");
