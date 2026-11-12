@@ -91,7 +91,6 @@ export default function ProjectManager({
         if (active) {
           setSelectedProject(data.project);
           setManagingResources(true);
-          onInitialResourceOpened?.();
         }
       })
       .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "Could not open the selected project."); });
