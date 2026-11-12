@@ -53,5 +53,5 @@ test("rejects duplicate domains, invalid resource IDs and unsafe TLS contact ema
   assert.throws(() => renderPrivateIngressConfig([
     { domain: "example.com", resourceId: "not-a-uuid" },
   ]), /resource ID is invalid/);
-  assert.throws(() => renderPrivateIngressConfig([], "bad\\nheader@example.com"), /TLS contact email is invalid/);
+  assert.throws(() => renderPrivateIngressConfig([], "bad{header}@example.com"), /TLS contact email is invalid/);
 });
