@@ -32,7 +32,7 @@ test("renders deterministic private reverse-proxy routes with safe forwarded hea
   assert.ok(config.indexOf("app.example.com {") < config.indexOf("www.example.com {"));
   assert.match(config, /admin localhost:2019/);
   assert.match(config, /email ops@example.com/);
-  assert.match(config, /dsquare-site-11111111-1111-4111-8111-111111111111\\.runtime\\.dsquare\\.internal:3000/);
+  assert.ok(config.includes("dsquare-site-11111111-1111-4111-8111-111111111111.runtime.dsquare.internal:3000"));
   assert.match(config, /header_up X-Forwarded-For \{remote_host\}/);
   assert.match(config, /header_up -Forwarded/);
   assert.match(config, /header_up -X-Real-IP/);
