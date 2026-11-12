@@ -401,3 +401,45 @@ test("refuses runtime creation while execution is disabled, even with a trusted 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+
+test("keeps the isolated builder endpoint disabled unless explicitly configured", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "dsquare-agent-builder-disabled-"));
+  const claimedNonces = new Set<string>();
+  const fakePool = {
+    query: async (sql: string, values?: unknown[]) => {
+      if (sql.includes("INSERT INTO runtime_agent_nonces")) {
+        const nonce = String(values?.[0] ?? "");
+        if (claimedNonces.has(nonce)) return { rowCount: 0, rows: [] };
+        claimedNonces.add(nonce);
+        return { rowCount: 1, rows: [] };
+      }
+      return { rowCount: 0, rows: [] };
+    },
+  } as unknown as Pool;
+  const server = createServer(createRuntimeAgentApp({ pool: fakePool, secret: SECRET, storageRoot: root }));
+  try {
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const pathname = "/v1/builds";
+    const body = Buffer.from(JSON.stringify({
+      sourceArtifactId: "11111111-1111-4111-8111-111111111111",
+      deploymentId: "22222222-2222-4222-8222-222222222222",
+      cacheAttestation: {},
+    }));
+    const headers = signRuntimeAgentRequest({ method: "POST", pathname, body, secret: SECRET });
+    const response = await fetch("http://127.0.0.1:" + address.port + pathname, {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: new Uint8Array(body),
+    });
+    assert.equal(response.status, 503);
+    assert.match((await response.json() as { error: string }).error, /builder is not enabled/);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => error ? reject(error) : resolve()),
+    );
+    await rm(root, { recursive: true, force: true });
+  }
+});
