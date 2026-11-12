@@ -9,6 +9,7 @@ import { requireAuth } from "../middleware/require-auth.js";
 import { getWebsiteFileCandidates } from "../services/website-file-resolution.js";
 import { validateNodeProject } from "../services/node-project-validation.js";
 import { startBuiltRemoteNodeRuntime } from "../services/remote-node-runtime.js";
+import { syncPublishedNodeIngress } from "../services/private-ingress-sync.js";
 import {
   checkRuntimeAgentHealth,
   getRuntimeAgentRuntime,
@@ -553,11 +554,22 @@ async function deployNodeWebsite(
     );
     await client.query("COMMIT");
 
+    let ingressSynced = true;
+    try {
+      await syncPublishedNodeIngress();
+    } catch (ingressError) {
+      ingressSynced = false;
+      console.error("Node deployment ingress synchronization failed:", ingressError instanceof Error ? ingressError.message : ingressError);
+    }
+
     return response.status(201).json({
       success: true,
-      message: "Node.js website built in isolation, started, health-checked and activated.",
+      message: ingressSynced
+        ? "Node.js website built in isolation, started, health-checked and activated."
+        : "Node.js deployment is active, but custom-domain ingress synchronization needs attention.",
       deployment: inserted.rows[0],
       runtime: { state: started.state, deploymentId: started.deploymentId },
+      ingress: { synchronized: ingressSynced },
     });
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
