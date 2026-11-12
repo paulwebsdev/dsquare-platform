@@ -145,6 +145,11 @@ export default function ResourceWorkbench({
   const [nodeValidation, setNodeValidation] = useState<NodeValidationResponse | null>(null);
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatusResponse["runtime"] | null>(null);
   const [checkingRuntime, setCheckingRuntime] = useState(false);
+  const [databaseConnections, setDatabaseConnections] = useState<{ id: string; resource_name: string; database_resource_id: string }[]>([]);
+  const [assignedDatabaseConnectionId, setAssignedDatabaseConnectionId] = useState("");
+  const [selectedDatabaseConnectionId, setSelectedDatabaseConnectionId] = useState("");
+  const [databaseAssignmentLoading, setDatabaseAssignmentLoading] = useState(false);
+  const [databaseAssignmentSaving, setDatabaseAssignmentSaving] = useState(false);
 
   async function loadTables() {
     setLoading(true);
@@ -207,6 +212,65 @@ export default function ResourceWorkbench({
     }
   }
 
+  async function loadWebsiteDatabaseAssignment() {
+    setDatabaseAssignmentLoading(true);
+    try {
+      const response = await fetch(`${baseUrl}/database-connection`);
+      const data = await response.json() as {
+        success: boolean;
+        message?: string;
+        connections?: { id: string; resource_name: string; database_resource_id: string }[];
+        assignedConnectionId?: string | null;
+      };
+      if (!response.ok) throw new Error(data.message || "Could not load database assignment.");
+      const available = data.connections || [];
+      const assigned = data.assignedConnectionId || "";
+      setDatabaseConnections(available);
+      setAssignedDatabaseConnectionId(assigned);
+      setSelectedDatabaseConnectionId(assigned || available[0]?.id || "");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not load database assignment.");
+    } finally {
+      setDatabaseAssignmentLoading(false);
+    }
+  }
+
+  async function saveWebsiteDatabaseAssignment() {
+    if (!selectedDatabaseConnectionId) return;
+    setDatabaseAssignmentSaving(true);
+    setError("");
+    try {
+      const response = await fetch(`${baseUrl}/database-connection`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ connectionId: selectedDatabaseConnectionId }),
+      });
+      const data = await response.json() as { success: boolean; message?: string; assignedConnectionId?: string };
+      if (!response.ok) throw new Error(data.message || "Could not assign this database.");
+      setAssignedDatabaseConnectionId(data.assignedConnectionId || selectedDatabaseConnectionId);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not assign this database.");
+    } finally {
+      setDatabaseAssignmentSaving(false);
+    }
+  }
+
+  async function removeWebsiteDatabaseAssignment() {
+    setDatabaseAssignmentSaving(true);
+    setError("");
+    try {
+      const response = await fetch(`${baseUrl}/database-connection`, { method: "DELETE" });
+      const data = await response.json() as { success: boolean; message?: string };
+      if (!response.ok) throw new Error(data.message || "Could not remove this database assignment.");
+      setAssignedDatabaseConnectionId("");
+      setSelectedDatabaseConnectionId(databaseConnections[0]?.id || "");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not remove this database assignment.");
+    } finally {
+      setDatabaseAssignmentSaving(false);
+    }
+  }
+
   async function loadFiles() {
     setLoading(true);
     setError("");
@@ -232,7 +296,10 @@ export default function ResourceWorkbench({
       void loadTables();
     } else {
       void loadFiles();
-      if (resource.site_type === "node") void loadRuntimeStatus();
+      if (resource.site_type === "node") {
+        void loadRuntimeStatus();
+        void loadWebsiteDatabaseAssignment();
+      }
     }
   }, [baseUrl, isDatabase, resource.site_type]);
 
@@ -1187,6 +1254,48 @@ export default function ResourceWorkbench({
               ) : (
                 <p className="wb-help">{checkingRuntime ? "Checking the private runtime agent..." : "Runtime status has not been checked."}</p>
               )}
+            </article>
+          )}
+          {resource.site_type === "node" && (
+            <article className="panel wb-panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>Website database</h2>
+                  <p>Choose one active D Database connection for this Node.js website.</p>
+                </div>
+                <span className="wb-count">{assignedDatabaseConnectionId ? "Assigned" : "Not assigned"}</span>
+              </div>
+              {databaseAssignmentLoading ? (
+                <p className="wb-help">Loading connected databases...</p>
+              ) : databaseConnections.length ? (
+                <>
+                  <label htmlFor="website-database-connection">Connected database</label>
+                  <select
+                    id="website-database-connection"
+                    value={selectedDatabaseConnectionId}
+                    onChange={(event) => setSelectedDatabaseConnectionId(event.target.value)}
+                    disabled={databaseAssignmentSaving}
+                  >
+                    {databaseConnections.map((connection) => (
+                      <option key={connection.id} value={connection.id}>{connection.resource_name}</option>
+                    ))}
+                  </select>
+                  <div className="pm-form-actions">
+                    <button className="primary-button" type="button" onClick={() => void saveWebsiteDatabaseAssignment()} disabled={databaseAssignmentSaving || !selectedDatabaseConnectionId || selectedDatabaseConnectionId === assignedDatabaseConnectionId}>
+                      {databaseAssignmentSaving ? "Saving..." : assignedDatabaseConnectionId ? "Update assignment" : "Assign database"}
+                    </button>
+                    {assignedDatabaseConnectionId && (
+                      <button className="secondary-button" type="button" onClick={() => void removeWebsiteDatabaseAssignment()} disabled={databaseAssignmentSaving}>Remove assignment</button>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="wb-inline-empty">
+                  <strong>No active D Database connections</strong>
+                  <p>Connect a database from the D Hosting Database Connections page first.</p>
+                </div>
+              )}
+              <p className="wb-help">This saves a secure per-website assignment. The credentials are not exposed to the browser. They will be supplied to the isolated Node.js runtime when backend execution is enabled; live database access is not active yet.</p>
             </article>
           )}
           {resource.site_type === "node" && (
