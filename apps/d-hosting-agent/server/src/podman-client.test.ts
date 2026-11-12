@@ -90,17 +90,20 @@ test("Podman client creates only the approved Node builder phases", async () => 
     calls.push(request);
     return { statusCode: 201, headers: {}, body: Buffer.from(JSON.stringify({ Id: "c".repeat(64) })) };
   });
+  const version = await client.createNodeBuildExec("a".repeat(64), "version");
   const install = await client.createNodeBuildExec("a".repeat(64), "install");
   const build = await client.createNodeBuildExec("a".repeat(64), "build");
+  assert.equal(version, "c".repeat(64));
   assert.equal(install, "c".repeat(64));
   assert.equal(build, "c".repeat(64));
+  assert.deepEqual((calls[0]?.body as { Cmd: string[] }).Cmd, ["npm", "--version"]);
   assert.deepEqual((calls[0]?.body as { Cmd: string[] }).Cmd, [
     "npm", "ci", "--offline", "--cache=/npm-cache", "--logs-dir=/tmp/npm-logs", "--ignore-scripts", "--no-audit", "--no-fund",
   ]);
   assert.deepEqual((calls[1]?.body as { Cmd: string[] }).Cmd, [
     "npm", "run", "build", "--if-present", "--logs-dir=/tmp/npm-logs", "--ignore-scripts",
   ]);
-  assert.equal((calls[0]?.body as { User: string }).User, "10001:10001");
+  assert.equal((calls[1]?.body as { User: string }).User, "10001:10001");
   await assert.rejects(() => client.createNodeBuildExec("short", "install"));
 });
 
