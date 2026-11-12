@@ -314,3 +314,78 @@ export async function deleteStoredArtifact(storageRoot: string, artifactId: stri
   await rm(metadataPath, { force: false });
   return true;
 }
+
+
+/**
+ * Creates the DSQART01 upload format from a completed build workspace.
+ * Symlinks, special files, oversized files and excess output are rejected.
+ */
+export async function createRuntimeArtifactBundle(
+  artifactId: string,
+  workspaceDirectory: string,
+): Promise<{ bytes: Buffer; sha256: string; sizeBytes: number; fileCount: number }> {
+  if (!UUID.test(artifactId)) throw new Error("Runtime artifact ID is invalid.");
+  const root = path.resolve(workspaceDirectory);
+  const rootStat = await lstat(root);
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+    throw new Error("Build output must be a real workspace directory.");
+  }
+
+  const entries: ManifestFile[] = [];
+  const payloads: Buffer[] = [];
+  let totalBytes = 0;
+  const visit = async (directory: string, relative: string): Promise<void> => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      if (entry.name.startsWith(".dsquare-agent-")) {
+        throw new Error("Build output contains a reserved internal path.");
+      }
+      const source = path.join(directory, entry.name);
+      const relativePath = relative ? `${relative}/${entry.name}` : entry.name;
+      if (!safeArtifactPath(relativePath)) throw new Error("Build output contains an unsafe path.");
+      ensureInside(root, source);
+      const metadata = await lstat(source);
+      if (metadata.isSymbolicLink()) throw new Error("Build output cannot contain symbolic links.");
+      if (metadata.isDirectory()) {
+        await visit(source, relativePath);
+        continue;
+      }
+      if (!metadata.isFile() || metadata.size > MAX_FILE_BYTES) {
+        throw new Error("Build output contains an unsupported or oversized file.");
+      }
+      if (entries.length >= MAX_FILES) throw new Error("Build output contains too many files.");
+      totalBytes += metadata.size;
+      if (totalBytes > MAX_TOTAL_FILE_BYTES) throw new Error("Build output exceeds the 100 MB output limit.");
+      const bytes = await readFile(source);
+      if (bytes.byteLength !== metadata.size) throw new Error("Build output changed while it was packaged.");
+      entries.push({
+        path: relativePath,
+        sizeBytes: bytes.byteLength,
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+      });
+      payloads.push(bytes);
+    }
+  };
+  await visit(root, "");
+  if (entries.length < 1 || totalBytes < 1) throw new Error("Build output contains no files.");
+
+  const manifest = {
+    sha256: createHash("sha256").update(JSON.stringify(entries)).digest("hex"),
+    fileCount: entries.length,
+    totalBytes,
+    files: entries,
+  };
+  const envelope: BundleManifest = { version: 1, artifactId, manifest };
+  const manifestBytes = Buffer.from(JSON.stringify(envelope), "utf8");
+  if (manifestBytes.byteLength > MAX_MANIFEST_BYTES) throw new Error("Build output manifest exceeds its limit.");
+  const header = Buffer.alloc(12);
+  MAGIC.copy(header, 0);
+  header.writeUInt32BE(manifestBytes.byteLength, 8);
+  const bytes = Buffer.concat([header, manifestBytes, ...payloads]);
+  if (bytes.byteLength > MAX_BUNDLE_BYTES) throw new Error("Packaged build output exceeds the artifact bundle limit.");
+  return {
+    bytes,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    sizeBytes: bytes.byteLength,
+    fileCount: entries.length,
+  };
+}
