@@ -312,6 +312,7 @@ test("keeps customer execution disabled by default even when a provider is confi
       executionEnabled: false,
       builderConfigured: false,
       builderEnabled: false,
+      ingressConfigured: false,
     });
   } finally {
     await new Promise<void>((resolve, reject) =>
