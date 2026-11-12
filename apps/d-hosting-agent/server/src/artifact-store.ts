@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, open, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const MAGIC = Buffer.from("DSQART01", "ascii");
@@ -330,8 +330,10 @@ export async function deleteStoredArtifact(storageRoot: string, artifactId: stri
 
 
 /**
- * Creates the DSQART01 upload format from a completed build workspace.
- * Symlinks, special files, oversized files and excess output are rejected.
+ * Creates a deterministic DSQART01 bundle from a completed build workspace.
+ * Safe in-workspace file symlinks (such as npm's node_modules/.bin entries)
+ * are dereferenced into regular files. Links escaping the workspace and
+ * symlinked directories are rejected.
  */
 export async function createRuntimeArtifactBundle(
   artifactId: string,
@@ -344,43 +346,64 @@ export async function createRuntimeArtifactBundle(
     throw new Error("Build output must be a real workspace directory.");
   }
 
-  const entries: ManifestFile[] = [];
-  const payloads: Buffer[] = [];
+  const records: Array<{ entry: ManifestFile; payload: Buffer }> = [];
   let totalBytes = 0;
   const visit = async (directory: string, relative: string): Promise<void> => {
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
-      if (entry.name.startsWith(".dsquare-agent-")) {
+    for (const item of await readdir(directory, { withFileTypes: true })) {
+      if (item.name.startsWith(".dsquare-agent-")) {
         throw new Error("Build output contains a reserved internal path.");
       }
-      const source = path.join(directory, entry.name);
-      const relativePath = relative ? `${relative}/${entry.name}` : entry.name;
+      const source = path.join(directory, item.name);
+      const relativePath = relative ? `${relative}/${item.name}` : item.name;
       if (!safeArtifactPath(relativePath)) throw new Error("Build output contains an unsafe path.");
       ensureInside(root, source);
-      const metadata = await lstat(source);
-      if (metadata.isSymbolicLink()) throw new Error("Build output cannot contain symbolic links.");
-      if (metadata.isDirectory()) {
+      let actualPath = source;
+      let metadata = await lstat(source);
+      let executable = false;
+      if (metadata.isSymbolicLink()) {
+        actualPath = await realpath(source);
+        ensureInside(root, actualPath);
+        metadata = await lstat(actualPath);
+        if (!metadata.isFile() || metadata.isSymbolicLink()) {
+          throw new Error("Build output symlinks must resolve to regular files inside the workspace.");
+        }
+        executable = true;
+      } else if (metadata.isDirectory()) {
         await visit(source, relativePath);
         continue;
+      } else if (metadata.isFile()) {
+        executable = Boolean(metadata.mode & 0o111);
+      } else {
+        throw new Error("Build output contains an unsupported filesystem entry.");
       }
-      if (!metadata.isFile() || metadata.size > MAX_FILE_BYTES) {
-        throw new Error("Build output contains an unsupported or oversized file.");
+
+      if (metadata.size > MAX_FILE_BYTES) {
+        throw new Error("Build output contains an oversized file.");
       }
-      if (entries.length >= MAX_FILES) throw new Error("Build output contains too many files.");
+      if (records.length >= MAX_FILES) throw new Error("Build output contains too many files.");
       totalBytes += metadata.size;
       if (totalBytes > MAX_TOTAL_FILE_BYTES) throw new Error("Build output exceeds the 100 MB output limit.");
-      const bytes = await readFile(source);
-      if (bytes.byteLength !== metadata.size) throw new Error("Build output changed while it was packaged.");
-      entries.push({
-        path: relativePath,
-        sizeBytes: bytes.byteLength,
-        sha256: createHash("sha256").update(bytes).digest("hex"),
+      const payload = await readFile(actualPath);
+      if (payload.byteLength !== metadata.size) throw new Error("Build output changed while it was packaged.");
+      records.push({
+        entry: {
+          path: relativePath,
+          sizeBytes: payload.byteLength,
+          sha256: createHash("sha256").update(payload).digest("hex"),
+          ...(executable ? { executable: true } : {}),
+        },
+        payload,
       });
-      payloads.push(bytes);
     }
   };
   await visit(root, "");
-  if (entries.length < 1 || totalBytes < 1) throw new Error("Build output contains no files.");
+  if (records.length < 1 || totalBytes < 1) throw new Error("Build output contains no files.");
 
+  records.sort((left, right) =>
+    left.entry.path < right.entry.path ? -1 : left.entry.path > right.entry.path ? 1 : 0,
+  );
+  const entries = records.map((record) => record.entry);
+  const payloads = records.map((record) => record.payload);
   const manifest = {
     sha256: createHash("sha256").update(JSON.stringify(entries)).digest("hex"),
     fileCount: entries.length,
