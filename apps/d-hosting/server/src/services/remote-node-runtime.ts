@@ -1,10 +1,12 @@
 import { rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import {
   clearPreparedRuntimeEnvironment,
   prepareNodeRuntimeLaunch,
 } from "./node-runtime-launch.js";
 import { buildRemoteRuntimeCreateRequest } from "./runtime-agent-contract.js";
 import {
+  buildRuntimeAgentArtifact,
   createRuntimeAgentRuntime,
   deleteRuntimeAgentArtifact,
   deleteRuntimeAgentRuntime,
@@ -87,6 +89,85 @@ export async function startRemoteNodeRuntime(
     }
     throw error;
   } finally {
+    clearPreparedRuntimeEnvironment(launch);
+    await rm(launch.artifactDirectory, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+
+/**
+ * Complete remote Node deployment pipeline: stage immutable source files,
+ * transfer them to the private agent, build in the isolated builder, start the
+ * resulting immutable runtime artifact, then remove the temporary source copy.
+ * Runtime activation in the Hosting database is deliberately a separate step
+ * performed only after this function confirms readiness.
+ */
+export async function startBuiltRemoteNodeRuntime(
+  input: StartRemoteNodeRuntimeInput,
+  loadAssignedConnection: typeof getAssignedDatabaseRuntimeConnection = getAssignedDatabaseRuntimeConnection,
+): Promise<{
+  resourceId: string;
+  deploymentId: string;
+  artifactId: string;
+  fileCount: number;
+  state: "running";
+  buildOutput: string;
+}> {
+  const databaseConnection = await loadAssignedConnection({
+    hostingUserId: input.hostingUserId,
+    resourceId: input.resourceId,
+  });
+  const launch = await prepareNodeRuntimeLaunch({
+    ...input,
+    ...(databaseConnection ? { databaseConnection, hostingUserId: input.hostingUserId } : {}),
+  });
+  const sourceArtifactId = randomUUID();
+  let sourceUploaded = false;
+  let builtArtifactCreated = false;
+  let runtimeCreated = false;
+  try {
+    const sourceBundle = await buildRuntimeArtifactBundle({
+      artifactId: sourceArtifactId,
+      artifactDirectory: launch.artifactDirectory,
+    });
+    await uploadRuntimeAgentArtifact(input.agent, sourceArtifactId, sourceBundle.bytes);
+    sourceUploaded = true;
+
+    const built = await buildRuntimeAgentArtifact(input.agent, {
+      sourceArtifactId,
+      deploymentId: input.deploymentId,
+    });
+    builtArtifactCreated = true;
+
+    const request = buildRemoteRuntimeCreateRequest({
+      resourceId: input.resourceId,
+      deploymentId: input.deploymentId,
+      spec: launch.spec,
+      artifact: built.artifact,
+    });
+    const started = await createRuntimeAgentRuntime(input.agent, request);
+    runtimeCreated = true;
+
+    return {
+      resourceId: started.resourceId,
+      deploymentId: started.deploymentId,
+      artifactId: built.artifact.artifactId,
+      fileCount: built.artifact.fileCount,
+      state: started.state,
+      buildOutput: built.output,
+    };
+  } catch (error) {
+    if (runtimeCreated) {
+      await deleteRuntimeAgentRuntime(input.agent, input.resourceId).catch(() => undefined);
+    }
+    if (builtArtifactCreated) {
+      await deleteRuntimeAgentArtifact(input.agent, input.deploymentId).catch(() => undefined);
+    }
+    throw error;
+  } finally {
+    if (sourceUploaded) {
+      await deleteRuntimeAgentArtifact(input.agent, sourceArtifactId).catch(() => undefined);
+    }
     clearPreparedRuntimeEnvironment(launch);
     await rm(launch.artifactDirectory, { recursive: true, force: true }).catch(() => undefined);
   }
