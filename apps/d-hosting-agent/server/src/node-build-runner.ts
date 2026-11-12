@@ -125,9 +125,14 @@ export class PodmanNodeBuildRunner {
       throw new Error("Builder workspace root must be a real directory.");
     }
     const containers = await this.client.listManagedBuilderContainers();
-    for (const container of containers) {
-      await this.client.removeContainer(container.id);
-      const workspace = path.join(root, container.deploymentId);
+    for (const container of containers) await this.client.removeContainer(container.id);
+
+    // At agent startup no build can be active yet, so remove UUID-named
+    // workspaces even when a crash happened before the container was created.
+    let removedWorkspaces = 0;
+    for (const entry of await readdir(root, { withFileTypes: true })) {
+      if (!UUID.test(entry.name)) continue;
+      const workspace = path.join(root, entry.name);
       const relative = path.relative(root, workspace);
       if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
         throw new Error("Recovered builder workspace escaped its root.");
@@ -135,9 +140,10 @@ export class PodmanNodeBuildRunner {
       const workspaceStat = await lstat(workspace).catch(() => null);
       if (workspaceStat?.isDirectory() && !workspaceStat.isSymbolicLink()) {
         await rm(workspace, { recursive: true, force: false });
+        removedWorkspaces += 1;
       }
     }
-    return containers.length;
+    return Math.max(containers.length, removedWorkspaces);
   }
 
   async build(request: NodeBuildRequest): Promise<NodeBuildResult> {
