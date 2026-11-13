@@ -1,0 +1,3 @@
+# Install as /etc/sudoers.d/dsquare-hosting-runtime-agent (0440).
+# Replace the account with the dedicated unprivileged runtime-agent service user.
+dsquare-runtime-agent ALL=(root) NOPASSWD: /usr/local/sbin/dsquare-xfs-project-quota
