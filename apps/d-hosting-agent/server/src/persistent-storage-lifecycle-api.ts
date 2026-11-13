@@ -98,11 +98,19 @@ export function registerPersistentStorageLifecycleRoutes(app: Express, input: {
     try {
       const result = await input.pool.query("SELECT backup_path FROM runtime_agent_storage_backups WHERE backup_id=$1 AND resource_id=$2", [backupId, resourceId]);
       if (!result.rowCount) { response.status(404).json({ error: "Backup was not found." }); return; }
+      const quota = await input.pool.query("SELECT project_id, hard_limit_bytes FROM runtime_agent_storage_projects WHERE resource_id=$1", [resourceId]);
+      if (!quota.rowCount) throw new Error("A hard storage quota must be provisioned before restore.");
+      const projectId = Number(quota.rows[0].project_id);
+      const hardLimitBytes = Number(quota.rows[0].hard_limit_bytes);
+      if (!Number.isSafeInteger(projectId) || !Number.isSafeInteger(hardLimitBytes)) throw new Error("Stored quota configuration is invalid.");
       const backupFile = path.resolve(result.rows[0].backup_path);
       if (path.dirname(backupFile) !== path.resolve(input.backupRoot)) throw new Error("Backup path escaped its private root.");
       const backupStat = await lstat(backupFile);
       if (!backupStat.isFile() || backupStat.isSymbolicLink()) throw new Error("Backup entry is unsafe.");
-      const restored = await restorePersistentStorageBackup(input.storageRoot, backupFile, resourceId, input.key);
+      const restored = await restorePersistentStorageBackup(input.storageRoot, backupFile, resourceId, input.key, async () => {
+        await enforceXfsProjectQuota({ storageRoot: input.storageRoot, resourceId, projectId, hardLimitBytes });
+        await input.pool.query("UPDATE runtime_agent_storage_projects SET quota_applied_at=NOW() WHERE resource_id=$1", [resourceId]);
+      });
       await input.pool.query("INSERT INTO runtime_agent_storage_audit (resource_id, action, actor, metadata) VALUES ($1,'backup.restore','trusted-hosting-api',$2)", [resourceId, JSON.stringify({ backupId, ...restored })]);
       response.status(200).json({ resourceId, backupId, ...restored });
     } catch { response.status(409).json({ error: "Backup restore failed safely; live data was not intentionally replaced." }); }
