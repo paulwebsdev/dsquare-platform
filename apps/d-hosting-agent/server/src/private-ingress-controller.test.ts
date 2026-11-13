@@ -30,6 +30,19 @@ test("renders deterministic Caddy JSON routes to deployment-private aliases", ()
   assert.ok(serialized.includes("ops@example.com"));
   assert.ok(serialized.includes(":80"));
   assert.ok(serialized.includes(":443"));
+  assert.ok(serialized.includes('"handler":"request_body"'));
+  assert.ok(serialized.includes('"max_size":10485760'));
+  assert.ok(serialized.includes('"read_timeout":"5m"'));
+  assert.ok(serialized.includes('"read_header_timeout":"10s"'));
+  assert.ok(serialized.includes('"read_idle_timeout":"30s"'));
+  assert.ok(serialized.includes('"read_min_rate":1024'));
+  assert.ok(serialized.includes('"write_idle_timeout":"2m"'));
+  assert.ok(serialized.includes('"idle_timeout":"2m"'));
+  assert.ok(serialized.includes('"flush_interval":"-1ns"'));
+  assert.ok(serialized.includes('"stream_timeout":"24h"'));
+  assert.ok(serialized.includes('"stream_close_delay":"5m"'));
+  assert.ok(serialized.includes('"status_code":503'));
+  assert.ok(serialized.includes("temporarily unavailable"));
   assert.throws(() => renderPrivateIngressJsonConfig([
     { domain: "example.com", resourceId, deploymentId },
     { domain: "EXAMPLE.COM.", resourceId, deploymentId },
