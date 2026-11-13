@@ -166,7 +166,7 @@ test("creates and reads a runtime using validated typed responses", async () => 
       assert.equal(init.method, "GET");
       return Response.json({ resourceId: RESOURCE_ID, deploymentId: DEPLOYMENT_ID, state: "stopped" });
     }),
-  }, RESOURCE_ID);
+  }, RESOURCE_ID, DEPLOYMENT_ID);
   assert.equal(current.state, "stopped");
 });
 
@@ -192,7 +192,7 @@ test("validates runtime lifecycle and artifact deletion confirmations", async ()
       assert.equal(init.method, "DELETE");
       return Response.json({ resourceId: RESOURCE_ID, deploymentId: DEPLOYMENT_ID, deleted: true });
     }),
-  }, RESOURCE_ID);
+  }, RESOURCE_ID, DEPLOYMENT_ID);
   assert.equal(removed.deleted, true);
 
   const artifact = await deleteRuntimeAgentArtifact({
@@ -224,15 +224,15 @@ test("retrieves bounded runtime logs through the typed authenticated client", as
     fetchImpl: fakeFetch((url, init) => {
       assert.equal(url.pathname, `/v1/runtimes/${RESOURCE_ID}/${DEPLOYMENT_ID}/logs`);
       assert.equal(init.method, "GET");
-      return Response.json({ resourceId: RESOURCE_ID, logs: "server started\\nready" });
+      return Response.json({ resourceId: RESOURCE_ID, deploymentId: DEPLOYMENT_ID, logs: "server started\\nready" });
     }),
-  }, RESOURCE_ID);
+  }, RESOURCE_ID, DEPLOYMENT_ID);
   assert.equal(logs.logs, "server started\\nready");
 
   await assert.rejects(getRuntimeAgentLogs({
     ...options,
-    fetchImpl: fakeFetch(() => Response.json({ resourceId: RESOURCE_ID, logs: 42 })),
-  }, RESOURCE_ID), /invalid runtime logs/);
+    fetchImpl: fakeFetch(() => Response.json({ resourceId: RESOURCE_ID, deploymentId: DEPLOYMENT_ID, logs: 42 })),
+  }, RESOURCE_ID, DEPLOYMENT_ID), /invalid runtime logs/);
 });
 
 
