@@ -443,7 +443,7 @@ export function createRuntimeAgentApp(input: {
       const logs = await input.provider.logs(record.containerId, 200);
       const safeLogs = logs.toString("utf8").split(/\r?\n/).slice(-200)
         .map(redactRuntimeLogMessage).join("\n");
-      response.status(200).json({ resourceId: record.resourceId, logs: safeLogs });
+      response.status(200).json({ resourceId: record.resourceId, deploymentId: record.deploymentId, logs: safeLogs });
     } catch {
       response.status(502).json({ error: "Runtime logs could not be retrieved." });
     }
@@ -473,7 +473,7 @@ export function createRuntimeAgentApp(input: {
         else await input.provider.restart(record.containerId);
         const state = action === "stop" ? "stopped" : "running";
         await registry.setDeploymentState(record.deploymentId, state);
-        response.status(200).json({ resourceId: record.resourceId, state });
+        response.status(200).json({ resourceId: record.resourceId, deploymentId: record.deploymentId, state });
       } catch {
         response.status(502).json({ error: "Runtime lifecycle operation failed." });
       }
@@ -496,13 +496,13 @@ export function createRuntimeAgentApp(input: {
     }
     if (!record.containerId) {
       await registry.deleteDeployment(record.deploymentId);
-      response.status(200).json({ resourceId: record.resourceId, deleted: true });
+      response.status(200).json({ resourceId: record.resourceId, deploymentId: record.deploymentId, deleted: true });
       return;
     }
     try {
       await input.provider.remove(record.containerId, record.artifactId);
       await registry.deleteDeployment(record.deploymentId);
-      response.status(200).json({ resourceId: record.resourceId, deleted: true });
+      response.status(200).json({ resourceId: record.resourceId, deploymentId: record.deploymentId, deleted: true });
     } catch {
       response.status(502).json({ error: "Runtime could not be safely removed." });
     }
