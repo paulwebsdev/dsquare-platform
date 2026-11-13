@@ -110,6 +110,8 @@ export function registerPersistentStorageLifecycleRoutes(app: Express, input: {
     try {
       const result = await input.pool.query("SELECT backup_path FROM runtime_agent_storage_backups WHERE backup_id=$1 AND resource_id=$2", [backupId, resourceId]);
       if (!result.rowCount) { response.status(404).json({ error: "Backup was not found." }); return; }
+      const activeRuntime = await input.pool.query("SELECT 1 FROM runtime_agent_deployments WHERE resource_id=$1 AND state IN ('creating','running','unknown') LIMIT 1", [resourceId]);
+      if (activeRuntime.rowCount) { response.status(409).json({ error: "Stop all website deployments before restoring persistent storage." }); return; }
       const quota = await input.pool.query("SELECT project_id, hard_limit_bytes FROM runtime_agent_storage_projects WHERE resource_id=$1", [resourceId]);
       if (!quota.rowCount) throw new Error("A hard storage quota must be provisioned before restore.");
       const projectId = Number(quota.rows[0].project_id);
@@ -193,6 +195,8 @@ export function registerPersistentStorageLifecycleRoutes(app: Express, input: {
       response.status(400).json({ error: "Storage tombstone requires explicit confirmation." }); return;
     }
     try {
+      const activeRuntime = await input.pool.query("SELECT 1 FROM runtime_agent_deployments WHERE resource_id=$1 AND state IN ('creating','running','unknown') LIMIT 1", [resourceId]);
+      if (activeRuntime.rowCount) { response.status(409).json({ error: "Stop all website deployments before tombstoning persistent storage." }); return; }
       const tombstone = await tombstonePersistentStorage(input.storageRoot, resourceId);
       await input.pool.query("INSERT INTO runtime_agent_storage_audit (resource_id, action, actor, metadata) VALUES ($1,'storage.tombstone',$2,$3)", [resourceId, actor, JSON.stringify({ moved: Boolean(tombstone) })]);
       response.status(200).json({ resourceId, tombstoned: Boolean(tombstone) });
