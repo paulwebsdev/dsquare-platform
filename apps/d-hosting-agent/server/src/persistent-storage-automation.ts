@@ -20,6 +20,7 @@ export async function runPersistentBackupCycle(input: {
   now?: number; onError?: (resourceId: string, error: unknown) => void;
   onBackup?: (backup: PersistentBackup) => Promise<void>; onResourceComplete?: (resourceId: string) => Promise<void>;
 }): Promise<BackupCycleResult> {
+  if (!Number.isInteger(input.retentionDays) || input.retentionDays < 1 || input.retentionDays > 3650) throw new Error("Persistent backup retention must be between 1 and 3650 days.");
   const entries = await readdir(input.storageRoot, { withFileTypes: true });
   const resources = entries.filter((entry) => entry.isDirectory() && UUID.test(entry.name) && !entry.isSymbolicLink());
   const result: BackupCycleResult = { resources: resources.length, created: 0, pruned: 0, failed: 0 };
@@ -45,6 +46,14 @@ export function startPersistentBackupScheduler(input: {
   onBackup?: (backup: PersistentBackup) => Promise<void>; onResourceComplete?: (resourceId: string) => Promise<void>;
   onCycle?: (result: BackupCycleResult) => void;
 }): () => void {
+  if (!Number.isInteger(input.retentionDays) || input.retentionDays < 1 || input.retentionDays > 3650) throw new Error("Persistent backup retention must be between 1 and 3650 days.");
+  const storageRoot = path.resolve(input.storageRoot);
+  const backupRoot = path.resolve(input.backupRoot);
+  const relativeBackup = path.relative(storageRoot, backupRoot);
+  const relativeStorage = path.relative(backupRoot, storageRoot);
+  if (!relativeBackup || (!relativeBackup.startsWith("..") && !path.isAbsolute(relativeBackup)) || !relativeStorage.startsWith("..")) {
+    throw new Error("Persistent backups must use a separate directory outside the website storage root.");
+  }
   if (!Number.isInteger(input.intervalMs) || input.intervalMs < 60_000 || input.intervalMs > 7 * 86400_000) {
     throw new Error("Persistent backup interval must be between one minute and seven days.");
   }
