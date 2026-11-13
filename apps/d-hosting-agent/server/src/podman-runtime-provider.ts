@@ -135,7 +135,7 @@ export class PodmanRuntimeProvider {
     const seenContainerIds = new Set(containers.map((container) => container.id));
     for (const container of containers) {
       const record = await registry.getDeployment(container.deploymentId);
-      const identityMatches = record && record.deploymentId === container.deploymentId && record.artifactId === container.artifactId;
+      const identityMatches = record && record.resourceId === container.resourceId &&\n        record.deploymentId === container.deploymentId && record.artifactId === container.artifactId;
       if (identityMatches && record.containerId === container.id) continue;
       if (identityMatches && record.containerId === null && record.state === "creating") {
         if (await registry.completeDeployment(container.deploymentId, container.id)) { adopted += 1; continue; }
