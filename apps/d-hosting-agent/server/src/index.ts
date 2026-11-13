@@ -773,6 +773,7 @@ export async function startRuntimeAgent(): Promise<void> {
         onError: (resourceId, error) => console.error("Persistent backup failed for resource", resourceId, error instanceof Error ? error.message : "Unknown error"),
         onBackup: async (backup) => {
           const remote = await uploadPersistentBackupObject(persistentBackupObjectStore!, backup.path, backup.resourceId, backup.backupId);
+          if (remote.sha256 !== backup.sha256 || remote.sizeBytes !== backup.sizeBytes) throw new Error("Offsite backup integrity check failed.");
           await pool.query("INSERT INTO runtime_agent_storage_backups (backup_id, resource_id, backup_path, object_key, key_id, size_bytes, sha256, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (backup_id) DO NOTHING",
             [backup.backupId, backup.resourceId, backup.path, remote.objectKey, backup.keyId, backup.sizeBytes, backup.sha256, backup.createdAt]);
           await pool.query("INSERT INTO runtime_agent_storage_audit (resource_id, action, actor, metadata) VALUES ($1,'backup.create','scheduled-agent',$2)",
