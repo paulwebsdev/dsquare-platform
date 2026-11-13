@@ -41,6 +41,11 @@ export class PodmanRuntimeProvider {
     this.options = options;
   }
 
+  /** Fails closed unless the local Podman API is reachable over its Unix socket. */
+  async checkAvailability(): Promise<void> {
+    await this.client.ping();
+  }
+
   async createAndStart(request: ManagedRuntimeRequest): Promise<{ containerId: string; workspacePath: string }> {
     if (!UUID.test(request.resourceId) || !UUID.test(request.deploymentId) ||
         !UUID.test(request.artifactId) || request.deploymentId !== request.artifactId) {
