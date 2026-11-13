@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildWebsiteObjectKey } from "./website-object-storage.js";
+import { assertWebsiteObjectKeyScope, buildWebsiteObjectKey } from "./website-object-storage.js";
 
 const base = {
   ownerId: "11111111-1111-4111-8111-111111111111",
@@ -27,4 +27,12 @@ test("website object keys are scoped by owner, project, website, and immutable o
 test("website object keys reject invalid identifiers", () => {
   assert.throws(() => buildWebsiteObjectKey({ ...base, ownerId: "../other-owner" }), /identity is invalid/);
   assert.throws(() => buildWebsiteObjectKey({ ...base, objectId: "not-a-uuid" }), /identity is invalid/);
+});
+
+test("rejects cross-owner, cross-project, and cross-website object reads", () => {
+  const key = buildWebsiteObjectKey(base);
+  assert.doesNotThrow(() => assertWebsiteObjectKeyScope(key, base));
+  assert.throws(() => assertWebsiteObjectKeyScope(key, { ...base, ownerId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }), /does not belong/);
+  assert.throws(() => assertWebsiteObjectKeyScope(key, { ...base, projectId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" }), /does not belong/);
+  assert.throws(() => assertWebsiteObjectKeyScope(key, { ...base, resourceId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" }), /does not belong/);
 });
