@@ -238,3 +238,11 @@ Read endpoints retain bounded limit/offset pagination and use a repeatable-read,
 
 These API guarantees complement, rather than replace, PostgreSQL's own constraints, resource-role permissions, connection limits and query timeouts.
 
+
+## 18. Migration Integrity Enforcement
+
+D Database migration files use a three-digit numeric version followed by a lowercase underscore-separated name, for example `009_add_customer_flags.sql`. Version numbers must be unique. The runner validates every filename and orders migrations before execution.
+
+The migration history stores a SHA-256 checksum for each applied migration. Startup fails closed if an applied migration is missing or its contents differ from the recorded checksum. Existing history rows created before checksum tracking are adopted once by recording the current file checksum; this compatibility step cannot detect edits made before checksum adoption. New migrations must always be added as new versioned files rather than editing applied files.
+
+A PostgreSQL session advisory lock serializes migration runners. Each migration and its history record are committed in the same transaction; failed migrations are rolled back and are not marked as applied.
