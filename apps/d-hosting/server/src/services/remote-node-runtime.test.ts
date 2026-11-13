@@ -255,3 +255,66 @@ test("removes the temporary source artifact when remote build fails", async () =
     await rm(root, { recursive: true, force: true });
   }
 });
+
+
+test("fails closed before uploading or starting a runtime when assigned database lookup fails", async () => {
+  const root = await fixture();
+  const calls: string[] = [];
+  const fetchImpl = fakeFetch((url, init) => {
+    calls.push(`${init.method} ${url.pathname}`);
+    return Response.json({ unexpected: true });
+  });
+  try {
+    await assert.rejects(
+      startBuiltRemoteNodeRuntime(
+        deploymentInput(root, fetchImpl),
+        async () => { throw new Error("Assigned D Database connection is revoked or unavailable."); },
+      ),
+      /revoked or unavailable/,
+    );
+    assert.deepEqual(calls, []);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("cleans up a built artifact after runtime startup fails before readiness", async () => {
+  const root = await fixture();
+  const paths: string[] = [];
+  const fetchImpl = fakeFetch((url, init) => {
+    paths.push(`${init.method} ${url.pathname}`);
+    if (init.method === "PUT") {
+      return Response.json({ artifactId: url.pathname.split("/").at(-1), accepted: true });
+    }
+    if (url.pathname === "/v1/builds") {
+      return Response.json({
+        artifact: { artifactId: deploymentId, sha256: "d".repeat(64), sizeBytes: 4096, fileCount: 3 },
+        output: "[build] complete",
+      }, { status: 201 });
+    }
+    if (url.pathname === "/v1/runtimes") {
+      return new Response("runtime failed readiness", { status: 503 });
+    }
+    if (url.pathname === `/v1/runtimes/${resourceId}/${deploymentId}` && init.method === "GET") {
+      return new Response(null, { status: 404 });
+    }
+    return Response.json({ deleted: true });
+  });
+  try {
+    await assert.rejects(
+      startBuiltRemoteNodeRuntime(deploymentInput(root, fetchImpl), async () => approvedDatabaseConnection()),
+      /HTTP 503/,
+    );
+    assert.equal(paths.length, 6);
+    assert.match(paths[0]!, /^PUT \/v1\/artifacts\//);
+    assert.equal(paths[1], "POST /v1/builds");
+    assert.equal(paths[2], "POST /v1/runtimes");
+    assert.equal(paths[3], `GET /v1/runtimes/${resourceId}/${deploymentId}`);
+    assert.equal(paths[4], `DELETE /v1/artifacts/${deploymentId}`);
+    assert.match(paths[5]!, /^DELETE \/v1\/artifacts\//);
+    await assert.rejects(stat(path.join(root, resourceId, "runtime-artifacts", deploymentId)));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
