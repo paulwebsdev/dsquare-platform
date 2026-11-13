@@ -342,7 +342,9 @@ export function createRuntimeAgentApp(input: {
     });
     if (!reserved) {
       const existing = await registry.getDeployment(payload.deploymentId);
-      if (existing?.deploymentId === payload.deploymentId &&
+      if (existing?.resourceId === payload.resourceId &&
+          existing.deploymentId === payload.deploymentId &&
+          existing.artifactId === payload.artifact.artifactId &&
           existing.state === "running" && existing.containerId) {
         response.status(200).json({
           resourceId: existing.resourceId,
