@@ -5,6 +5,7 @@ on:
     paths:
       - "apps/d-hosting/**"
       - "apps/d-hosting-agent/**"
+      - "apps/d-database/**"
       - "packages/**"
       - "package.json"
       - "package-lock.json"
@@ -54,6 +55,12 @@ jobs:
 
       - name: Install dependencies without running package lifecycle scripts
         run: npm ci --ignore-scripts
+
+      - name: Type-check D Database API
+        run: npm run typecheck --workspace=@dsquare/d-database-server
+
+      - name: Test D Database API
+        run: npm test --workspace=@dsquare/d-database-server
 
       - name: Type-check D Hosting API
         run: npm run typecheck --workspace=@dsquare/d-hosting-server
