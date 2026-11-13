@@ -26,7 +26,7 @@ router.post("/transactions", requireDeveloperScope("write"), async (req, res) =>
       return res.status(400).json({ success: false, committed: false, message: error.message });
     }
     const code = (error as { code?: string })?.code;
-    if (["23505", "23503", "23502", "23514", "235 Check"].includes(String(code))) {
+    if (["23505", "23503", "23502", "23514"].includes(String(code))) {
       return res.status(409).json({ success: false, committed: false, message: "The transaction conflicts with a database constraint; no operations were committed." });
     }
     console.error("Developer transaction failed:", error instanceof Error ? error.message : error);
