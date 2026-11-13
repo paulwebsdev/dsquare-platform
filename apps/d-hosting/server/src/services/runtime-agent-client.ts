@@ -339,12 +339,14 @@ export async function createRuntimeAgentRuntime(
   return value as RuntimeAgentCreatedRuntime;
 }
 
-/** Reads the current state of one managed runtime. */
+/** Reads the state of one immutable runtime deployment. */
 export async function getRuntimeAgentRuntime(
   options: RuntimeAgentClientOptions,
   resourceId: string,
+  deploymentId: string,
 ): Promise<RuntimeAgentRuntimeResult> {
   assertRuntimeAgentResourceId(resourceId);
+  assertRuntimeAgentResourceId(deploymentId);
   const result = await requestRuntimeAgent<unknown>(options, {
     method: "GET",
     path: `/v1/runtimes/${resourceId}/${deploymentId}`,
@@ -353,7 +355,7 @@ export async function getRuntimeAgentRuntime(
     throw new Error("Runtime agent returned an invalid runtime status response.");
   }
   const value = result as Record<string, unknown>;
-  if (value.resourceId !== resourceId || !RUNTIME_UUID.test(String(value.deploymentId)) ||
+  if (value.resourceId !== resourceId || value.deploymentId !== deploymentId ||
       !isRuntimeAgentState(value.state)) {
     throw new Error("Runtime agent returned invalid runtime status fields.");
   }
@@ -362,59 +364,69 @@ export async function getRuntimeAgentRuntime(
 
 export type RuntimeAgentLogsResult = {
   resourceId: string;
+  deploymentId: string;
   logs: string;
 };
 
-/** Retrieves the latest bounded log output for one managed runtime. */
+/** Retrieves bounded logs for one immutable runtime deployment. */
 export async function getRuntimeAgentLogs(
   options: RuntimeAgentClientOptions,
   resourceId: string,
+  deploymentId: string,
 ): Promise<RuntimeAgentLogsResult> {
   assertRuntimeAgentResourceId(resourceId);
+  assertRuntimeAgentResourceId(deploymentId);
   const result = await requestRuntimeAgent<unknown>(options, {
     method: "GET",
     path: `/v1/runtimes/${resourceId}/${deploymentId}/logs`,
   });
   if (!result || typeof result !== "object" ||
       (result as Record<string, unknown>).resourceId !== resourceId ||
+      (result as Record<string, unknown>).deploymentId !== deploymentId ||
       typeof (result as Record<string, unknown>).logs !== "string") {
     throw new Error("Runtime agent returned invalid runtime logs.");
   }
   return result as RuntimeAgentLogsResult;
 }
 
-/** Stops or restarts one managed runtime and verifies the resulting state. */
+/** Stops or restarts one immutable runtime deployment. */
 export async function changeRuntimeAgentRuntimeState(
   options: RuntimeAgentClientOptions,
   resourceId: string,
+  deploymentId: string,
   action: "stop" | "restart",
 ): Promise<RuntimeAgentLifecycleResult> {
   assertRuntimeAgentResourceId(resourceId);
+  assertRuntimeAgentResourceId(deploymentId);
   const result = await requestRuntimeAgent<unknown>(options, {
     method: "POST",
-    path: `/v1/runtimes/${resourceId}/${action}`,
+    path: `/v1/runtimes/${resourceId}/${deploymentId}/${action}`,
   });
   const expectedState = action === "stop" ? "stopped" : "running";
   if (!result || typeof result !== "object" ||
       (result as Record<string, unknown>).resourceId !== resourceId ||
+      (result as Record<string, unknown>).deploymentId !== deploymentId ||
       (result as Record<string, unknown>).state !== expectedState) {
     throw new Error("Runtime agent did not confirm the requested lifecycle operation.");
   }
   return result as RuntimeAgentLifecycleResult;
 }
 
-/** Removes the runtime before its deployment artifact is eligible for deletion. */
+/** Removes one immutable runtime deployment. */
 export async function deleteRuntimeAgentRuntime(
   options: RuntimeAgentClientOptions,
   resourceId: string,
-): Promise<{ resourceId: string; deleted: true }> {
+  deploymentId: string,
+): Promise<{ resourceId: string; deploymentId: string; deleted: true }> {
   assertRuntimeAgentResourceId(resourceId);
+  assertRuntimeAgentResourceId(deploymentId);
   const result = await requestRuntimeAgent<unknown>(options, {
     method: "DELETE",
-    path: `/v1/runtimes/${resourceId}`,
+    path: `/v1/runtimes/${resourceId}/${deploymentId}`,
   });
   if (!result || typeof result !== "object" ||
       (result as Record<string, unknown>).resourceId !== resourceId ||
+      (result as Record<string, unknown>).deploymentId !== deploymentId ||
       (result as Record<string, unknown>).deleted !== true) {
     throw new Error("Runtime agent did not confirm runtime deletion.");
   }
