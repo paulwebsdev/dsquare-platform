@@ -17,6 +17,16 @@ The runtime agent is a separate service for a dedicated Linux runtime host. It m
 - The authenticated `/v1/builds` API remains disabled unless `RUNTIME_AGENT_BUILDER_ENABLED=true` and every builder setting is present. Cache provisioning runs npm 10 on the trusted agent host, so a real outbound firewall policy restricting it to approved npm registry/CDN endpoints is mandatory before acknowledging `RUNTIME_AGENT_NPM_REGISTRY_EGRESS_RESTRICTED=true`.
 - The Hosting API now has a Node deployment pipeline that transfers source, requests the isolated build, starts the built artifact, waits for the runtime readiness probe, and only then records/activates the deployment. It cannot run until the builder and runtime agent are configured.
 
+## Public website request handling
+
+The generated Caddy JSON config is the public HTTPS edge for verified website domains. Use Caddy v2.10.0 or newer because the built-in `request_body` handler used for upload limits is experimental and was introduced in v2.10. Caddy's automatic HTTPS manages certificates for configured public hostnames and redirects HTTP to HTTPS; the Linux host must make TCP ports 80 and 443 reachable and retain Caddy's data/config volumes.
+
+Each website route applies a 10 MiB request-body ceiling before proxying. The HTTP server also has bounded header, upload, idle-read and idle-write settings to reduce slow-client resource exhaustion. The reverse proxy uses low-latency flushing for streaming responses, supports WebSocket upgrades through Caddy's native reverse proxy, and allows streams up to 24 hours. A five-minute stream-close delay reduces abrupt WebSocket disconnects during config reloads. Upstream connection and response-header timeouts remain bounded.
+
+Upstream gateway failures (502/503/504) are replaced with a generic 503 response and `Cache-Control: no-store`; internal upstream addresses and error details are not exposed. Application-generated responses such as an intentional 404 or 500 are passed through unchanged.
+
+These controls are configuration-level protections. They still require Linux-host acceptance with real HTTPS certificates, oversized and chunked uploads, SSE/streaming responses, WebSocket upgrades, slow-client behavior, unavailable runtimes and Caddy reloads before customer execution can be enabled.
+
 ## Podman host requirements (future activation)
 
 - Dedicated Linux host with rootless Podman and cgroup v2.
