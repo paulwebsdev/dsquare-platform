@@ -19,7 +19,7 @@ function runtimeRequest() {
     deploymentId: artifactId,
     artifactId,
     runtime: {
-      name: `dsquare-site-${resourceId}`,
+      name: `dsquare-deploy-${artifactId}`,
       image: "node:22-bookworm-slim",
       workingDirectory: "/app" as const,
       command: ["npm", "start"] as ["npm", "start"],
@@ -213,7 +213,7 @@ test("reconciles registered, pending, missing, and orphaned containers safely", 
   ];
   const stateChanges: Array<{ resourceId: string; state: string }> = [];
   const registry = {
-    get: async (id: string) => records.find((record) => record.resourceId === id) ?? null,
+    getDeployment: async (id: string) => records.find((record) => record.deploymentId === id) ?? null,
     complete: async (id: string, idValue: string) => {
       const record = records.find((item) => item.resourceId === id);
       if (!record || record.state !== "creating" || record.containerId !== null) return false;
