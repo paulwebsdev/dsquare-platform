@@ -214,7 +214,7 @@ router.post(
         });
       } catch (error) {
         await client.query("ROLLBACK").catch(() => undefined);
-        if (storedKey) await websiteObjectStorage.delete(storedKey, resourceId).catch(() => undefined);
+        if (storedKey) await websiteObjectStorage.delete(storedKey, { ownerId: String(website.rows[0].owner_id), projectId, resourceId }).catch(() => undefined);
         throw error;
       } finally {
         client.release();
@@ -277,7 +277,7 @@ router.get("/:resourceId/files/:fileId/download", async (req, res) => {
     };
 
     const filePath = getFilePath(resourceId, file.storage_key);
-    const contents = await websiteObjectStorage.get(file.storage_key, resourceId);
+    const contents = await websiteObjectStorage.get(file.storage_key, { ownerId: String(website.rows[0].owner_id), projectId, resourceId });
 
     res.setHeader("Content-Type", "application/octet-stream");
     res.setHeader("X-Content-Type-Options", "nosniff");
@@ -399,7 +399,7 @@ router.delete("/:resourceId/files/:fileId", async (req, res) => {
       return res.status(404).json({ success: false, message: "File not found." });
     }
 
-    await websiteObjectStorage.delete(String(result.rows[0].storage_key), resourceId);
+    await websiteObjectStorage.delete(String(result.rows[0].storage_key), { ownerId: String(website.rows[0].owner_id), projectId, resourceId });
 
     await pool.query(
       `DELETE FROM hosting_files
