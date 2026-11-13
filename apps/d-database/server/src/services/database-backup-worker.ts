@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { getDatabaseBackupStorageConfig } from "../config/backup-storage-config.js";
 import { S3CompatibleBackupStorage, getBackupObjectKey } from "./s3-compatible-backup-storage.js";
 
@@ -64,7 +64,7 @@ function dumpSchema(schemaName: string): Promise<Buffer> {
   });
 }
 
-export async function runDatabaseBackupSweep(pool: Pool): Promise<{ completed: number; failed: number; skipped: boolean }> {
+export async function runDatabaseBackupSweep(pool: Pool | PoolClient): Promise<{ completed: number; failed: number; skipped: boolean }> {
   const config = getDatabaseBackupStorageConfig(process.env);
   if (!config) return { completed: 0, failed: 0, skipped: true };
 
@@ -124,7 +124,7 @@ export async function runDatabaseBackupSweep(pool: Pool): Promise<{ completed: n
   return { completed, failed, skipped: false };
 }
 
-export async function runDatabaseBackupRetentionSweep(pool: Pool): Promise<number> {
+export async function runDatabaseBackupRetentionSweep(pool: Pool | PoolClient): Promise<number> {
   const config = getDatabaseBackupStorageConfig(process.env);
   if (!config) return 0;
   const storage = new S3CompatibleBackupStorage(config);
