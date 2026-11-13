@@ -58,13 +58,6 @@ function validFileName(name: string) {
     );
 }
 
-function getFilePath(resourceId: string, storageKey: string) {
-  if (!UUID_PATTERN.test(resourceId) || !UUID_PATTERN.test(storageKey)) {
-    throw new Error("Invalid storage identifier.");
-  }
-
-  return path.join(storageRoot, resourceId, storageKey);
-}
 
 function sendError(error: unknown, res: Response) {
   console.error(
