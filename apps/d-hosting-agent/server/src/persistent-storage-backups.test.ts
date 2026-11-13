@@ -25,7 +25,7 @@ test("creates an encrypted backup and restores website files atomically", async 
     await writeFile(path.join(website, "uploads", "photo.txt"), "durable file");
     const backup = await createPersistentStorageBackup(storage, backups, resourceId, key);
     const encrypted = await readFile(backup.path);
-    assert.equal(encrypted.subarray(0, 8).toString("ascii"), "DSQBAK01");
+    assert.equal(encrypted.subarray(0, 8).toString("ascii"), "DSQBAK02");
     assert.equal(encrypted.includes(Buffer.from("first version")), false);
     await writeFile(path.join(website, "index.html"), "damaged version");
     await rm(path.join(website, "uploads"), { recursive: true });
@@ -33,6 +33,28 @@ test("creates an encrypted backup and restores website files atomically", async 
     assert.equal(restored.restoredFiles, 2);
     assert.equal(await readFile(path.join(website, "index.html"), "utf8"), "first version");
     assert.equal(await readFile(path.join(website, "uploads", "photo.txt"), "utf8"), "durable file");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("restores backups using the embedded key ID after active-key rotation", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "dsquare-storage-key-rotation-"));
+  const storage = path.join(root, "storage"), backups = path.join(root, "backups");
+  const oldKey = Buffer.alloc(32, 11);
+  const newKey = Buffer.alloc(32, 12);
+  try {
+    const website = path.join(storage, resourceId);
+    await mkdir(website, { recursive: true });
+    await writeFile(path.join(website, "index.html"), "rotated key content");
+    const backup = await createPersistentStorageBackup(storage, backups, resourceId, newKey, "backup-2026-11");
+    assert.equal(backup.keyId, "backup-2026-11");
+    await writeFile(path.join(website, "index.html"), "changed");
+    const restored = await restorePersistentStorageBackup(storage, backup.path, resourceId, (keyId) => {
+      assert.equal(keyId, "backup-2026-11");
+      return newKey;
+    });
+    assert.equal(restored.restoredFiles, 1);
+    assert.equal(await readFile(path.join(website, "index.html"), "utf8"), "rotated key content");
+    await assert.rejects(restorePersistentStorageBackup(storage, backup.path, resourceId, oldKey), /authentication/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
