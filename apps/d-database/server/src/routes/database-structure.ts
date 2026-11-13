@@ -1,6 +1,6 @@
 import { Router, type Response } from "express";
 import { pool } from "../config/database.js";
-import { buildCheckConstraintSql } from "../services/table-check-constraint.js";
+import { buildCheckConstraintSql, TableConstraintValidationError } from "../services/table-check-constraint.js";
 
 const router = Router({ mergeParams: true });
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
