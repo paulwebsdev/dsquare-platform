@@ -346,6 +346,13 @@ export function createRuntimeAgentApp(input: {
       response.status(503).json({ error: "Website execution is disabled pending Linux isolation acceptance." });
       return;
     }
+    if (input.persistentStorageRoot) {
+      const quota = await input.pool.query("SELECT quota_applied_at FROM runtime_agent_storage_projects WHERE resource_id=$1", [payload.resourceId]);
+      if (!quota.rowCount || !quota.rows[0].quota_applied_at) {
+        response.status(503).json({ error: "Website persistent storage hard quota has not been successfully applied." });
+        return;
+      }
+    }
     const reserved = await registry.reserveDeployment({
       resourceId: payload.resourceId,
       deploymentId: payload.deploymentId,
