@@ -36,3 +36,14 @@ The script handles legacy hosting_files rows and local UUID-keyed deployment-man
 - Confirm bucket versioning, lifecycle, retention, private access and restore procedures with the actual provider. CI mocks and a successful migration do not constitute provider disaster-recovery acceptance.
 
 Do not enable public Node execution or begin production cutover solely because this script succeeds. Dedicated Linux isolation and the remaining V1 release gates still apply.
+
+## Verify the real provider before migration
+
+After configuring the provider credentials in the protected environment, run:
+
+    npm run verify:website-object-storage
+
+This performs a disposable, UUID-scoped object round trip against the configured bucket: upload with the same AES256 server-side-encryption request used by D Hosting, check the provider's HEAD response for size/checksum/encryption, download and compare the SHA-256 hash, then delete and confirm the object is no longer present. The probe never prints credentials and attempts cleanup on failure. It does not change bucket policy, prove that the bucket is private, or validate lifecycle/versioning/disaster recovery; those remain separate operator checks. A provider that does not confirm AES256 through the S3 API must not be treated as accepted for this configuration without an explicitly reviewed provider-specific encryption implementation.
+
+Run this probe before the migration dry run and again after any provider configuration change. Do not use production credentials from a developer workstation unless that workstation is approved for production administration.
+
