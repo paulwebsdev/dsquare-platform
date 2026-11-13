@@ -287,6 +287,61 @@ export async function configureRuntimeAgentStorageQuota(
   return result as { resourceId: string; hardLimitBytes: number; enforcement: "xfs-project-hard-quota"; applied: true };
 }
 
+export type RuntimeAgentStorageBackup = {
+  backupId: string; resourceId: string; sizeBytes: number; sha256: string; createdAt: string;
+};
+function assertStorageBackupId(value: string): void {
+  if (!/^[a-f0-9]{32}$/.test(value)) throw new Error("Persistent backup ID is invalid.");
+}
+export async function createRuntimeAgentStorageBackup(options: RuntimeAgentClientOptions, resourceId: string): Promise<RuntimeAgentStorageBackup> {
+  assertRuntimeAgentResourceId(resourceId);
+  const result = await requestRuntimeAgent<unknown>(options, { method: "POST", path: `/v1/storage/${resourceId}/backups` });
+  if (!result || typeof result !== "object" || (result as Record<string, unknown>).resourceId !== resourceId ||
+      typeof (result as Record<string, unknown>).backupId !== "string" ||
+      !/^[a-f0-9]{32}$/.test(String((result as Record<string, unknown>).backupId)) ||
+      !Number.isSafeInteger((result as Record<string, unknown>).sizeBytes) ||
+      !/^[a-f0-9]{64}$/.test(String((result as Record<string, unknown>).sha256))) {
+    throw new Error("Runtime agent returned invalid persistent backup metadata.");
+  }
+  return result as RuntimeAgentStorageBackup;
+}
+export async function listRuntimeAgentStorageBackups(options: RuntimeAgentClientOptions, resourceId: string): Promise<RuntimeAgentStorageBackup[]> {
+  assertRuntimeAgentResourceId(resourceId);
+  const result = await requestRuntimeAgent<unknown>(options, { method: "GET", path: `/v1/storage/${resourceId}/backups` });
+  if (!result || typeof result !== "object" || (result as Record<string, unknown>).resourceId !== resourceId ||
+      !Array.isArray((result as Record<string, unknown>).backups)) throw new Error("Runtime agent returned invalid backup history.");
+  return (result as { backups: RuntimeAgentStorageBackup[] }).backups;
+}
+export async function restoreRuntimeAgentStorageBackup(options: RuntimeAgentClientOptions, resourceId: string, backupId: string): Promise<{ restoredFiles: number; restoredBytes: number }> {
+  assertRuntimeAgentResourceId(resourceId); assertStorageBackupId(backupId);
+  const result = await requestRuntimeAgent<unknown>(options, { method: "POST", path: `/v1/storage/${resourceId}/backups/${backupId}/restore`, body: { confirm: true } });
+  if (!result || typeof result !== "object" || (result as Record<string, unknown>).resourceId !== resourceId ||
+      !Number.isSafeInteger((result as Record<string, unknown>).restoredFiles) ||
+      !Number.isSafeInteger((result as Record<string, unknown>).restoredBytes)) throw new Error("Runtime agent returned invalid restore confirmation.");
+  return result as { restoredFiles: number; restoredBytes: number };
+}
+export async function deleteRuntimeAgentStorageBackup(options: RuntimeAgentClientOptions, resourceId: string, backupId: string): Promise<{ deleted: true }> {
+  assertRuntimeAgentResourceId(resourceId); assertStorageBackupId(backupId);
+  const result = await requestRuntimeAgent<unknown>(options, { method: "DELETE", path: `/v1/storage/${resourceId}/backups/${backupId}` });
+  if (!result || typeof result !== "object" || (result as Record<string, unknown>).resourceId !== resourceId ||
+      (result as Record<string, unknown>).backupId !== backupId || (result as Record<string, unknown>).deleted !== true) throw new Error("Runtime agent did not confirm backup deletion.");
+  return { deleted: true };
+}
+export async function getRuntimeAgentStorageUsage(options: RuntimeAgentClientOptions, resourceId: string): Promise<{ usedBytes: number }> {
+  assertRuntimeAgentResourceId(resourceId);
+  const result = await requestRuntimeAgent<unknown>(options, { method: "GET", path: `/v1/storage/${resourceId}/usage` });
+  if (!result || typeof result !== "object" || (result as Record<string, unknown>).resourceId !== resourceId ||
+      !Number.isSafeInteger((result as Record<string, unknown>).usedBytes)) throw new Error("Runtime agent returned invalid storage usage.");
+  return result as { usedBytes: number };
+}
+export async function tombstoneRuntimeAgentStorage(options: RuntimeAgentClientOptions, resourceId: string): Promise<{ tombstoned: boolean }> {
+  assertRuntimeAgentResourceId(resourceId);
+  const result = await requestRuntimeAgent<unknown>(options, { method: "POST", path: `/v1/storage/${resourceId}/tombstone`, body: { confirm: true } });
+  if (!result || typeof result !== "object" || (result as Record<string, unknown>).resourceId !== resourceId ||
+      typeof (result as Record<string, unknown>).tombstoned !== "boolean") throw new Error("Runtime agent returned invalid storage tombstone confirmation.");
+  return result as { tombstoned: boolean };
+}
+
 export type RuntimeAgentState = "running" | "stopped";
 export type RuntimeAgentRuntimeResult = {
   resourceId: string;
