@@ -145,6 +145,9 @@ export function createRuntimeAgentApp(input: {
   trustedImage?: string;
   /** Must remain false in production until Linux isolation acceptance is complete. */
   executionEnabled?: boolean;
+  persistentBackupRoot?: string;
+  persistentBackupKey?: Uint8Array;
+  persistentStorageRoot?: string;
 }) {
   const app = express();
   const nonceStore = new PostgresNonceStore(input.pool);
@@ -181,7 +184,11 @@ export function createRuntimeAgentApp(input: {
     }
   });
 
-  if (input.persistentBackupRoot) {\n    registerPersistentStorageLifecycleRoutes(app, { pool: input.pool, storageRoot: input.persistentStorageRoot ?? "", backupRoot: input.persistentBackupRoot, key: input.persistentBackupKey });\n  }\n\n  app.get("/v1/health", (_request, response) => {
+  if (input.persistentStorageRoot) {
+    registerPersistentStorageLifecycleRoutes(app, { pool: input.pool, storageRoot: input.persistentStorageRoot,
+      backupRoot: input.persistentBackupRoot ?? path.join(input.persistentStorageRoot, ".backups"), key: input.persistentBackupKey });
+  }
+\n  app.get("/v1/health", (_request, response) => {
     response.status(200).json({ status: "ready", providerConfigured: Boolean(input.provider), executionEnabled, builderConfigured: Boolean(input.builder), builderEnabled, ingressConfigured: Boolean(input.ingressAdminUrl) });
   });
 
