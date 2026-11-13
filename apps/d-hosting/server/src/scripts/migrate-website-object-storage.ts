@@ -1,5 +1,6 @@
 import "dotenv/config";
 import {
+  DeleteObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
@@ -129,6 +130,7 @@ async function main() {
   let missing = 0;
   let planned = 0;
   try {
+    await client.query("SELECT pg_advisory_lock(hashtext($1))", ["dsquare-hosting-object-storage-migration"]);
     const files = await client.query(
       `SELECT f.id, f.project_id, f.resource_id, f.storage_key, f.size_bytes, f.mime_type, p.owner_id
        FROM hosting_files f
@@ -179,6 +181,7 @@ async function main() {
       let changed = false;
       const next = [];
       const sourcePaths: string[] = [];
+      const uploadedKeys: string[] = [];
       for (const entry of manifest) {
         if (!entry || typeof entry !== "object" || typeof entry.storage_key !== "string" || !UUID.test(entry.storage_key)) {
           next.push(entry);
@@ -196,6 +199,7 @@ async function main() {
         if (!result) { missing++; next.push(entry); continue; }
         planned++;
         changed = true;
+        if (APPLY) uploadedKeys.push(result.newKey);
         sourcePaths.push(result.oldPath);
         next.push({ ...entry, storage_key: result.newKey });
       }
@@ -212,12 +216,17 @@ async function main() {
         migrated += sourcePaths.length;
       } catch (error) {
         await client.query("ROLLBACK").catch(() => undefined);
+        if (uploadedKeys.length) {
+          const storage = getStorage();
+          await Promise.all(uploadedKeys.map(Key => storage.client.send(new DeleteObjectCommand({ Bucket: storage.bucket, Key })).catch(() => undefined)));
+        }
         throw error;
       }
     }
     console.log(JSON.stringify({ mode: APPLY ? "apply" : "dry-run", planned, migrated, missing }, null, 2));
     if (missing > 0) process.exitCode = 2;
   } finally {
+    await client.query("SELECT pg_advisory_unlock(hashtext($1))", ["dsquare-hosting-object-storage-migration"]).catch(() => undefined);
     client.release();
     await pool.end();
   }
