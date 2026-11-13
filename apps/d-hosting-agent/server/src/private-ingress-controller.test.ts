@@ -30,6 +30,10 @@ test("renders deterministic Caddy JSON routes to deployment-private aliases", ()
   assert.ok(serialized.includes("ops@example.com"));
   assert.ok(serialized.includes(":80"));
   assert.ok(serialized.includes(":443"));
+  assert.ok(serialized.includes('"status_code":308'));
+  assert.ok(serialized.includes('https://{http.request.host}{http.request.uri}'));
+  assert.ok(serialized.includes('"protocol":["http"]'));
+  assert.ok(serialized.includes('"protocol":["https"]'));
   assert.ok(serialized.includes('"handler":"request_body"'));
   assert.ok(serialized.includes('"max_size":10485760'));
   assert.ok(serialized.includes('"read_timeout":"5m"'));
