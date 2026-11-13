@@ -8,10 +8,10 @@ export type ApiSubdomainConfig = { domain: string; dnsTarget: string };
  */
 export function getApiSubdomainConfig(websiteDomain: string): ApiSubdomainConfig {
   if (typeof websiteDomain !== "string" || !websiteDomain || websiteDomain.length > 253 ||
-      /[/:?#@\\\\\\s\\u0000-\\u001f\\u007f]/.test(websiteDomain)) {
+      /[/:?#@\\\s\u0000-\u001f\u007f]/.test(websiteDomain)) {
     throw new Error("Website domain is invalid for API subdomain routing.");
   }
-  const normalized = websiteDomain.toLowerCase().replace(/\\.$/, "");
+  const normalized = websiteDomain.toLowerCase().replace(/\.$/, "");
   const labels = normalized.split(".");
   if (labels.length < 2 || labels.some((label) =>
     label.length < 1 || label.length > 63 ||
@@ -25,13 +25,13 @@ export function getApiSubdomainConfig(websiteDomain: string): ApiSubdomainConfig
   return { domain, dnsTarget };
 }
 
-/** Adds API hostnames while refusing collisions with another verified domain. */
+/** Adds API hostnames while refusing collisions with registered custom domains. */
 export function expandIngressRoutes<T extends { domain: string; resourceId: string; deploymentId: string }>(
   routes: T[],
   reservedDomains: string[] = [],
 ): Array<T> {
   const expanded: T[] = [];
-  const seen = new Map<string, string>();
+  const seen = new Set<string>();
   const reserved = new Set(reservedDomains.map((domain) => domain.toLowerCase()));
   for (const route of routes) {
     const base = route.domain.toLowerCase();
@@ -40,11 +40,10 @@ export function expandIngressRoutes<T extends { domain: string; resourceId: stri
       throw new Error("Private ingress API hostname is already reserved by a custom domain.");
     }
     for (const domain of [base, api]) {
-      const owner = seen.get(domain);
-      if (owner) {
+      if (seen.has(domain)) {
         throw new Error("Private ingress hostname is assigned more than once.");
       }
-      seen.set(domain, route.deploymentId);
+      seen.add(domain);
       expanded.push({ ...route, domain });
     }
   }
