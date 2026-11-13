@@ -1,4 +1,8 @@
-export class TableConstraintValidationError extends Error {\n  constructor(message: string) { super(message); this.name = "TableConstraintValidationError"; }\n}\n\nconst IDENTIFIER = /^[a-z][a-z0-9_]{0,62}$/;
+export class TableConstraintValidationError extends Error {
+  constructor(message: string) { super(message); this.name = "TableConstraintValidationError"; }
+}
+
+const IDENTIFIER = /^[a-z][a-z0-9_]{0,62}$/;
 const OPERATORS = new Set(["=", "<>", ">", ">=", "<", "<="]);
 
 function quoteIdentifier(value: string): string {
