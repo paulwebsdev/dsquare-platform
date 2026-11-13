@@ -80,7 +80,7 @@ function getS3() {
   return { client, bucket: config.bucket };
 }
 
-function assertScopedObjectKey(storageKey: string, scope: WebsiteObjectScope): void {
+export function assertWebsiteObjectKeyScope(storageKey: string, scope: WebsiteObjectScope): void {
   const prefix = `owners/${scope.ownerId}/projects/${scope.projectId}/websites/${scope.resourceId}/`;
   const objectId = storageKey.startsWith(prefix) ? storageKey.slice(prefix.length) : "";
   if (!UUID.test(scope.ownerId) || !UUID.test(scope.projectId) || !UUID.test(scope.resourceId) ||
@@ -125,7 +125,7 @@ export const websiteObjectStorage: WebsiteObjectStorage = {
 
   async get(storageKey, scope) {
     if (storageKey.startsWith("owners/")) {
-      assertScopedObjectKey(storageKey, scope);
+      assertWebsiteObjectKeyScope(storageKey, scope);
       const s3 = getS3();
       if (!s3) throw new Error("S3-compatible object storage is not configured for this object.");
       const response = await s3.client.send(new GetObjectCommand({ Bucket: s3.bucket, Key: storageKey }));
