@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Install root-owned as /usr/local/sbin/dsquare-xfs-project-quota (0755).
+# The unprivileged runtime-agent account may invoke only this helper via sudo.
+if [[ "${EUID}" -ne 0 || "$#" -ne 3 ]]; then
+  echo "invalid invocation" >&2
+  exit 64
+fi
+
+resource_id="$1"
+project_id="$2"
+hard_limit_bytes="$3"
+if [[ ! "${resource_id}" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ||
+      ! "${project_id}" =~ ^[1-9][0-9]{0,9}$ ||
+      ! "${hard_limit_bytes}" =~ ^[0-9]{8,15}$ ]]; then
+  echo "invalid quota parameters" >&2
+  exit 64
+fi
+if (( project_id > 2000000000 || hard_limit_bytes < 16777216 || hard_limit_bytes > 1099511627776 )); then
+  echo "quota parameters out of range" >&2
+  exit 64
+fi
+
+config="/etc/dsquare-hosting-agent/persistent-storage-root"
+if [[ ! -f "$config" || -L "$config" ]]; then
+  echo "persistent storage root configuration is missing or unsafe" >&2
+  exit 78
+fi
+IFS= read -r configured_root < "$config"
+if [[ -z "$configured_root" || "$configured_root" != /* || "$configured_root" == *$'\n'* ]]; then
+  echo "persistent storage root configuration is invalid" >&2
+  exit 78
+fi
+root="$(realpath -e -- "$configured_root")"
+target="$(realpath -e -- "$root/$resource_id")"
+if [[ "$target" != "$root/$resource_id" || ! -d "$target" ]]; then
+  echo "website storage directory is outside the configured root" >&2
+  exit 78
+fi
+
+read -r filesystem_type mount_options < <(findmnt -n -o FSTYPE,OPTIONS -T "$root")
+if [[ "$filesystem_type" != "xfs" || ! ",$mount_options," =~ ,(prjquota|pquota), ]]; then
+  echo "persistent storage must be on XFS with project quotas enabled" >&2
+  exit 78
+fi
+mount_point="$(findmnt -n -o TARGET -T "$root")"
+if [[ -z "$mount_point" || "$mount_point" != /* ]]; then
+  echo "could not resolve the quota filesystem mount point" >&2
+  exit 78
+fi
+
+# XFS quota units are KiB. Round down so the enforced hard cap never exceeds
+# the requested byte limit (the filesystem's quota granularity is 1 KiB).
+hard_kib=$((hard_limit_bytes / 1024))
+xfs_io -c "chproj -R $project_id" "$target"
+xfs_io -c "chattr +P" "$target"
+xfs_quota -x -c "limit -p bhard=${hard_kib}k $project_id" "$mount_point"
