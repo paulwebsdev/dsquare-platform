@@ -276,7 +276,6 @@ router.get("/:resourceId/files/:fileId/download", async (req, res) => {
       storage_key: string;
     };
 
-    const filePath = getFilePath(resourceId, file.storage_key);
     const contents = await websiteObjectStorage.get(file.storage_key, { ownerId: String(website.rows[0].owner_id), projectId, resourceId });
 
     res.setHeader("Content-Type", "application/octet-stream");
