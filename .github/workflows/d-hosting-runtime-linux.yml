@@ -106,7 +106,7 @@ jobs:
         run: |
           set -euo pipefail
           root="$(mktemp -d)"
-          trap 'podman rm --force dsquare-persistent-a dsquare-persistent-b >/dev/null 2>&1 || true; rm -rf "$root"' EXIT
+          trap 'podman rm --force --time 1 dsquare-persistent-a dsquare-persistent-b >/dev/null 2>&1 || true; podman unshare rm -rf "$root" 2>/dev/null || rm -rf "$root"' EXIT
           mkdir -p "$root/site-a" "$root/site-b"
           podman run --detach --name dsquare-persistent-a --pull=never \
             --network=none --user 10001:10001 --read-only --cap-drop=all \
