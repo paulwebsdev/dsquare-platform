@@ -1347,7 +1347,7 @@ export default function ResourceWorkbench({
             <div>
               <h2>Website files</h2>
               <p>
-                Upload individual files or a complete folder structure. Maximum 10 MB per file. Website storage quota: {formatSize(fileStorage.quotaBytes)}.
+                Upload individual files or a complete folder structure. Maximum 10 MB per file. Uploaded-file quota: {formatSize(fileStorage.quotaBytes)}.
               </p>
             </div>
             <div className="wb-upload-actions">
@@ -1391,7 +1391,7 @@ export default function ResourceWorkbench({
               <div className="panel-heading">
                 <div>
                   <h2>Stored files</h2>
-                  <p>Private files belonging to this website resource · {formatSize(fileStorage.usedBytes)} of {formatSize(fileStorage.quotaBytes)} used</p>
+                  <p>Uploaded website files · {formatSize(fileStorage.usedBytes)} of {formatSize(fileStorage.quotaBytes)} used</p>
                 </div>
                 <span className="wb-count">{files.length} files</span>
               </div>
