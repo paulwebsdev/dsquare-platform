@@ -6,7 +6,7 @@ const resourceId = "11111111-1111-4111-8111-111111111111";
 const deploymentId = "22222222-2222-4222-8222-222222222222";
 const artifactId = deploymentId;
 const runtime = {
-  name: `dsquare-site-${resourceId}`,
+  name: `dsquare-deploy-${deploymentId}`,
   image: "node:22-bookworm-slim",
   workingDirectory: "/app" as const,
   command: ["npm", "start"] as ["npm", "start"],
@@ -37,7 +37,7 @@ test("builds a restricted Podman config without publishing a host port", () => {
   assert.deepEqual(config.NetworkingConfig, {
     EndpointsConfig: {
       "dsquare-hosting-internal": {
-        Aliases: [`dsquare-site-${resourceId}.runtime.dsquare.internal`],
+        Aliases: [`dsquare-deploy-${deploymentId}.runtime.dsquare.internal`],
       },
     },
   });
