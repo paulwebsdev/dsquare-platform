@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
-import { chmod, lstat, mkdir, open, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { gunzipSync, gzipSync } from "node:zlib";
 import path from "node:path";
 
@@ -37,6 +37,8 @@ async function privateDirectory(directory: string): Promise<string> {
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const details = await lstat(directory);
   if (!details.isDirectory() || details.isSymbolicLink()) throw new Error("Storage path must be a real directory.");
+  const canonical = await realpath(directory);
+  if (canonical !== path.resolve(directory)) throw new Error("Storage path must not traverse symbolic-link parents.");
   await chmod(directory, 0o700);
   return directory;
 }
