@@ -18,12 +18,12 @@ test("normalizes public IDN hostnames and rejects non-public hostnames", () => {
   }
 });
 
-test("renders deterministic Caddy JSON routes to resource-private aliases", () => {
+test("renders deterministic Caddy JSON routes to deployment-private aliases", () => {
   const config = renderPrivateIngressJsonConfig([
     { domain: "www.example.com", resourceId, deploymentId },
   ], "ops@example.com");
   const serialized = JSON.stringify(config);
-  assert.ok(serialized.includes("dsquare-site-" + resourceId + ".runtime.dsquare.internal:3000"));
+  assert.ok(serialized.includes("dsquare-deploy-" + deploymentId + ".runtime.dsquare.internal:3000"));
   assert.ok(serialized.includes("X-Forwarded-For"));
   assert.ok(serialized.includes("Forwarded"));
   assert.ok(serialized.includes("ops@example.com"));
