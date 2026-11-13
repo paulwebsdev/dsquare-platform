@@ -81,6 +81,8 @@ export async function executeDeveloperTransaction(
       if (!isRecord(raw.values) || !isRecord(raw.where)) {
         throw new DeveloperTransactionValidationError("Update operations require values and where objects.");
       }
+      validateEntries(raw.values, allowed, 1, 50);
+      validateEntries(raw.where, allowed, 1, 20);
       const query = buildDeveloperUpdateQuery({
         schemaName, tableName: table, allowedColumns: allowed,
         values: raw.values, where: raw.where,
@@ -88,6 +90,7 @@ export async function executeDeveloperTransaction(
       result = await client.query(query.text, query.values);
     } else if (raw.type === "delete") {
       if (!isRecord(raw.where)) throw new DeveloperTransactionValidationError("Delete operations require a where object.");
+      validateEntries(raw.where, allowed, 1, 20);
       const query = buildDeveloperDeleteQuery({
         schemaName, tableName: table, allowedColumns: allowed, where: raw.where,
       });
