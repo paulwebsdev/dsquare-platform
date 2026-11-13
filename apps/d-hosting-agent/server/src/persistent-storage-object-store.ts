@@ -34,7 +34,7 @@ export function createPersistentBackupObjectStoreFromEnvironment(
       throw new Error("RUNTIME_AGENT_BACKUP_S3_ENDPOINT must be an HTTPS origin without credentials or query strings.");
     }
   }
-  const prefix = (env.RUNTIME_AGENT_BACKUP_S3_PREFIX?.trim() || "dsquare-hosting").replace(/^\\/+|\\/+$/g, "");
+  const prefix = (env.RUNTIME_AGENT_BACKUP_S3_PREFIX?.trim() || "dsquare-hosting").replace(/^\/+|\/+$/g, "");
   if (!prefix || prefix.split("/").some((part) => !part || part === "." || part === "..") || !/^[A-Za-z0-9._/-]+$/.test(prefix)) {
     throw new Error("RUNTIME_AGENT_BACKUP_S3_PREFIX contains an unsafe path.");
   }
