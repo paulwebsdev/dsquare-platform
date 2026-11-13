@@ -1,8 +1,8 @@
 import type { Express, Request, Response } from "express";
 import type { Pool } from "pg";
-import { createHash } from "node:crypto";
 import { lstat, unlink } from "node:fs/promises";
 import path from "node:path";
+import { enforceXfsProjectQuota, persistentStorageProjectId } from "./persistent-storage-quotas.js";
 import {
   createPersistentStorageBackup, measurePersistentStorageUsage,
   restorePersistentStorageBackup, tombstonePersistentStorage,
