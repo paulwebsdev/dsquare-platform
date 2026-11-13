@@ -7,6 +7,7 @@ export type DatabaseConnectionRevokeClient = {
  * Removes all website assignments and marks the owner's connection revoked
  * atomically. Call only after D Database has confirmed remote credential
  * revocation; a failed local transaction must never be reported as success.
+ * This helper owns the PoolClient lifecycle so every exit path releases it.
  */
 export async function revokeDatabaseConnectionAssignments(input: {
   client: DatabaseConnectionRevokeClient;
