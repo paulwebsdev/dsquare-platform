@@ -85,7 +85,7 @@ export async function startRemoteNodeRuntime(
     if (artifactUploaded && artifactId) {
       // A create response can be lost after the agent has already started the
       // container. Attempt runtime cleanup first, then remove the uploaded bundle.
-      await deleteRuntimeAgentRuntime(input.agent, input.resourceId).catch(() => undefined);
+      await deleteRuntimeAgentRuntime(input.agent, input.resourceId, input.deploymentId).catch(() => undefined);
       await deleteRuntimeAgentArtifact(input.agent, artifactId).catch(() => undefined);
     }
     throw error;
@@ -155,9 +155,9 @@ export async function startBuiltRemoteNodeRuntime(
     };
   } catch (error) {
     if (buildAttempted) {
-      const current = await getRuntimeAgentRuntime(input.agent, input.resourceId).catch(() => null);
+      const current = await getRuntimeAgentRuntime(input.agent, input.resourceId, input.deploymentId).catch(() => null);
       if (current?.deploymentId === input.deploymentId) {
-        await deleteRuntimeAgentRuntime(input.agent, input.resourceId).catch(() => undefined);
+        await deleteRuntimeAgentRuntime(input.agent, input.resourceId, input.deploymentId).catch(() => undefined);
       }
       await deleteRuntimeAgentArtifact(input.agent, input.deploymentId).catch(() => undefined);
     }
