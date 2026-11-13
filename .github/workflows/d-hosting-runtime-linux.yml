@@ -109,21 +109,21 @@ jobs:
           trap 'podman rm --force --time 1 dsquare-persistent-a dsquare-persistent-b >/dev/null 2>&1 || true; podman unshare rm -rf "$root" 2>/dev/null || rm -rf "$root"' EXIT
           mkdir -p "$root/site-a" "$root/site-b"
           podman run --detach --name dsquare-persistent-a --pull=never \
-            --network=none --user 10001:10001 --read-only --cap-drop=all \
+            --network=none --user 10001:10001 --read-only --cap-drop=all --stop-timeout=1 \
             --security-opt=no-new-privileges --pids-limit=64 --memory=256m --cpus=0.5 \
             --volume "$root/site-a:/var/lib/dsquare:rw,U,Z" \
             docker.io/library/node:22-bookworm-slim \
             node -e "require('http').createServer((_,res)=>res.end('ready')).listen(3000,'0.0.0.0')"
           podman exec dsquare-persistent-a node -e "require('fs').writeFileSync('/var/lib/dsquare/persist.txt','kept')"
-          podman rm --force dsquare-persistent-a
+          podman rm --force --time 1 dsquare-persistent-a
           podman run --detach --name dsquare-persistent-b --pull=never \
-            --network=none --user 10001:10001 --read-only --cap-drop=all \
+            --network=none --user 10001:10001 --read-only --cap-drop=all --stop-timeout=1 \
             --security-opt=no-new-privileges --pids-limit=64 --memory=256m --cpus=0.5 \
             --volume "$root/site-a:/var/lib/dsquare:rw,U,Z" \
             docker.io/library/node:22-bookworm-slim \
             node -e "require('http').createServer((_,res)=>res.end('ready')).listen(3000,'0.0.0.0')"
           podman exec dsquare-persistent-b node -e "if(require('fs').readFileSync('/var/lib/dsquare/persist.txt','utf8')!=='kept')process.exit(1)"
-          podman rm --force dsquare-persistent-b
+          podman rm --force --time 1 dsquare-persistent-b
           podman run --rm --pull=never --network=none --user 10001:10001 \
             --volume "$root/site-b:/var/lib/dsquare:rw,U,Z" \
             docker.io/library/node:22-bookworm-slim \
