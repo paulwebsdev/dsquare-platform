@@ -1,6 +1,6 @@
 import { Router, type Response } from "express";
 import { pool } from "../config/database.js";
-import { buildCheckConstraintSql } from "../services/check-constraint.js";
+import { buildCheckConstraintSql, CheckConstraintValidationError } from "../services/check-constraint.js";
 
 const router = Router({ mergeParams: true });
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -12,6 +12,9 @@ function params(req: { params: object }) {
 }
 
 function sendError(error: unknown, res: Response) {
+  if (error instanceof CheckConstraintValidationError) {
+    return res.status(400).json({ success: false, message: error.message });
+  }
   const code = (error as { code?: string })?.code;
   if (code === "42P07" || code === "42710" || code === "42P16") {
     return res.status(409).json({ success: false, message: "An index or constraint with that name already exists." });
