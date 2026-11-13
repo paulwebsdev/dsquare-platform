@@ -1,5 +1,9 @@
 import { readdir } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import path from "node:path";
+
+const execFileAsync = promisify(execFile);
 import { createPersistentStorageBackup, prunePersistentBackups, type PersistentBackup } from "./persistent-storage-backups.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -79,4 +83,38 @@ export function startPersistentBackupScheduler(input: {
 export function resolveBackupDirectory(value: string): string {
   if (!path.isAbsolute(value) || /[\r\n\0]/.test(value)) throw new Error("Persistent backup directory must be a safe absolute path.");
   return path.resolve(value);
+}
+
+/**
+ * Fails closed unless backups are stored on a network filesystem distinct
+ * from the live persistent-storage filesystem. A local sibling directory is
+ * not an off-host backup and must never be accepted as the production target.
+ */
+export async function verifyOffHostBackupMount(input: {
+  storageRoot: string; backupRoot: string;
+  run?: (file: string, args: string[]) => Promise<{ stdout: string }>;
+}): Promise<void> {
+  const storageRoot = path.resolve(input.storageRoot);
+  const backupRoot = path.resolve(input.backupRoot);
+  const relative = path.relative(storageRoot, backupRoot);
+  const reverse = path.relative(backupRoot, storageRoot);
+  if (!relative || (!relative.startsWith("..") && !path.isAbsolute(relative)) ||
+      !reverse.startsWith("..")) {
+    throw new Error("Backup destination must be outside the live storage root.");
+  }
+  const run = input.run ?? (async (file, args) => {
+    const result = await execFileAsync(file, args, { timeout: 10_000, maxBuffer: 16 * 1024, windowsHide: true });
+    return { stdout: result.stdout };
+  });
+  const [storage, backup] = await Promise.all([
+    run("findmnt", ["-n", "-o", "FSTYPE,SOURCE", "-T", storageRoot]),
+    run("findmnt", ["-n", "-o", "FSTYPE,SOURCE", "-T", backupRoot]),
+  ]);
+  const [storageType, storageSource] = storage.stdout.trim().split(/\\s+/, 2);
+  const [backupType, backupSource] = backup.stdout.trim().split(/\\s+/, 2);
+  const remoteTypes = new Set(["nfs", "nfs4", "cifs", "smb3"]);
+  if (!storageType || !storageSource || !backupType || !backupSource ||
+      !remoteTypes.has(backupType) || storageSource === backupSource) {
+    throw new Error("Backup destination must be a separate remote NFS or SMB/CIFS filesystem.");
+  }
 }
