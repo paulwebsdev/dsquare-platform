@@ -8,12 +8,13 @@ export class CursorValidationError extends Error {
 }
 
 export function encodePrimaryKeyCursor(value: unknown): string {
-  if (value === null || value === undefined ||
-      !["string", "number", "boolean"].includes(typeof value) ||
-      (typeof value === "number" && !Number.isFinite(value))) {
+  const normalized = value instanceof Date ? value.toISOString() : value;
+  if (normalized === null || normalized === undefined ||
+      !["string", "number", "boolean"].includes(typeof normalized) ||
+      (typeof normalized === "number" && !Number.isFinite(normalized))) {
     throw new CursorValidationError("The primary-key value cannot be used for cursor pagination.");
   }
-  return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+  return Buffer.from(JSON.stringify(normalized), "utf8").toString("base64url");
 }
 
 export function decodePrimaryKeyCursor(cursor: string): string | number | boolean {
