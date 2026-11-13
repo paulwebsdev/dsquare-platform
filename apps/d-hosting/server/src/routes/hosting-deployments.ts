@@ -326,6 +326,17 @@ router.post("/:resourceId/deployments/:deploymentId/activate", async (req, res) 
        RETURNING id, status, active_deployment_id`,
       [resourceId, projectId, deploymentId]
     );
+    if (resource.rows[0].site_type === "node") {
+      await client.query(
+        `INSERT INTO hosting_runtime_instances
+           (resource_id, provider, status, deployment_id, started_at, stopped_at, updated_at)
+         VALUES ($1, 'podman', 'running', $2, NOW(), NULL, NOW())
+         ON CONFLICT (resource_id) DO UPDATE
+         SET provider = 'podman', status = 'running', deployment_id = EXCLUDED.deployment_id,
+             started_at = NOW(), stopped_at = NULL, updated_at = NOW()`,
+        [resourceId, deploymentId],
+      );
+    }
     await client.query("COMMIT");
 
     if (resource.rows[0].site_type === "node") {
@@ -344,6 +355,17 @@ router.post("/:resourceId/deployments/:deploymentId/activate", async (req, res) 
              WHERE id = $1 AND project_id = $2 AND active_deployment_id = $5`,
             [resourceId, projectId, resource.rows[0].active_deployment_id, resource.rows[0].status, deploymentId],
           );
+          if (resource.rows[0].active_deployment_id && UUID_PATTERN.test(String(resource.rows[0].active_deployment_id))) {
+            await client.query(
+              `UPDATE hosting_runtime_instances
+               SET provider = 'podman', status = 'running', deployment_id = $2,
+                   started_at = NOW(), stopped_at = NULL, updated_at = NOW()
+               WHERE resource_id = $1`,
+              [resourceId, resource.rows[0].active_deployment_id],
+            );
+          } else {
+            await client.query("DELETE FROM hosting_runtime_instances WHERE resource_id = $1", [resourceId]);
+          }
           await client.query("COMMIT");
           await syncPublishedNodeIngress();
         } catch (restoreError) {
