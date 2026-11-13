@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { createCipheriv, createHash, randomBytes } from "node:crypto";
+import { gzipSync } from "node:zlib";
 import { mkdtemp, mkdir, readFile, rm, writeFile, utimes } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -33,6 +35,36 @@ test("creates an encrypted backup and restores website files atomically", async 
     assert.equal(restored.restoredFiles, 2);
     assert.equal(await readFile(path.join(website, "index.html"), "utf8"), "first version");
     assert.equal(await readFile(path.join(website, "uploads", "photo.txt"), "utf8"), "durable file");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("continues to restore legacy DSQBAK01 backups with the default key", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "dsquare-storage-legacy-"));
+  const storage = path.join(root, "storage"), backups = path.join(root, "backups");
+  const contents = Buffer.from("legacy backup");
+  try {
+    const website = path.join(storage, resourceId);
+    await mkdir(website, { recursive: true });
+    const payload = {
+      version: 1, resourceId, createdAt: new Date().toISOString(), totalBytes: contents.byteLength,
+      files: [{ path: "index.html", size: contents.byteLength, sha256: createHash("sha256").update(contents).digest("hex"),
+        mode: 0o644, data: contents.toString("base64") }],
+    };
+    const magic = Buffer.from("DSQBAK01", "ascii");
+    const nonce = randomBytes(12);
+    const cipher = createCipheriv("aes-256-gcm", key, nonce);
+    cipher.setAAD(Buffer.concat([magic, Buffer.from(resourceId)]));
+    const encrypted = Buffer.concat([cipher.update(gzipSync(Buffer.from(JSON.stringify(payload)))), cipher.final()]);
+    const envelope = Buffer.concat([magic, nonce, cipher.getAuthTag(), encrypted]);
+    await mkdir(backups, { recursive: true });
+    const legacyFile = path.join(backups, "legacy.dsqbak");
+    await writeFile(legacyFile, envelope);
+    const restored = await restorePersistentStorageBackup(storage, legacyFile, resourceId, (keyId) => {
+      assert.equal(keyId, "default");
+      return key;
+    });
+    assert.equal(restored.restoredFiles, 1);
+    assert.equal(await readFile(path.join(website, "index.html"), "utf8"), "legacy backup");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
