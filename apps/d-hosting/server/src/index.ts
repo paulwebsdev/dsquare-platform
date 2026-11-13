@@ -18,6 +18,7 @@ import hostingDeploymentsRouter from "./routes/hosting-deployments.js";
 import hostingPreviewRouter from "./routes/hosting-preview.js";
 import hostingDomainsRouter from "./routes/hosting-domains.js";
 import hostingDomainSiteRouter from "./routes/hosting-domain-site.js";
+import { assertWebsiteObjectStorageConfigured } from "./services/website-object-storage.js";
 
 const app = express();
 app.set("trust proxy", 1);
@@ -157,6 +158,7 @@ async function startServer() {
       throw new Error("D Hosting frontend build is missing. Build the client before starting the server.");
     }
 
+    assertWebsiteObjectStorageConfigured();
     await runMigrations(migrationPool);
     if (migrationPool !== pool) {
       await migrationPool.end();
