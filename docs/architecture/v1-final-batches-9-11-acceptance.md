@@ -84,3 +84,8 @@ These are source-level wiring and automated-test checks. They do not replace bro
 - Dedicated-host Linux isolation, XFS quota enforcement, private ingress, agent health, and operator approval flags must pass before customer Node execution can be enabled.
 
 Until these are demonstrated, Batches 9–11 remain in acceptance and D Hosting + D Database V1 must not be called production-ready.
+
+## Real-provider verification tooling
+
+The hosting server now includes `npm run verify:website-object-storage`. With credentials supplied through a protected environment, it exercises the configured S3-compatible provider using the production adapter's AES256 request, verifies HEAD metadata and encryption confirmation, downloads and checks the full SHA-256 digest, then deletes the disposable object and confirms deletion. This is a repeatable operator acceptance probe, not evidence that a real provider has already been configured or tested. Private bucket policy, lifecycle/versioning/retention, off-site backup, and disaster-recovery restore still require provider-side verification.
+
