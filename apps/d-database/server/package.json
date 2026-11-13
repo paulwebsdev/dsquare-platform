@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/middleware/rate-limit.test.ts src/db/read-snapshot.test.ts src/config/pool-options.test.ts src/config/backup-storage-config.test.ts src/services/s3-compatible-backup-storage.test.ts src/services/database-backup-restore.test.ts src/services/resource-access-policy.test.ts src/services/resource-access-limits.test.ts src/services/resource-access-provisioner.test.ts src/db/migrations/resource-access-migration.test.ts src/services/resource-schema-ownership.test.ts src/middleware/require-developer-key.test.ts src/db/migrations/developer-api-keys-migration.test.ts src/services/developer-query.test.ts src/services/developer-transaction.test.ts src/services/cursor-pagination.test.ts src/services/check-constraint.test.ts",
+    "test": "tsx --test src/middleware/rate-limit.test.ts src/db/read-snapshot.test.ts src/config/pool-options.test.ts src/config/backup-storage-config.test.ts src/services/s3-compatible-backup-storage.test.ts src/services/database-backup-restore.test.ts src/services/resource-access-policy.test.ts src/services/resource-access-limits.test.ts src/services/resource-access-provisioner.test.ts src/db/migrations/resource-access-migration.test.ts src/services/resource-schema-ownership.test.ts src/middleware/require-developer-key.test.ts src/db/migrations/developer-api-keys-migration.test.ts src/services/developer-query.test.ts src/services/developer-transaction.test.ts src/services/cursor-pagination.test.ts src/services/check-constraint.test.ts src/services/database-backup-worker.test.ts",
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts"
   },
