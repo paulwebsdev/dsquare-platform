@@ -131,6 +131,8 @@ router.get("/:resourceId/runtime", async (req, res) => {
   try {
     const owned = await ownedResource(projectId, resourceId, String(res.locals.userId || ""));
     if (owned.rowCount !== 1) return res.status(404).json({ success: false, message: "Website resource not found." });
+    const deploymentId = String(owned.rows[0].active_deployment_id || "");
+    if (!UUID_PATTERN.test(deploymentId)) return res.status(404).json({ success: false, message: "No active Node.js deployment was found." });
     if (owned.rows[0].site_type !== "node") return res.status(409).json({ success: false, message: "Runtime controls are only available for Node.js websites." });
     const agent = runtimeAgentOptions();
     if (!agent) return res.status(503).json({ success: false, message: "The private runtime agent is not configured." });
@@ -173,10 +175,12 @@ router.get("/:resourceId/runtime/logs", async (req, res) => {
   try {
     const owned = await ownedResource(projectId, resourceId, String(res.locals.userId || ""));
     if (owned.rowCount !== 1) return res.status(404).json({ success: false, message: "Website resource not found." });
+    const deploymentId = String(owned.rows[0].active_deployment_id || "");
+    if (!UUID_PATTERN.test(deploymentId)) return res.status(404).json({ success: false, message: "No active Node.js deployment was found." });
     if (owned.rows[0].site_type !== "node") return res.status(409).json({ success: false, message: "Runtime logs are only available for Node.js websites." });
     const agent = runtimeAgentOptions();
     if (!agent) return res.status(503).json({ success: false, message: "The private runtime agent is not configured." });
-    const result = await getRuntimeAgentLogs(agent, resourceId);
+    const result = await getRuntimeAgentLogs(agent, resourceId, deploymentId);
     return res.json({ success: true, resourceId, logs: result.logs });
   } catch (error) {
     console.error("Runtime log retrieval failed:", error instanceof Error ? error.message : error);
@@ -197,7 +201,7 @@ for (const action of ["stop", "restart"] as const) {
       if (owned.rows[0].status === "archived") return res.status(409).json({ success: false, message: "Restore this website before changing its runtime." });
       const agent = runtimeAgentOptions();
       if (!agent) return res.status(503).json({ success: false, message: "The private runtime agent is not configured." });
-      const runtime = await changeRuntimeAgentRuntimeState(agent, resourceId, action);
+      const runtime = await changeRuntimeAgentRuntimeState(agent, resourceId, deploymentId, action);
       await pool.query(
         `INSERT INTO hosting_runtime_instances
            (resource_id, provider, status, deployment_id, started_at, stopped_at, updated_at)
