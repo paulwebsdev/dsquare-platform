@@ -17,16 +17,19 @@ export type BackupCycleResult = { resources: number; created: number; pruned: nu
 /** One bounded, non-overlapping backup/retention pass. */
 export async function runPersistentBackupCycle(input: {
   storageRoot: string; backupRoot: string; key: Uint8Array; retentionDays: number;
-  now?: number; onError?: (resourceId: string, error: unknown) => void;\n  onBackup?: (backup: PersistentBackup) => Promise<void>; onResourceComplete?: (resourceId: string) => Promise<void>;
+  now?: number; onError?: (resourceId: string, error: unknown) => void;
+  onBackup?: (backup: PersistentBackup) => Promise<void>; onResourceComplete?: (resourceId: string) => Promise<void>;
 }): Promise<BackupCycleResult> {
   const entries = await readdir(input.storageRoot, { withFileTypes: true });
   const resources = entries.filter((entry) => entry.isDirectory() && UUID.test(entry.name) && !entry.isSymbolicLink());
   const result: BackupCycleResult = { resources: resources.length, created: 0, pruned: 0, failed: 0 };
   for (const entry of resources) {
     try {
-      await createPersistentStorageBackup(input.storageRoot, input.backupRoot, entry.name, input.key);
+      const backup = await createPersistentStorageBackup(input.storageRoot, input.backupRoot, entry.name, input.key);
+      await input.onBackup?.(backup);
       result.created += 1;
       result.pruned += await prunePersistentBackups(input.backupRoot, entry.name, input.retentionDays, input.now);
+      await input.onResourceComplete?.(entry.name);
     } catch (error) {
       result.failed += 1;
       input.onError?.(entry.name, error);
@@ -38,7 +41,8 @@ export async function runPersistentBackupCycle(input: {
 /** Starts a single-flight timer. The first run is delayed to avoid startup I/O spikes. */
 export function startPersistentBackupScheduler(input: {
   storageRoot: string; backupRoot: string; key: Uint8Array; retentionDays: number;
-  intervalMs: number; onError?: (resourceId: string, error: unknown) => void;\n  onBackup?: (backup: PersistentBackup) => Promise<void>; onResourceComplete?: (resourceId: string) => Promise<void>;
+  intervalMs: number; onError?: (resourceId: string, error: unknown) => void;
+  onBackup?: (backup: PersistentBackup) => Promise<void>; onResourceComplete?: (resourceId: string) => Promise<void>;
   onCycle?: (result: BackupCycleResult) => void;
 }): () => void {
   if (!Number.isInteger(input.intervalMs) || input.intervalMs < 60_000 || input.intervalMs > 7 * 86400_000) {
