@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, open, readFile, rm } from "node:fs/promises";
 import { constants } from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -447,7 +447,7 @@ router.post("/:resourceId/validate-node", async (req, res) => {
     const packageFile = files.rows.find((file: { original_name: string }) => file.original_name === "package.json");
     let packageJson = "";
 
-    if (packageFile && UUID_PATTERN.test(packageFile.storage_key)) {
+    if (packageFile) {
       try {
         packageJson = (await websiteObjectStorage.get(packageFile.storage_key, resourceId)).toString("utf8");
       } catch (error) {
@@ -566,6 +566,7 @@ async function deployNodeWebsite(
       return response.status(422).json({ success: false, message: "Node deployment must contain between 1 and 2,000 files." });
     }
 
+    await mkdir(path.join(storageRoot, resourceId), { recursive: true, mode: 0o700 });
     for (const file of sourceFiles) {
       const expectedSize = Number(file.size_bytes);
       if (!Number.isSafeInteger(expectedSize) || expectedSize < 1 || expectedSize > 10 * 1024 * 1024) {
