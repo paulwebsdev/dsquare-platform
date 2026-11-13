@@ -59,6 +59,12 @@ function s3Config() {
   return { bucket, region, endpoint, accessKeyId, secretAccessKey };
 }
 
+export function assertWebsiteObjectStorageConfigured(): void {
+  if (process.env.NODE_ENV === "production" && !s3Config()) {
+    throw new Error("Production D Hosting requires durable S3-compatible website object storage.");
+  }
+}
+
 let client: S3Client | undefined;
 function getS3() {
   const config = s3Config();
