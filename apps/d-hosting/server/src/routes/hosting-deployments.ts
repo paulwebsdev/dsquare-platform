@@ -1,7 +1,5 @@
 import { Router } from "express";
-import { existsSync } from "node:fs";
-import { copyFile, mkdir, open, readFile, rm } from "node:fs/promises";
-import { constants } from "node:fs";
+import { mkdir, open, readFile, rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { pool } from "../config/database.js";
