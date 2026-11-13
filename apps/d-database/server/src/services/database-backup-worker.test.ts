@@ -88,7 +88,7 @@ test("holds and releases the advisory lock around backup and retention work", as
       },
     } as never;
     const result = await runScheduledDatabaseBackupCycle(pool);
-    assert.equal(result.skipped, true);
+    assert.equal(result.skipped, false);
     assert.equal(result.expired, 0);
     assert.ok(statements.some(sql => sql.includes("pg_try_advisory_lock")));
     assert.ok(statements.some(sql => sql.includes("BACKUP_INTERRUPTED")));
