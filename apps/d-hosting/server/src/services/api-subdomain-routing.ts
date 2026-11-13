@@ -28,12 +28,17 @@ export function getApiSubdomainConfig(websiteDomain: string): ApiSubdomainConfig
 /** Adds API hostnames while refusing collisions with another verified domain. */
 export function expandIngressRoutes<T extends { domain: string; resourceId: string; deploymentId: string }>(
   routes: T[],
+  reservedDomains: string[] = [],
 ): Array<T> {
   const expanded: T[] = [];
   const seen = new Map<string, string>();
+  const reserved = new Set(reservedDomains.map((domain) => domain.toLowerCase()));
   for (const route of routes) {
     const base = route.domain.toLowerCase();
     const api = getApiSubdomainConfig(base).domain;
+    if (reserved.has(api) && api !== base) {
+      throw new Error("Private ingress API hostname is already reserved by a custom domain.");
+    }
     for (const domain of [base, api]) {
       const owner = seen.get(domain);
       if (owner) {
