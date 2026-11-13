@@ -60,3 +60,38 @@ npm.cmd run typecheck
 ``
 
 Do not expose this service publicly. For remote connectivity, bind the agent only to a private interface behind HTTPS and firewall rules allowing only the D Hosting API.
+
+
+## Persistent storage lifecycle: Linux host provisioning
+
+The code now includes a scheduled backup worker, authenticated owner-scoped backup/restore/usage routes, an audit table, encrypted snapshots, retention pruning, and XFS project hard quotas. Runtime startup fails closed if the per-site quota cannot be applied.
+
+### Backup destination and key
+
+- Set `RUNTIME_AGENT_BACKUP_KEY` to a base64-encoded random 32-byte key injected from the host secret manager. Keep it separate from the runtime HMAC and database credentials. Back up this key securely; losing it makes snapshots unrecoverable.
+- Set `RUNTIME_AGENT_BACKUP_ROOT` to a mounted **remote NFS/NFS4 or SMB/CIFS filesystem**. Startup checks the filesystem type and source and refuses a local directory or the live-storage filesystem.
+- Configure `RUNTIME_AGENT_BACKUP_INTERVAL_MS` (default 24 hours) and `RUNTIME_AGENT_BACKUP_RETENTION_DAYS` (default 30). Each cycle is single-flight, records backup metadata/audit events, and prunes only that resource's expired snapshots. Shutdown drains an active cycle before closing PostgreSQL.
+- Backups are compressed and AES-256-GCM encrypted before being written to the remote mount. The remote share must itself have server-side access controls, encryption at rest, independent snapshots/versioning, and monitoring. The application does not provision an NFS/SMB server or manage its credentials.
+
+### Hard quota helper
+
+The runtime agent stays unprivileged. Install the helper and its root-owned storage-root configuration from `deploy/`:
+
+1. Install `deploy/dsquare-xfs-project-quota` as `/usr/local/sbin/dsquare-xfs-project-quota`, owned by root and mode `0755`.
+2. Create `/etc/dsquare-hosting-agent/persistent-storage-root` containing the exact canonical persistent storage path (example: `/var/lib/dsquare-hosting-agent/persistent-sites`). The file and parent directory must be root-owned and not writable by the runtime-agent account.
+3. Install `deploy/dsquare-hosting-runtime-agent.sudoers` as `/etc/sudoers.d/dsquare-hosting-runtime-agent` after replacing the example service account with the dedicated runtime-agent account. Validate it with `visudo -cf`.
+4. Mount the persistent storage filesystem as XFS with `prjquota` (or `pquota`) enabled. The helper validates the filesystem and target path again before assigning the project ID, enabling inheritance, and applying the hard block limit.
+5. Set `RUNTIME_AGENT_XFS_QUOTA_HELPER` only if the helper is installed at a non-default absolute path.
+
+The helper accepts only a UUID, numeric project ID, and numeric byte limit; it does not accept shell commands or arbitrary filesystem paths from the API. The sudoers rule permits only this helper. XFS quota granularity is 1 KiB, and the helper rounds down so the effective hard limit does not exceed the requested byte limit. Project IDs are reserved in PostgreSQL with a unique constraint and are not to be reused while website data or tombstones remain.
+
+### Restore and deletion safeguards
+
+- Restore requires a provisioned hard-quota record. The restored directory receives its XFS project ID and inheritance flag **before** the previous live directory is discarded. If quota reapplication fails, the previous directory is put back.
+- Owner-facing restore and tombstone operations require the website to be stopped/archived as appropriate. Audit records are written for backup creation, restore, deletion, and tombstoning.
+- Tombstoning moves data to a private hidden directory; it does not permanently erase it. A separate operator-approved purge/retention process is still required before physical deletion of tombstones.
+- Scheduled retention prunes expired backup files and reconciles missing metadata. It does not purge tombstoned website data.
+
+### Remaining live acceptance
+
+Repository tests and CI do not prove the remote share, XFS mount flags, sudoers policy, rootless Podman UID mapping, quota exhaustion behavior, or restore rollback on the actual Linux host. Those checks must be completed on the dedicated Linux host before enabling customer runtime execution. The runtime agent continues to pass `executionEnabled: false`; this work does not turn on customer code execution.
