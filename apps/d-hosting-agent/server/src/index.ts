@@ -773,7 +773,10 @@ export async function startRuntimeAgent(): Promise<void> {
     console.log(`Private ingress controller: ${ingressAdminUrl ? "configured" : "disabled"}.`);
   });
   const shutdown = () => {
-    server.close(() => void pool.end());
+    void (async () => {
+      await stopBackupScheduler?.();
+      server.close(() => void pool.end());
+    })();
   };
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
