@@ -529,7 +529,7 @@ async function deployNodeWebsite(
   try {
     await client.query("BEGIN");
     const resource = await client.query(
-      `SELECT r.id, r.status, r.site_type
+      `SELECT r.id, r.status, r.site_type, r.active_deployment_id
        FROM hosting_resources r
        INNER JOIN projects p ON p.id = r.project_id
        WHERE r.id = $1 AND r.project_id = $2 AND p.owner_id = $3
@@ -548,6 +548,8 @@ async function deployNodeWebsite(
       await client.query("ROLLBACK");
       return response.status(409).json({ success: false, message: "Restore this website before deploying." });
     }
+
+    const previousActiveDeploymentId = resource.rows[0].active_deployment_id ?? null;
 
     const files = await client.query(
       `SELECT original_name, storage_key, mime_type, size_bytes
@@ -610,7 +612,7 @@ async function deployNodeWebsite(
 
     await client.query("BEGIN");
     const currentResource = await client.query(
-      `SELECT r.id, r.status
+      `SELECT r.id, r.status, r.active_deployment_id
        FROM hosting_resources r
        INNER JOIN projects p ON p.id = r.project_id
        WHERE r.id = $1 AND r.project_id = $2 AND p.owner_id = $3
@@ -619,6 +621,9 @@ async function deployNodeWebsite(
     );
     if (currentResource.rowCount !== 1 || currentResource.rows[0].status === "archived") {
       throw new Error("Website ownership or availability changed during deployment.");
+    }
+    if (String(currentResource.rows[0].active_deployment_id || "") !== String(previousActiveDeploymentId || "")) {
+      throw new Error("A newer deployment became active while this build was running.");
     }
     const numberResult = await client.query(
       `SELECT COALESCE(MAX(deployment_number), 0) + 1 AS next_number
