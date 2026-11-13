@@ -10,6 +10,8 @@ The runtime agent is a separate service for a dedicated Linux runtime host. It m
 - Accepts bounded `DSQART01` bundles and verifies the manifest and every file hash.
 - Stores uploads privately without extracting or executing them.
 - Can materialize validated uploads into a separate workspace with read-only files/directories, rejecting symlinks and enforcing file-count and size limits.
+- Each website resource receives a private persistent directory mounted read/write at `/var/lib/dsquare` in its runtime. The directory is keyed by resource ID, reused across deployment versions, and retained when a deployment is removed; deployment artifacts remain immutable and read-only.
+- Persistent storage is a host bind mount using Podman's `:U,Z` options. The dedicated Linux host must validate rootless UID mapping and SELinux relabel behavior. Per-site disk quotas, user-facing storage limits, resource-deletion retention/cleanup, and automated backup/restore are not implemented yet and remain production blockers.
 - The Podman API client now supports a private Linux Unix socket transport and bounded container lifecycle requests.
 - Runtime artifact intake, Podman provider wiring, registry reconciliation, inspect, bounded/redacted logs, stop/restart and deletion APIs are implemented. D Hosting exposes owner-scoped runtime status, logs and lifecycle routes.
 - **Runtime creation remains disabled (HTTP 503).** `startRuntimeAgent` deliberately passes `executionEnabled: false`; do not change this until the dedicated Linux host passes isolation, ingress, lifecycle, restart/recovery and end-to-end security acceptance tests. Merely setting Podman environment variables does not enable customer runtime processes.
@@ -39,7 +41,8 @@ These controls are configuration-level protections. They still require Linux-hos
 
 - `RUNTIME_AGENT_SHARED_SECRET`: same random secret as the D Hosting API; at least 32 UTF-8 bytes.
 - `RUNTIME_AGENT_DATABASE_URL`: dedicated runtime-agent PostgreSQL database.
-- `RUNTIME_AGENT_STORAGE_ROOT`: absolute private persistent directory outside any web root.
+- `RUNTIME_AGENT_STORAGE_ROOT`: absolute private directory for immutable runtime artifacts, outside any web root.
+- `RUNTIME_AGENT_PERSISTENT_STORAGE_ROOT`: absolute private host directory for durable per-website data. Back it up separately; it must be writable by the runtime-agent service account and accessible to the local Podman service.
 - Builder settings in `.env.example` are optional. Keep both enable flags false until the dedicated Linux host and firewall policy are verified. Never set the npm egress acknowledgement based only on application configuration.
 - `RUNTIME_AGENT_HOST`: optional bind IP; defaults to `127.0.0.1`.
 - `RUNTIME_AGENT_PORT`: optional TCP port; defaults to `5003`.
