@@ -26,6 +26,7 @@ export async function getAssignedDatabaseRuntimeConnection(input: {
             c.database_port,
             c.database_name,
             c.database_role_name AS database_role,
+            c.database_connection_limit,
             c.database_password_ciphertext,
             c.database_password_iv,
             c.database_password_auth_tag
