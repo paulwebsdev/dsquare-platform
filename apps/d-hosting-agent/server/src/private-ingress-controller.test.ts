@@ -23,6 +23,7 @@ test("renders deterministic Caddy JSON routes to resource-private aliases", () =
     { domain: "www.example.com", resourceId, deploymentId },
   ], "ops@example.com");
   const serialized = JSON.stringify(config);
+  assert.equal((config.admin as { listen: string }).listen, "localhost:2019");
   assert.ok(serialized.includes("dsquare-site-" + resourceId + ".runtime.dsquare.internal:3000"));
   assert.ok(serialized.includes("X-Forwarded-For"));
   assert.ok(serialized.includes("Forwarded"));
