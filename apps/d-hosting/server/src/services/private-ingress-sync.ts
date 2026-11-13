@@ -1,4 +1,5 @@
 import { pool } from "../config/database.js";
+import { expandIngressRoutes } from "./api-subdomain-routing.js";
 import {
   syncRuntimeAgentIngress,
   type RuntimeAgentIngressRoute,
@@ -38,11 +39,15 @@ export async function syncPublishedNodeIngress(excludeDomainId?: string): Promis
      ORDER BY d.domain ASC`,
     [excludeDomainId ?? null],
   );
-  const routes: RuntimeAgentIngressRoute[] = result.rows.map((row) => ({
+  const reserved = await pool.query<{ domain: string }>(
+    `SELECT domain FROM hosting_custom_domains`,
+  );
+  const baseRoutes: RuntimeAgentIngressRoute[] = result.rows.map((row) => ({
     domain: row.domain,
     resourceId: row.resource_id,
     deploymentId: row.active_deployment_id,
   }));
+  const routes = expandIngressRoutes(baseRoutes, reserved.rows.map((row) => row.domain));
   if (routes.some((route) => !UUID.test(route.resourceId) || !UUID.test(route.deploymentId))) {
     throw new Error("Published Node ingress contains an invalid deployment identity.");
   }
