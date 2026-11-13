@@ -217,4 +217,24 @@ Before a file is accepted for use, the backend must enforce configured file-size
 ### 16.6 Restoration Controls
 Restoration must be limited to authorized operators, followed by integrity and application-level verification. Procedures must identify the exact product and environment being restored and prevent accidental overwriting of unrelated databases or environments. Tenant-level restoration, if offered, requires a separately designed and tested process.
 
+## 17. D Database V1 Transaction and Constraint API
+
+The scoped developer data API provides a bounded atomic write endpoint:
+
+- `POST /api/v1/data/:projectId/:resourceId/transactions`
+- Requires a developer API key with the `write` scope.
+- Accepts 1–20 ordered `insert`, `update`, and `delete` operations.
+- Every table and column is resolved against the API key's one assigned resource schema.
+- Update and delete operations require at least one equality filter.
+- Values are parameterized; raw SQL is not accepted.
+- All operations execute on one PostgreSQL client inside one transaction. A failure rolls back the complete batch.
+- Each operation is bounded to at most 50 supplied column values/filters.
+
+Table structure management supports regular and unique indexes, unique constraints, same-resource foreign keys, and named single-column CHECK constraints. CHECK definitions accept only validated identifiers, a fixed comparison-operator allowlist, and safely escaped scalar literals. Arbitrary SQL expressions are not accepted.
+
+The table structure API already exposes index and constraint inspection. Constraint-backed indexes cannot be dropped through the standalone-index endpoint. Foreign-key targets must satisfy PostgreSQL's primary-key/unique requirements, and cross-resource schema references are not permitted.
+
+Read endpoints retain bounded limit/offset pagination and use a repeatable-read, read-only snapshot when returning page rows with their total count.
+
+These API guarantees complement, rather than replace, PostgreSQL's own constraints, resource-role permissions, connection limits and query timeouts.
 
