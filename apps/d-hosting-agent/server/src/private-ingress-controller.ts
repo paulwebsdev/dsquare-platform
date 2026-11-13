@@ -65,7 +65,7 @@ export function renderPrivateIngressJsonConfig(
 
   const subjects = normalized.map((route) => route.domain);
   return {
-    admin: { listen: "localhost:2019" },
+    admin: { listen: "0.0.0.0:2019" },
     apps: {
       http: {
         servers: {
