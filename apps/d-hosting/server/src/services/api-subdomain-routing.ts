@@ -20,7 +20,8 @@ export function getApiSubdomainConfig(websiteDomain: string): ApiSubdomainConfig
     throw new Error("Website domain is invalid for API subdomain routing.");
   }
   const dnsTarget = normalized;
-  const domain = "api." + dnsTarget;
+  const apiHostBase = normalized.startsWith("www.") ? normalized.slice(4) : normalized;
+  const domain = "api." + apiHostBase;
   if (domain.length > 253) throw new Error("Derived API subdomain exceeds DNS hostname limits.");
   return { domain, dnsTarget };
 }
