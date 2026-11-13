@@ -97,7 +97,11 @@ export function registerPersistentStorageLifecycleRoutes(app: Express, input: {
     try {
       const result = await input.pool.query("SELECT backup_path FROM runtime_agent_storage_backups WHERE backup_id=$1 AND resource_id=$2", [backupId, resourceId]);
       if (!result.rowCount) { response.status(404).json({ error: "Backup was not found." }); return; }
-      const restored = await restorePersistentStorageBackup(input.storageRoot, result.rows[0].backup_path, resourceId, input.key);
+      const backupFile = path.resolve(result.rows[0].backup_path);
+      if (path.dirname(backupFile) !== path.resolve(input.backupRoot)) throw new Error("Backup path escaped its private root.");
+      const backupStat = await lstat(backupFile);
+      if (!backupStat.isFile() || backupStat.isSymbolicLink()) throw new Error("Backup entry is unsafe.");
+      const restored = await restorePersistentStorageBackup(input.storageRoot, backupFile, resourceId, input.key);
       await input.pool.query("INSERT INTO runtime_agent_storage_audit (resource_id, action, actor, metadata) VALUES ($1,'backup.restore','trusted-hosting-api',$2)", [resourceId, JSON.stringify({ backupId, ...restored })]);
       response.status(200).json({ resourceId, backupId, ...restored });
     } catch { response.status(409).json({ error: "Backup restore failed safely; live data was not intentionally replaced." }); }
