@@ -98,7 +98,7 @@ export default function DatabaseConnections() {
         <div>
           <div className="welcome-date">INTEGRATIONS</div>
           <h1>Database connections</h1>
-          <p>Authorize D Hosting to receive encrypted connection credentials for a D Database resource. Per-website assignment and live application access are not enabled yet.</p>
+          <p>Authorize D Hosting to receive encrypted connection credentials for a D Database resource. You can assign an active connection to an individual Node.js website from that website’s settings.</p>
         </div>
         <button className="primary-button" onClick={startConnection} disabled={busy}>＋ Connect D Database</button>
       </div>
@@ -106,7 +106,7 @@ export default function DatabaseConnections() {
       {notice && <div className="panel" role="status" style={{ padding: 14, marginBottom: 16 }}>{notice}</div>}
       <article className="panel" style={{ padding: 22 }}>
         <h2>Connected resources</h2>
-        <p className="pm-card-description">Connections are securely stored and can be revoked here. They are not yet attached to individual websites, and Node.js execution remains disabled until the isolated runtime is deployed.</p>
+        <p className="pm-card-description">Connections are securely stored and can be revoked here. Assign a connection from a Node.js website’s settings. The assignment is saved securely, but live backend database access remains unavailable until isolated Node.js execution is enabled after Linux security acceptance.</p>
         {busy && <p>Processing connection...</p>}
         {loading ? <p>Loading connections...</p> : connections.length === 0 ? (
           <p>No database resources connected yet. Connect a resource you own to get started.</p>
