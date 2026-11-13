@@ -59,7 +59,7 @@ export async function runMigrations(pool: Pool): Promise<void> {
     for (const migration of migrations) {
       const previousChecksum = applied.get(migration.file);
       if (applied.has(migration.file)) {
-        assertMigrationChecksum(migration.file, migration.checksum, previousChecksum);
+        assertMigrationChecksum(migration.file, migration.checksum, previousChecksum ?? null);
         if (previousChecksum === null) {
           // Adopt the current contents once for migrations recorded before checksum tracking existed.
           await client.query(
