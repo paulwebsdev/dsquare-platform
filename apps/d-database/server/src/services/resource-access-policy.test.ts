@@ -89,7 +89,6 @@ testRunner("configures server-enforced connection and query limits on each resou
   assert.ok(plan.configureStatements.some((sql) => /statement_timeout = '30000ms'/.test(sql)));
   assert.ok(plan.configureStatements.some((sql) => /lock_timeout = '5000ms'/.test(sql)));
   assert.ok(plan.configureStatements.some((sql) => /idle_in_transaction_session_timeout = '30000ms'/.test(sql)));
-  assert.ok(plan.configureStatements.some((sql) => /search_path|application_name/.test(sql)) === false);
   assert.ok(plan.configureStatements.some((sql) => /application_name = 'dsquare-resource-09800acba6c642d093f09d8aa73c251d'/.test(sql)));
 });
 
