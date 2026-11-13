@@ -1,12 +1,12 @@
 import { Router, type Response } from "express";
 import express from "express";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pool } from "../config/database.js";
 import { requireAuth } from "../middleware/require-auth.js";
 import { normalizeWebsiteFilePath } from "../services/website-file-path.js";
 import { checkWebsiteFileQuota } from "../services/website-file-quota.js";
+import { websiteObjectStorage } from "../services/website-object-storage.js";
 
 const router = Router({ mergeParams: true });
 
@@ -46,10 +46,6 @@ const FILE_TYPES: Record<string, string> = {
   ".pdf": "application/pdf",
 };
 
-const storageRoot = path.resolve(
-  process.env.HOSTING_STORAGE_ROOT || path.join(process.cwd(), "storage", "sites")
-);
-
 function getParams(req: { params: object }) {
   return req.params as Record<string, string>;
 }
@@ -84,7 +80,7 @@ function sendError(error: unknown, res: Response) {
 
 async function getWebsite(projectId: string, resourceId: string, userId: string) {
   return pool.query(
-    `SELECT r.id, r.project_id, r.status, r.file_storage_quota_bytes
+    `SELECT r.id, r.project_id, r.status, r.file_storage_quota_bytes, p.owner_id
      FROM hosting_resources r
      INNER JOIN projects p ON p.id = r.project_id
      WHERE r.id = $1 AND r.project_id = $2 AND p.owner_id = $3
@@ -194,10 +190,8 @@ router.post(
       const fileId = randomUUID();
       const storageKey = randomUUID();
       const mimeType = FILE_TYPES[path.extname(originalName).toLowerCase()];
-      const resourceDirectory = path.join(storageRoot, resourceId);
-      const filePath = getFilePath(resourceId, storageKey);
       const client = await pool.connect();
-      let fileWritten = false;
+      let storedKey: string | null = null;
 
       try {
         await client.query("BEGIN");
@@ -207,16 +201,16 @@ router.post(
           resourceId,
           uploadBytes: req.body.length,
         });
-        await mkdir(resourceDirectory, { recursive: true });
-        await writeFile(filePath, req.body, { flag: "wx", mode: 0o600 });
-        fileWritten = true;
+        storedKey = await websiteObjectStorage.put({
+          ownerId: String(website.rows[0].owner_id), projectId, resourceId, objectId: storageKey,
+        }, req.body, mimeType);
 
         const result = await client.query(
           `INSERT INTO hosting_files
              (id, project_id, resource_id, original_name, storage_key, mime_type, size_bytes)
            VALUES ($1, $2, $3, $4, $5, $6, $7)
            RETURNING id, resource_id, original_name, mime_type, size_bytes, created_at`,
-          [fileId, projectId, resourceId, originalName, storageKey, mimeType, req.body.length],
+          [fileId, projectId, resourceId, originalName, storedKey, mimeType, req.body.length],
         );
         await client.query("COMMIT");
 
@@ -227,7 +221,7 @@ router.post(
         });
       } catch (error) {
         await client.query("ROLLBACK").catch(() => undefined);
-        if (fileWritten) await unlink(filePath).catch(() => undefined);
+        if (storedKey) await websiteObjectStorage.delete(storedKey, resourceId).catch(() => undefined);
         throw error;
       } finally {
         client.release();
@@ -290,7 +284,7 @@ router.get("/:resourceId/files/:fileId/download", async (req, res) => {
     };
 
     const filePath = getFilePath(resourceId, file.storage_key);
-    const contents = await readFile(filePath);
+    const contents = await websiteObjectStorage.get(file.storage_key, resourceId);
 
     res.setHeader("Content-Type", "application/octet-stream");
     res.setHeader("X-Content-Type-Options", "nosniff");
@@ -302,7 +296,7 @@ router.get("/:resourceId/files/:fileId/download", async (req, res) => {
 
     return res.send(contents);
   } catch (error) {
-    if ((error as { code?: string })?.code === "ENOENT") {
+    if ((error as { code?: string })?.code === "ENOENT" || (error as { name?: string })?.name === "NoSuchKey") {
       return res.status(404).json({ success: false, message: "Stored file is missing." });
     }
 
@@ -412,11 +406,7 @@ router.delete("/:resourceId/files/:fileId", async (req, res) => {
       return res.status(404).json({ success: false, message: "File not found." });
     }
 
-    const filePath = getFilePath(resourceId, result.rows[0].storage_key);
-
-    await unlink(filePath).catch((error: NodeJS.ErrnoException) => {
-      if (error.code !== "ENOENT") throw error;
-    });
+    await websiteObjectStorage.delete(String(result.rows[0].storage_key), resourceId);
 
     await pool.query(
       `DELETE FROM hosting_files
