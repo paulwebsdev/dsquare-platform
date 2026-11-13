@@ -231,6 +231,10 @@ router.post(
     } catch (error) {
       const code = (error as { code?: string })?.code;
 
+      if (code === "HOSTING_WEBSITE_ARCHIVED") {
+        return res.status(409).json({ success: false, message: error instanceof Error ? error.message : "Website is archived." });
+      }
+
       if (code === "HOSTING_STORAGE_QUOTA_EXCEEDED") {
         return res.status(413).json({ success: false, message: error instanceof Error ? error.message : "Website storage quota exceeded." });
       }
