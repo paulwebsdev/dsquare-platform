@@ -22,7 +22,7 @@ test("applies an XFS hard quota using argument-safe commands", async () => {
     await enforceXfsProjectQuota({ storageRoot: root, resourceId, projectId: 12345, hardLimitBytes: 64 * 1024 * 1024,
       run: async (file, args) => {
         commands.push({ file, args });
-        if (file === "findmnt" && args.includes("FSTYPE,OPTIONS")) return { stdout: "xfs,rw,prjquota\n" };
+        if (file === "findmnt" && args.includes("FSTYPE,OPTIONS")) return { stdout: "xfs rw,prjquota\n" };
         if (file === "findmnt") return { stdout: root + "\n" };
         return { stdout: "" };
       } });
