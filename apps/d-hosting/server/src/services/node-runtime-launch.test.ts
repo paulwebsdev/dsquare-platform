@@ -148,6 +148,7 @@ test("adds only the selected approved database connection to the isolated runtim
 });
 
 
+
 test("integrates owner-scoped database assignment, encrypted secret injection, and deployment ingress target", async () => {
   const root = await fixture();
   const hostingUserId = "11111111-1111-4111-8111-111111111111";
@@ -156,7 +157,7 @@ test("integrates owner-scoped database assignment, encrypted secret injection, a
   const encrypted = encryptEnvironmentSecret(
     databasePassword,
     environment,
-    `d-database:${hostingUserId}:${databaseResourceId}`,
+    \`d-database:\${hostingUserId}:\${databaseResourceId}\`,
   );
   const assignedRow = {
     user_id: hostingUserId,
@@ -174,9 +175,9 @@ test("integrates owner-scoped database assignment, encrypted secret injection, a
   };
   const queryable = {
     async query(sql: string, values?: unknown[]) {
-      assert.match(sql, /assignment\\.hosting_user_id = \\$2/);
-      assert.match(sql, /c\\.hosting_user_id = \\$2/);
-      assert.match(sql, /c\\.status = 'active'/);
+      assert.match(sql, /assignment\.hosting_user_id = \$2/);
+      assert.match(sql, /c\.hosting_user_id = \$2/);
+      assert.match(sql, /c\.status = 'active'/);
       assert.deepEqual(values, [resourceId, hostingUserId]);
       return { rows: [assignedRow], rowCount: 1 };
     },
@@ -206,7 +207,7 @@ test("integrates owner-scoped database assignment, encrypted secret injection, a
     assert.equal(launch.spec.environment.D_DATABASE_RESOURCE_ID, databaseResourceId);
     assert.equal(
       getBackendRouteTarget(resourceId, deploymentId),
-      `http://dsquare-deploy-${deploymentId}.runtime.dsquare.internal:3000`,
+      \`http://dsquare-deploy-\${deploymentId}.runtime.dsquare.internal:3000\`,
     );
     assert.equal(launch.spec.environment.HOSTING_SECRETS_KEY, undefined);
     clearPreparedRuntimeEnvironment(launch);
