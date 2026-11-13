@@ -1331,7 +1331,7 @@ export default function ResourceWorkbench({
           )}
           <WebsitePreview previewUrl={`${baseUrl}/preview`} />
           <PublishingControls resourceUrl={baseUrl} initialStatus={resource.status} />
-          <DeploymentHistory resourceUrl={baseUrl} />
+          <DeploymentHistory resourceUrl={baseUrl} siteType={resource.site_type} />
           <CustomDomains resourceUrl={baseUrl} />
           <EnvironmentVariables resourceUrl={baseUrl} siteType={resource.site_type} />
           {resource.site_type === "node" && <RuntimeLogs resourceUrl={baseUrl} />}
