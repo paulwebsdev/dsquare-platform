@@ -77,3 +77,44 @@ testRunner("limits every grant to the resource schema and required data operatio
     /GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA/.test(sql),
   ));
 });
+
+testRunner("configures server-enforced connection and query limits on each resource role", () => {
+  const plan = createResourceAccessPlan({
+    resourceId,
+    schemaName: "db_09800acba6c642d093f09d8aa73c251d",
+    databaseName: "d_database",
+    schemaOwner: "d_database_app",
+  });
+  assert.ok(plan.configureStatements.some((sql) => /CONNECTION LIMIT 5/.test(sql)));
+  assert.ok(plan.configureStatements.some((sql) => /statement_timeout = '30000ms'/.test(sql)));
+  assert.ok(plan.configureStatements.some((sql) => /lock_timeout = '5000ms'/.test(sql)));
+  assert.ok(plan.configureStatements.some((sql) => /idle_in_transaction_session_timeout = '30000ms'/.test(sql)));
+  assert.ok(plan.configureStatements.some((sql) => /search_path|application_name/.test(sql)) === false);
+  assert.ok(plan.configureStatements.some((sql) => /application_name = 'dsquare-resource-09800acba6c642d093f09d8aa73c251d'/.test(sql)));
+});
+
+testRunner("applies operator-configured values only after numeric bounds validation", () => {
+  const plan = createResourceAccessPlan({
+    resourceId,
+    schemaName: "db_09800acba6c642d093f09d8aa73c251d",
+    databaseName: "d_database",
+    schemaOwner: "d_database_app",
+    limits: {
+      connectionLimit: 8,
+      statementTimeoutMs: 45_000,
+      lockTimeoutMs: 3_000,
+      idleInTransactionSessionTimeoutMs: 20_000,
+    },
+  });
+  assert.ok(plan.configureStatements.some((sql) => /CONNECTION LIMIT 8/.test(sql)));
+  assert.ok(plan.configureStatements.some((sql) => /statement_timeout = '45000ms'/.test(sql)));
+  assert.ok(plan.configureStatements.some((sql) => /lock_timeout = '3000ms'/.test(sql)));
+  assert.ok(plan.configureStatements.some((sql) => /idle_in_transaction_session_timeout = '20000ms'/.test(sql)));
+  assert.throws(() => createResourceAccessPlan({
+    resourceId,
+    schemaName: "db_09800acba6c642d093f09d8aa73c251d",
+    databaseName: "d_database",
+    schemaOwner: "d_database_app",
+    limits: { connectionLimit: 500, statementTimeoutMs: 30_000, lockTimeoutMs: 5_000, idleInTransactionSessionTimeoutMs: 30_000 },
+  }), /Invalid resource access connection limit/);
+});
