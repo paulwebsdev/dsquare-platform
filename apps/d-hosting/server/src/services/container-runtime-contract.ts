@@ -42,6 +42,7 @@ const PLATFORM_DATABASE_ENVIRONMENT_NAMES = new Set([
  */
 export function buildNodeContainerSpec(input: {
   resourceId: string;
+  deploymentId?: string;
   validation: NodeProjectValidation;
   artifactDirectory: string;
   environment: Record<string, string>;
