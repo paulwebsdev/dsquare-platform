@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { decodePersistentBackupKey, runPersistentBackupCycle } from "./persistent-storage-automation.js";
+import { decodePersistentBackupKey, runPersistentBackupCycle, verifyOffHostBackupMount } from "./persistent-storage-automation.js";
 
 const resourceId = "11111111-1111-4111-8111-111111111111";
 
@@ -27,4 +27,27 @@ test("scheduled backup cycle snapshots valid website directories and skips unrel
     assert.equal(backups.length, 1);
     assert.ok(backups[0].endsWith(".dsqbak"));
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("accepts only a separate remote NFS or SMB backup mount", async () => {
+  const commands: string[][] = [];
+  await verifyOffHostBackupMount({
+    storageRoot: "/srv/dsquare/persistent-sites",
+    backupRoot: "/mnt/remote/dsquare-backups",
+    run: async (_file, args) => {
+      commands.push(args);
+      return { stdout: args[args.length - 1] === "/srv/dsquare/persistent-sites" ? "xfs /dev/vdb1\\n" : "nfs4 backup01:/exports/dsquare\\n" };
+    },
+  });
+  assert.equal(commands.length, 2);
+  await assert.rejects(verifyOffHostBackupMount({
+    storageRoot: "/srv/dsquare/persistent-sites",
+    backupRoot: "/mnt/local/dsquare-backups",
+    run: async (_file, args) => ({ stdout: args[args.length - 1] === "/srv/dsquare/persistent-sites" ? "xfs /dev/vdb1\\n" : "ext4 /dev/vdb1\\n" }),
+  }), /separate remote NFS or SMB/);
+  await assert.rejects(verifyOffHostBackupMount({
+    storageRoot: "/srv/dsquare/persistent-sites",
+    backupRoot: "/srv/dsquare/persistent-sites/.backups",
+    run: async () => { assert.fail("must reject nested path before mount lookup"); return { stdout: "" }; },
+  }), /outside the live storage root/);
 });
