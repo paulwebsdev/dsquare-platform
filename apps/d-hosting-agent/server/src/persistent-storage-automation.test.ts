@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { decodePersistentBackupKey, runPersistentBackupCycle } from "./persistent-storage-automation.js";
+import { decodePersistentBackupKey, decodePersistentBackupKeyring, resolvePersistentBackupKey, runPersistentBackupCycle } from "./persistent-storage-automation.js";
 
 const resourceId = "11111111-1111-4111-8111-111111111111";
 
@@ -11,6 +11,21 @@ test("accepts only canonical base64 32-byte backup keys", () => {
   const key = Buffer.alloc(32, 4);
   assert.deepEqual(decodePersistentBackupKey(key.toString("base64")), key);
   assert.throws(() => decodePersistentBackupKey("short"), /32-byte/);
+});
+
+test("loads an active backup key and preserves previous keys for restore", () => {
+  const oldKey = Buffer.alloc(32, 6);
+  const activeKey = Buffer.alloc(32, 7);
+  const keyring = decodePersistentBackupKeyring(JSON.stringify({
+    "backup-2026-10": oldKey.toString("base64"),
+    "backup-2026-11": activeKey.toString("base64"),
+  }), "backup-2026-11");
+  assert.ok(keyring);
+  assert.equal(keyring.activeKeyId, "backup-2026-11");
+  assert.deepEqual(resolvePersistentBackupKey(keyring, "backup-2026-10"), oldKey);
+  assert.deepEqual(resolvePersistentBackupKey(keyring, "backup-2026-11"), activeKey);
+  assert.throws(() => resolvePersistentBackupKey(keyring, "missing"), /not present/);
+  assert.throws(() => decodePersistentBackupKeyring(JSON.stringify({ old: "bad" }), "missing"), /32-byte/);
 });
 
 test("scheduled backup cycle snapshots valid website directories and skips unrelated entries", async () => {

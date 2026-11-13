@@ -1,9 +1,10 @@
 import type { Express, Request, Response } from "express";
 import type { Pool } from "pg";
-import { lstat, unlink } from "node:fs/promises";
+import { lstat, unlink, rm } from "node:fs/promises";
 import path from "node:path";
 import { enforceXfsProjectQuota, persistentStorageProjectId } from "./persistent-storage-quotas.js";
 import { ensurePersistentStorageDirectory } from "./persistent-storage.js";
+import { deletePersistentBackupObject, downloadPersistentBackupObject, uploadPersistentBackupObject, type PersistentBackupObjectStore } from "./persistent-storage-object-store.js";
 import {
   createPersistentStorageBackup, measurePersistentStorageUsage,
   restorePersistentStorageBackup, tombstonePersistentStorage,
@@ -31,6 +32,8 @@ export async function initializePersistentStorageLifecycle(pool: Pool): Promise<
       created_by TEXT NOT NULL DEFAULT 'trusted-hosting-api'
     )
   `);
+  await pool.query("ALTER TABLE runtime_agent_storage_backups ADD COLUMN IF NOT EXISTS object_key TEXT");
+  await pool.query("ALTER TABLE runtime_agent_storage_backups ADD COLUMN IF NOT EXISTS key_id TEXT NOT NULL DEFAULT 'default'");
   await pool.query("CREATE INDEX IF NOT EXISTS runtime_agent_storage_backups_resource_created_idx ON runtime_agent_storage_backups (resource_id, created_at DESC)");
   await pool.query(`
     CREATE TABLE IF NOT EXISTS runtime_agent_storage_projects (
@@ -54,7 +57,7 @@ export async function initializePersistentStorageLifecycle(pool: Pool): Promise<
 }
 
 export function registerPersistentStorageLifecycleRoutes(app: Express, input: {
-  pool: Pool; storageRoot: string; backupRoot: string; key?: Uint8Array;
+  pool: Pool; storageRoot: string; backupRoot: string; key?: Uint8Array; keyId?: string; keyResolver?: (keyId: string) => Uint8Array; objectStore?: PersistentBackupObjectStore;
 }): void {
   const unavailable = (response: Response) => response.status(503).json({ error: "Persistent backup encryption is not configured on this agent." });
   app.post("/v1/storage/:resourceId/backups", async (request, response) => {
@@ -63,15 +66,18 @@ export function registerPersistentStorageLifecycleRoutes(app: Express, input: {
       response.status(400).json({ error: "Storage backup request is invalid." }); return;
     }
     if (!input.key) { unavailable(response); return; }
+    if (!input.objectStore) { response.status(503).json({ error: "Offsite backup storage is not configured." }); return; }
     try {
-      const backup = await createPersistentStorageBackup(input.storageRoot, input.backupRoot, resourceId, input.key);
+      const backup = await createPersistentStorageBackup(input.storageRoot, input.backupRoot, resourceId, input.key, input.keyId);
+      const remote = await uploadPersistentBackupObject(input.objectStore, backup.path, resourceId, backup.backupId);
+      if (remote.sha256 !== backup.sha256 || remote.sizeBytes !== backup.sizeBytes) throw new Error("Offsite backup integrity check failed.");
       await input.pool.query(
-        `INSERT INTO runtime_agent_storage_backups (backup_id, resource_id, backup_path, size_bytes, sha256, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6)`,
-        [backup.backupId, resourceId, backup.path, backup.sizeBytes, backup.sha256, backup.createdAt],
+        `INSERT INTO runtime_agent_storage_backups (backup_id, resource_id, backup_path, object_key, key_id, size_bytes, sha256, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [backup.backupId, resourceId, backup.path, remote.objectKey, backup.keyId, backup.sizeBytes, backup.sha256, backup.createdAt],
       );
       await input.pool.query("INSERT INTO runtime_agent_storage_audit (resource_id, action, actor, metadata) VALUES ($1,'backup.create','trusted-hosting-api',$2)", [resourceId, JSON.stringify({ backupId: backup.backupId, sizeBytes: backup.sizeBytes })]);
-      response.status(201).json({ backupId: backup.backupId, resourceId, sizeBytes: backup.sizeBytes, sha256: backup.sha256, createdAt: backup.createdAt });
+      response.status(201).json({ backupId: backup.backupId, resourceId, sizeBytes: backup.sizeBytes, sha256: backup.sha256, createdAt: backup.createdAt, keyId: backup.keyId, offsiteStored: true });
     } catch {
       response.status(409).json({ error: "Persistent storage backup could not be created." });
     }
@@ -82,7 +88,7 @@ export function registerPersistentStorageLifecycleRoutes(app: Express, input: {
     if (!validId(resourceId)) { response.status(400).json({ error: "Storage resource identifier is invalid." }); return; }
     try {
       const result = await input.pool.query(
-        "SELECT backup_id AS \"backupId\", resource_id AS \"resourceId\", size_bytes AS \"sizeBytes\", sha256, created_at AS \"createdAt\" FROM runtime_agent_storage_backups WHERE resource_id=$1 ORDER BY created_at DESC LIMIT 100",
+        "SELECT backup_id AS \"backupId\", resource_id AS \"resourceId\", size_bytes AS \"sizeBytes\", sha256, created_at AS \"createdAt\", key_id AS \"keyId\", (object_key IS NOT NULL) AS \"offsiteStored\" FROM runtime_agent_storage_backups WHERE resource_id=$1 ORDER BY created_at DESC LIMIT 100",
         [resourceId],
       );
       response.status(200).json({ resourceId, backups: result.rows });
@@ -96,15 +102,24 @@ export function registerPersistentStorageLifecycleRoutes(app: Express, input: {
     }
     if (!input.key) { unavailable(response); return; }
     try {
-      const result = await input.pool.query("SELECT backup_path FROM runtime_agent_storage_backups WHERE backup_id=$1 AND resource_id=$2", [backupId, resourceId]);
+      const result = await input.pool.query("SELECT backup_path, object_key, sha256, key_id FROM runtime_agent_storage_backups WHERE backup_id=$1 AND resource_id=$2", [backupId, resourceId]);
       if (!result.rowCount) { response.status(404).json({ error: "Backup was not found." }); return; }
-      const backupFile = path.resolve(result.rows[0].backup_path);
+      let backupFile = path.resolve(result.rows[0].backup_path);
       if (path.dirname(backupFile) !== path.resolve(input.backupRoot)) throw new Error("Backup path escaped its private root.");
-      const backupStat = await lstat(backupFile);
-      if (!backupStat.isFile() || backupStat.isSymbolicLink()) throw new Error("Backup entry is unsafe.");
-      const restored = await restorePersistentStorageBackup(input.storageRoot, backupFile, resourceId, input.key);
-      await input.pool.query("INSERT INTO runtime_agent_storage_audit (resource_id, action, actor, metadata) VALUES ($1,'backup.restore','trusted-hosting-api',$2)", [resourceId, JSON.stringify({ backupId, ...restored })]);
-      response.status(200).json({ resourceId, backupId, ...restored });
+      let downloaded = false;
+      try { await lstat(backupFile); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT" || !result.rows[0].object_key || !input.objectStore) throw error;
+        backupFile = await downloadPersistentBackupObject(input.objectStore, result.rows[0].object_key, input.backupRoot, result.rows[0].sha256);
+        downloaded = true;
+      }
+      try {
+        const backupStat = await lstat(backupFile);
+        if (!backupStat.isFile() || backupStat.isSymbolicLink()) throw new Error("Backup entry is unsafe.");
+        const restored = await restorePersistentStorageBackup(input.storageRoot, backupFile, resourceId, input.keyResolver ?? input.key);
+        await input.pool.query("INSERT INTO runtime_agent_storage_audit (resource_id, action, actor, metadata) VALUES ($1,'backup.restore','trusted-hosting-api',$2)", [resourceId, JSON.stringify({ backupId, ...restored })]);
+        response.status(200).json({ resourceId, backupId, ...restored });
+      } finally { if (downloaded) await rm(backupFile, { force: true }); }
     } catch { response.status(409).json({ error: "Backup restore failed safely; live data was not intentionally replaced." }); }
   });
 
@@ -114,13 +129,19 @@ export function registerPersistentStorageLifecycleRoutes(app: Express, input: {
       response.status(400).json({ error: "Backup deletion request is invalid." }); return;
     }
     try {
-      const result = await input.pool.query("SELECT backup_path FROM runtime_agent_storage_backups WHERE backup_id=$1 AND resource_id=$2", [backupId, resourceId]);
+      const result = await input.pool.query("SELECT backup_path, object_key FROM runtime_agent_storage_backups WHERE backup_id=$1 AND resource_id=$2", [backupId, resourceId]);
       if (!result.rowCount) { response.status(404).json({ error: "Backup was not found." }); return; }
       const file = path.resolve(result.rows[0].backup_path);
       if (path.dirname(file) !== path.resolve(input.backupRoot)) throw new Error("Backup path escaped its private root.");
-      const details = await lstat(file);
-      if (!details.isFile() || details.isSymbolicLink()) throw new Error("Backup entry is unsafe.");
-      await unlink(file);
+      if (result.rows[0].object_key) {
+        if (!input.objectStore) throw new Error("Offsite backup store is not configured.");
+        await deletePersistentBackupObject(input.objectStore, result.rows[0].object_key);
+      }
+      try {
+        const details = await lstat(file);
+        if (!details.isFile() || details.isSymbolicLink()) throw new Error("Backup entry is unsafe.");
+        await unlink(file);
+      } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
       await input.pool.query("DELETE FROM runtime_agent_storage_backups WHERE backup_id=$1 AND resource_id=$2", [backupId, resourceId]);
       await input.pool.query("INSERT INTO runtime_agent_storage_audit (resource_id, action, actor, metadata) VALUES ($1,'backup.delete','trusted-hosting-api',$2)", [resourceId, JSON.stringify({ backupId })]);
       response.status(200).json({ resourceId, backupId, deleted: true });
