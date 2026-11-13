@@ -19,7 +19,7 @@ The runtime agent is a separate service for a dedicated Linux runtime host. It m
 
 ## Public website request handling
 
-The generated Caddy JSON config is the public HTTPS edge for verified website domains. Use Caddy v2.10.0 or newer because the built-in `request_body` handler used for upload limits is experimental and was introduced in v2.10. Caddy's automatic HTTPS manages certificates for configured public hostnames and redirects HTTP to HTTPS; the Linux host must make TCP ports 80 and 443 reachable and retain Caddy's data/config volumes.
+The generated Caddy JSON config is the public HTTPS edge for verified website domains. Use Caddy v2.11.8 or newer for the request-body and HTTP idle-timeout controls in this configuration. Caddy's automatic HTTPS manages certificates for configured public hostnames and redirects HTTP to HTTPS; the Linux host must make TCP ports 80 and 443 reachable and retain Caddy's data/config volumes.
 
 Each website route applies a 10 MiB request-body ceiling before proxying. The HTTP server also has bounded header, upload, idle-read and idle-write settings to reduce slow-client resource exhaustion. The reverse proxy uses low-latency flushing for streaming responses, supports WebSocket upgrades through Caddy's native reverse proxy, and allows streams up to 24 hours. A five-minute stream-close delay reduces abrupt WebSocket disconnects during config reloads. Upstream connection and response-header timeouts remain bounded.
 
