@@ -716,9 +716,9 @@ export async function startRuntimeAgent(): Promise<void> {
   let persistentBackupKey: Buffer | undefined;
   let persistentBackupRoot: string | undefined;
   if (backupKeyValue || backupRootValue) {
-    if (!backupKeyValue || !backupRootValue) {
+    if (!backupKeyValue || !backupRootValue || !persistentStorageRootValue) {
       await pool.end();
-      throw new Error("RUNTIME_AGENT_BACKUP_KEY and RUNTIME_AGENT_BACKUP_ROOT must be configured together.");
+      throw new Error("RUNTIME_AGENT_BACKUP_KEY, RUNTIME_AGENT_BACKUP_ROOT and RUNTIME_AGENT_PERSISTENT_STORAGE_ROOT must be configured together.");
     }
     try {
       persistentBackupKey = decodePersistentBackupKey(backupKeyValue);
@@ -733,8 +733,10 @@ export async function startRuntimeAgent(): Promise<void> {
   const ingressAdminUrl = process.env.RUNTIME_AGENT_CADDY_ADMIN_URL?.trim();
   const app = createRuntimeAgentApp({ pool, secret, storageRoot, provider, builder, builderEnabled, ingressAdminUrl,
     persistentBackupRoot, persistentBackupKey, persistentStorageRoot: persistentStorageRootValue ? path.resolve(persistentStorageRootValue) : undefined, executionEnabled: false });
-  const stopBackupScheduler = persistentBackupKey && persistentBackupRoot && persistentStorageRootValue
-    ? startPersistentBackupScheduler({
+  let stopBackupScheduler: (() => Promise<void>) | undefined;
+  if (persistentBackupKey && persistentBackupRoot && persistentStorageRootValue) {
+    try {
+      stopBackupScheduler = startPersistentBackupScheduler({
         storageRoot: path.resolve(persistentStorageRootValue),
         backupRoot: persistentBackupRoot,
         key: persistentBackupKey,
@@ -759,8 +761,12 @@ export async function startRuntimeAgent(): Promise<void> {
           }
         },
         onCycle: (result) => console.log("Persistent backup cycle:", JSON.stringify(result)),
-      })
-    : undefined;
+      });
+    } catch (error) {
+      await pool.end();
+      throw error;
+    }
+  }
   const port = Number(process.env.RUNTIME_AGENT_PORT || 5003);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     await pool.end();
