@@ -71,34 +71,68 @@ export function renderPrivateIngressJsonConfig(
         servers: {
           dsquare: {
             listen: [":80", ":443"],
+            // Caddy v2.10+ is required for the built-in request_body handler.
+            // read_timeout bounds the whole upload; read_idle_timeout blocks stalled uploads.
+            read_timeout: "5m",
+            read_header_timeout: "10s",
+            read_idle_timeout: "30s",
+            read_min_rate: 1024,
+            write_idle_timeout: "2m",
+            idle_timeout: "2m",
+            max_header_bytes: 16384,
             routes: normalized.map((route) => ({
               match: [{ host: [route.domain] }],
-              handle: [{
-                handler: "reverse_proxy",
-                upstreams: [{
-                  dial: "dsquare-deploy-" + route.deploymentId + ".runtime.dsquare.internal:3000",
-                }],
-                headers: {
-                  request: {
-                    set: {
-                      Host: ["{http.request.host}"],
-                      "X-Forwarded-Host": ["{http.request.host}"],
-                      "X-Forwarded-Proto": ["{http.request.scheme}"],
-                      "X-Forwarded-For": ["{http.request.remote.host}"],
+              handle: [
+                {
+                  handler: "request_body",
+                  max_size: 10 * 1024 * 1024,
+                },
+                {
+                  handler: "reverse_proxy",
+                  upstreams: [{
+                    dial: "dsquare-deploy-" + route.deploymentId + ".runtime.dsquare.internal:3000",
+                  }],
+                  headers: {
+                    request: {
+                      set: {
+                        Host: ["{http.request.host}"],
+                        "X-Forwarded-Host": ["{http.request.host}"],
+                        "X-Forwarded-Proto": ["{http.request.scheme}"],
+                        "X-Forwarded-For": ["{http.request.remote.host}"],
+                      },
+                      delete: ["Forwarded", "X-Real-IP"],
                     },
-                    delete: ["Forwarded", "X-Real-IP"],
+                  },
+                  flush_interval: "-1ns",
+                  stream_timeout: "24h",
+                  stream_close_delay: "5m",
+                  transport: {
+                    protocol: "http",
+                    dial_timeout: "3s",
+                    response_header_timeout: "30s",
+                    read_timeout: "5m",
+                    write_timeout: "5m",
                   },
                 },
-                transport: {
-                  protocol: "http",
-                  dial_timeout: "3s",
-                  response_header_timeout: "30s",
-                  read_timeout: "5m",
-                  write_timeout: "5m",
-                },
-              }],
+              ],
               terminal: true,
             })),
+            errors: {
+              routes: [{
+                match: [{
+                  expression: "{http.error.status_code} == 502 || {http.error.status_code} == 503 || {http.error.status_code} == 504",
+                }],
+                handle: [{
+                  handler: "static_response",
+                  status_code: 503,
+                  body: "This website is temporarily unavailable. Please try again shortly.",
+                  headers: {
+                    "Cache-Control": ["no-store"],
+                    "Content-Type": ["text/plain; charset=utf-8"],
+                  },
+                }],
+              }],
+            },
           },
         },
       },
