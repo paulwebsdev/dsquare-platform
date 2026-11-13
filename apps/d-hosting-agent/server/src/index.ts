@@ -188,7 +188,8 @@ export function createRuntimeAgentApp(input: {
     registerPersistentStorageLifecycleRoutes(app, { pool: input.pool, storageRoot: input.persistentStorageRoot,
       backupRoot: input.persistentBackupRoot ?? path.join(input.persistentStorageRoot, ".backups"), key: input.persistentBackupKey });
   }
-\n  app.get("/v1/health", (_request, response) => {
+
+  app.get("/v1/health", (_request, response) => {
     response.status(200).json({ status: "ready", providerConfigured: Boolean(input.provider), executionEnabled, builderConfigured: Boolean(input.builder), builderEnabled, ingressConfigured: Boolean(input.ingressAdminUrl) });
   });
 
@@ -591,7 +592,8 @@ export async function startRuntimeAgent(): Promise<void> {
     `);
     await pool.query("CREATE INDEX IF NOT EXISTS runtime_agent_nonces_expires_at_idx ON runtime_agent_nonces (expires_at)");
     await pool.query("SELECT 1");
-    await new RuntimeRegistry(pool).initialize();\n    await initializePersistentStorageLifecycle(pool);
+    await new RuntimeRegistry(pool).initialize();
+    await initializePersistentStorageLifecycle(pool);
   } catch (error) {
     await pool.end();
     throw error;
