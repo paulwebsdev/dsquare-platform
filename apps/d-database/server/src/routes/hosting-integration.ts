@@ -91,6 +91,7 @@ router.post("/redeem", limitCodeRedemption, async (req, res) => {
         database_name: String((await pool.query("SELECT current_database() AS name")).rows[0]?.name || ""),
         database_role: access.roleName,
         database_password: access.password,
+        database_connection_limit: access.connectionLimit,
       },
     });
   } catch (error) {
