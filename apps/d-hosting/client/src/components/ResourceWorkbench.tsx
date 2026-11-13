@@ -1,4 +1,4 @@
-﻿import WebsitePreview from "./WebsitePreview";
+import WebsitePreview from "./WebsitePreview";
 import PublishingControls from "./PublishingControls";
 import DeploymentHistory from "./DeploymentHistory";
 import CustomDomains from "./CustomDomains";
@@ -1341,7 +1341,7 @@ export default function ResourceWorkbench({
             <div>
               <h2>Website files</h2>
               <p>
-                Upload individual files or a complete folder structure. Maximum 10 MB per file.
+                Upload individual files or a complete folder structure. Maximum 10 MB per file and 100 MB total per website.
               </p>
             </div>
             <div className="wb-upload-actions">
@@ -1385,7 +1385,7 @@ export default function ResourceWorkbench({
               <div className="panel-heading">
                 <div>
                   <h2>Stored files</h2>
-                  <p>Private files belonging to this website resource</p>
+                  <p>Private files belonging to this website resource · {formatSize(files.reduce((total, file) => total + Number(file.size_bytes || 0), 0))} of 100 MB used</p>
                 </div>
                 <span className="wb-count">{files.length} files</span>
               </div>
