@@ -347,7 +347,7 @@ export async function getRuntimeAgentRuntime(
   assertRuntimeAgentResourceId(resourceId);
   const result = await requestRuntimeAgent<unknown>(options, {
     method: "GET",
-    path: `/v1/runtimes/${resourceId}`,
+    path: `/v1/runtimes/${resourceId}/${deploymentId}`,
   });
   if (!result || typeof result !== "object") {
     throw new Error("Runtime agent returned an invalid runtime status response.");
@@ -373,7 +373,7 @@ export async function getRuntimeAgentLogs(
   assertRuntimeAgentResourceId(resourceId);
   const result = await requestRuntimeAgent<unknown>(options, {
     method: "GET",
-    path: `/v1/runtimes/${resourceId}/logs`,
+    path: `/v1/runtimes/${resourceId}/${deploymentId}/logs`,
   });
   if (!result || typeof result !== "object" ||
       (result as Record<string, unknown>).resourceId !== resourceId ||
@@ -418,7 +418,7 @@ export async function deleteRuntimeAgentRuntime(
       (result as Record<string, unknown>).deleted !== true) {
     throw new Error("Runtime agent did not confirm runtime deletion.");
   }
-  return result as { resourceId: string; deleted: true };
+  return result as { resourceId: string; deploymentId: string; deleted: true };
 }
 
 /** Deletes an artifact only after its runtime has been removed. */
