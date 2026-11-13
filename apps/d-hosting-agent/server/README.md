@@ -1,5 +1,7 @@
 # D Hosting Runtime Agent (secure receiver + Podman transport)
 
+See [Caddy private ingress provisioning](./CADDY-INGRESS.md) for the Linux host network layout, persistent certificate storage, loopback-only admin publication, and pre-activation acceptance checklist.
+
 The runtime agent is a separate service for a dedicated Linux runtime host. It must not run customer code on the D Hosting API process or the Windows development PC.
 
 ## Current safety state
