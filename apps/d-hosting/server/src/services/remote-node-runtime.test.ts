@@ -127,7 +127,7 @@ test("removes a remotely accepted artifact if runtime creation fails", async () 
     if (init.method === "POST") {
       return new Response("internal failure", { status: 500 });
     }
-    if (url.pathname === `/v1/runtimes/${resourceId}`) {
+    if (url.pathname === `/v1/runtimes/${resourceId}/${deploymentId}`) {
       return new Response(null, { status: 404 });
     }
     return Response.json({ artifactId: deploymentId, deleted: true });
