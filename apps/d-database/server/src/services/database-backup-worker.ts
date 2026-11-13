@@ -152,6 +152,67 @@ export async function runDatabaseBackupRetentionSweep(pool: Pool): Promise<numbe
   return removed;
 }
 
+const BACKUP_SCHEDULER_LOCK = [0x44535152, 1] as const;
+const DEFAULT_STALE_BACKUP_HOURS = 24;
+
+export type ScheduledBackupCycleResult = {
+  completed: number;
+  failed: number;
+  skipped: boolean;
+  expired: number;
+  lockSkipped: boolean;
+};
+
+/**
+ * Runs one cluster-safe scheduled cycle. A session-level advisory lock prevents
+ * multiple API replicas from backing up the same resources at the same time.
+ */
+export async function runScheduledDatabaseBackupCycle(pool: Pool): Promise<ScheduledBackupCycleResult> {
+  const config = getDatabaseBackupStorageConfig(process.env);
+  if (!config) {
+    return { completed: 0, failed: 0, skipped: true, expired: 0, lockSkipped: false };
+  }
+
+  const client = await pool.connect();
+  let lockAcquired = false;
+  try {
+    const lock = await client.query<{ locked: boolean }>(
+      "SELECT pg_try_advisory_lock($1, $2) AS locked",
+      [...BACKUP_SCHEDULER_LOCK],
+    );
+    lockAcquired = lock.rows[0]?.locked === true;
+    if (!lockAcquired) {
+      return { completed: 0, failed: 0, skipped: true, expired: 0, lockSkipped: true };
+    }
+
+    const requestedStaleHours = Number(process.env.D_DATABASE_BACKUP_STALE_HOURS || DEFAULT_STALE_BACKUP_HOURS);
+    const staleHours = Number.isFinite(requestedStaleHours)
+      ? Math.max(6, Math.min(168, Math.floor(requestedStaleHours)))
+      : DEFAULT_STALE_BACKUP_HOURS;
+    await pool.query(
+      `UPDATE database_backups
+       SET status = 'failed', error_code = 'BACKUP_INTERRUPTED'
+       WHERE status = 'running'
+         AND started_at < NOW() - ($1::integer * INTERVAL '1 hour')`,
+      [staleHours],
+    );
+
+    const backup = await runDatabaseBackupSweep(pool);
+    const expired = await runDatabaseBackupRetentionSweep(pool);
+    return { ...backup, expired, lockSkipped: false };
+  } finally {
+    if (lockAcquired) {
+      await client.query(
+        "SELECT pg_advisory_unlock($1, $2)",
+        [...BACKUP_SCHEDULER_LOCK],
+      ).catch((error) => {
+        console.error("D Database backup scheduler lock release failed:", error instanceof Error ? error.message : "Unknown error");
+      });
+    }
+    client.release();
+  }
+}
+
 export function startDatabaseBackupScheduler(pool: Pool): void {
   if (process.env.D_DATABASE_BACKUP_SCHEDULER_ENABLED !== "true") {
     console.log("D Database backup scheduler disabled; set D_DATABASE_BACKUP_SCHEDULER_ENABLED=true to enable it.");
@@ -162,9 +223,8 @@ export function startDatabaseBackupScheduler(pool: Pool): void {
     if (running) return;
     running = true;
     try {
-      const result = await runDatabaseBackupSweep(pool);
-      const expired = await runDatabaseBackupRetentionSweep(pool);
-      console.log("D Database backup sweep finished:", { ...result, expired });
+      const result = await runScheduledDatabaseBackupCycle(pool);
+      console.log("D Database backup sweep finished:", result);
     } catch (error) {
       console.error("D Database backup scheduler failed:", error instanceof Error ? error.message : "Unknown error");
     } finally {
