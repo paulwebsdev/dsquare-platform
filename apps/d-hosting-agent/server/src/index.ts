@@ -394,7 +394,7 @@ export function createRuntimeAgentApp(input: {
       return;
     }
     const record = await registry.getDeployment(request.params.deploymentId);
-    if (!record) {
+    if (!record || record.resourceId !== request.params.resourceId) {
       response.status(404).json({ error: "Runtime was not found." });
       return;
     }
@@ -431,7 +431,7 @@ export function createRuntimeAgentApp(input: {
       return;
     }
     const record = await registry.getDeployment(request.params.deploymentId);
-    if (!record) {
+    if (!record || record.resourceId !== request.params.resourceId) {
       response.status(404).json({ error: "Runtime was not found." });
       return;
     }
@@ -460,7 +460,7 @@ export function createRuntimeAgentApp(input: {
         return;
       }
       const record = await registry.getDeployment(request.params.deploymentId);
-      if (!record) {
+      if (!record || record.resourceId !== request.params.resourceId) {
         response.status(404).json({ error: "Runtime was not found." });
         return;
       }
@@ -490,7 +490,7 @@ export function createRuntimeAgentApp(input: {
       return;
     }
     const record = await registry.getDeployment(request.params.deploymentId);
-    if (!record) {
+    if (!record || record.resourceId !== request.params.resourceId) {
       response.status(404).json({ error: "Runtime was not found." });
       return;
     }
