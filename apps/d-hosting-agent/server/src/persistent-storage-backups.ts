@@ -3,7 +3,9 @@ import { chmod, lstat, mkdir, open, readdir, rename, rm, stat, writeFile } from 
 import { gunzipSync, gzipSync } from "node:zlib";
 import path from "node:path";
 
-const MAGIC = Buffer.from("DSQBAK01", "ascii");
+const MAGIC_V1 = Buffer.from("DSQBAK01", "ascii");
+const MAGIC_V2 = Buffer.from("DSQBAK02", "ascii");
+const KEY_ID = /^[A-Za-z0-9._-]{1,32}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_FILES = 20_000;
 const MAX_FILE_BYTES = 64 * 1024 * 1024;
@@ -21,6 +23,7 @@ export type PersistentBackup = {
   sizeBytes: number;
   sha256: string;
   createdAt: string;
+  keyId: string;
 };
 
 function inside(root: string, target: string): void {
@@ -78,9 +81,10 @@ async function collectFiles(root: string): Promise<{ files: BackupFile[]; totalB
 
 /** Creates an authenticated, compressed, encrypted snapshot without following symlinks. */
 export async function createPersistentStorageBackup(
-  storageRoot: string, backupRoot: string, resourceId: string, keyBytes: Uint8Array,
+  storageRoot: string, backupRoot: string, resourceId: string, keyBytes: Uint8Array, keyId = "default",
 ): Promise<PersistentBackup> {
   if (!UUID.test(resourceId)) throw new Error("Persistent storage resource ID is invalid.");
+  if (!KEY_ID.test(keyId)) throw new Error("Persistent backup key ID is invalid.");
   const key = encryptionKey(keyBytes);
   const sourceRoot = await privateDirectory(storageRoot);
   const source = path.join(sourceRoot, resourceId);
@@ -93,11 +97,12 @@ export async function createPersistentStorageBackup(
   const payload: BackupPayload = { version: 1, resourceId, createdAt, files, totalBytes };
   const compressed = gzipSync(Buffer.from(JSON.stringify(payload)), { level: 6 });
   const nonce = randomBytes(12);
+  const keyIdBytes = Buffer.from(keyId, "ascii");
   const cipher = createCipheriv("aes-256-gcm", key, nonce);
-  cipher.setAAD(Buffer.concat([MAGIC, Buffer.from(resourceId)]));
+  cipher.setAAD(Buffer.concat([MAGIC_V2, Buffer.from(resourceId), keyIdBytes]));
   const ciphertext = Buffer.concat([cipher.update(compressed), cipher.final()]);
   const tag = cipher.getAuthTag();
-  const envelope = Buffer.concat([MAGIC, nonce, tag, ciphertext]);
+  const envelope = Buffer.concat([MAGIC_V2, Buffer.from([keyIdBytes.byteLength]), keyIdBytes, nonce, tag, ciphertext]);
   if (envelope.byteLength > MAX_BACKUP_BYTES) throw new Error("Encrypted persistent backup exceeds the permitted size.");
   const filename = `${resourceId}.${createdAt.replace(/[:.]/g, "-")}.${backupId}.dsqbak`;
   const destination = path.join(targetRoot, filename);
@@ -108,15 +113,14 @@ export async function createPersistentStorageBackup(
   try { await rename(temporary, destination); }
   catch (error) { await rm(temporary, { force: true }); throw error; }
   return { backupId, resourceId, path: destination, sizeBytes: envelope.byteLength,
-    sha256: createHash("sha256").update(envelope).digest("hex"), createdAt };
+    sha256: createHash("sha256").update(envelope).digest("hex"), createdAt, keyId };
 }
 
 /** Authenticates and validates a backup before atomically replacing a website's data directory. */
 export async function restorePersistentStorageBackup(
-  storageRoot: string, backupPath: string, resourceId: string, keyBytes: Uint8Array,
+  storageRoot: string, backupPath: string, resourceId: string, keyBytes: Uint8Array | ((keyId: string) => Uint8Array),
 ): Promise<{ restoredFiles: number; restoredBytes: number }> {
   if (!UUID.test(resourceId)) throw new Error("Persistent storage resource ID is invalid.");
-  const key = encryptionKey(keyBytes);
   const root = await privateDirectory(storageRoot);
   const backup = path.resolve(backupPath);
   const backupStat = await lstat(backup);
@@ -124,12 +128,30 @@ export async function restorePersistentStorageBackup(
     throw new Error("Persistent backup file is invalid.");
   }
   const envelope = await import("node:fs/promises").then(({ readFile }) => readFile(backup));
-  if (!envelope.subarray(0, 8).equals(MAGIC)) throw new Error("Persistent backup format is invalid.");
-  const nonce = envelope.subarray(8, 20), tag = envelope.subarray(20, 36), ciphertext = envelope.subarray(36);
+  const format = envelope.subarray(0, 8);
+  let keyId = "default";
+  let nonce: Buffer, tag: Buffer, ciphertext: Buffer, aad: Buffer;
+  if (format.equals(MAGIC_V1)) {
+    nonce = envelope.subarray(8, 20); tag = envelope.subarray(20, 36); ciphertext = envelope.subarray(36);
+    aad = Buffer.concat([MAGIC_V1, Buffer.from(resourceId)]);
+  } else if (format.equals(MAGIC_V2)) {
+    const keyIdLength = envelope[8] ?? 0;
+    if (keyIdLength < 1 || keyIdLength > 32 || envelope.byteLength < 9 + keyIdLength + 28) throw new Error("Persistent backup key metadata is invalid.");
+    keyId = envelope.subarray(9, 9 + keyIdLength).toString("ascii");
+    if (!KEY_ID.test(keyId)) throw new Error("Persistent backup key metadata is invalid.");
+    const offset = 9 + keyIdLength;
+    nonce = envelope.subarray(offset, offset + 12);
+    tag = envelope.subarray(offset + 12, offset + 28);
+    ciphertext = envelope.subarray(offset + 28);
+    aad = Buffer.concat([MAGIC_V2, Buffer.from(resourceId), Buffer.from(keyId)]);
+  } else {
+    throw new Error("Persistent backup format is invalid.");
+  }
+  const key = encryptionKey(typeof keyBytes === "function" ? keyBytes(keyId) : keyBytes);
   let decoded: Buffer;
   try {
     const decipher = createDecipheriv("aes-256-gcm", key, nonce);
-    decipher.setAAD(Buffer.concat([MAGIC, Buffer.from(resourceId)]));
+    decipher.setAAD(aad);
     decipher.setAuthTag(tag);
     decoded = gunzipSync(Buffer.concat([decipher.update(ciphertext), decipher.final()]), { maxOutputLength: MAX_TOTAL_BYTES * 3 });
   } catch { throw new Error("Persistent backup authentication or decompression failed."); }
