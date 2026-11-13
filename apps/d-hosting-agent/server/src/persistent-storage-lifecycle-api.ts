@@ -18,6 +18,16 @@ function body(request: Request): Record<string, unknown> | null {
   } catch { return null; }
 }
 function validId(value: string): boolean { return UUID.test(value); }
+function requestActor(request: Request, fallback: string): string | null {
+  const bytes = Buffer.isBuffer(request.body) ? request.body : Buffer.alloc(0);
+  if (bytes.byteLength === 0) return fallback;
+  const payload = body(request);
+  if (!payload) return null;
+  if (payload.actor === undefined) return fallback;
+  return typeof payload.actor === "string" && payload.actor.trim().length > 0 &&
+    payload.actor.length <= 200 && !/[\\u0000-\\u001f\\u007f]/.test(payload.actor)
+    ? payload.actor : null;
+}
 
 export async function initializePersistentStorageLifecycle(pool: Pool): Promise<void> {
   await pool.query(`
@@ -59,18 +69,19 @@ export function registerPersistentStorageLifecycleRoutes(app: Express, input: {
   const unavailable = (response: Response) => response.status(503).json({ error: "Persistent backup encryption is not configured on this agent." });
   app.post("/v1/storage/:resourceId/backups", async (request, response) => {
     const resourceId = request.params.resourceId;
-    if (!validId(resourceId) || (Buffer.isBuffer(request.body) && request.body.byteLength !== 0)) {
+    const actor = requestActor(request, "trusted-hosting-api");
+    if (!validId(resourceId) || actor === null) {
       response.status(400).json({ error: "Storage backup request is invalid." }); return;
     }
     if (!input.key) { unavailable(response); return; }
     try {
       const backup = await createPersistentStorageBackup(input.storageRoot, input.backupRoot, resourceId, input.key);
       await input.pool.query(
-        `INSERT INTO runtime_agent_storage_backups (backup_id, resource_id, backup_path, size_bytes, sha256, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6)`,
-        [backup.backupId, resourceId, backup.path, backup.sizeBytes, backup.sha256, backup.createdAt],
+        `INSERT INTO runtime_agent_storage_backups (backup_id, resource_id, backup_path, size_bytes, sha256, created_at, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [backup.backupId, resourceId, backup.path, backup.sizeBytes, backup.sha256, backup.createdAt, actor],
       );
-      await input.pool.query("INSERT INTO runtime_agent_storage_audit (resource_id, action, actor, metadata) VALUES ($1,'backup.create','trusted-hosting-api',$2)", [resourceId, JSON.stringify({ backupId: backup.backupId, sizeBytes: backup.sizeBytes })]);
+      await input.pool.query("INSERT INTO runtime_agent_storage_audit (resource_id, action, actor, metadata) VALUES ($1,'backup.create',$2,$3)", [resourceId, actor, JSON.stringify({ backupId: backup.backupId, sizeBytes: backup.sizeBytes })]);
       response.status(201).json({ backupId: backup.backupId, resourceId, sizeBytes: backup.sizeBytes, sha256: backup.sha256, createdAt: backup.createdAt });
     } catch {
       response.status(409).json({ error: "Persistent storage backup could not be created." });
@@ -91,7 +102,8 @@ export function registerPersistentStorageLifecycleRoutes(app: Express, input: {
 
   app.post("/v1/storage/:resourceId/backups/:backupId/restore", async (request, response) => {
     const { resourceId, backupId } = request.params;
-    if (!validId(resourceId) || !BACKUP_ID.test(backupId) || !body(request) || body(request)?.confirm !== true) {
+    const actor = requestActor(request, "trusted-hosting-api");
+    if (!validId(resourceId) || !BACKUP_ID.test(backupId) || !body(request) || body(request)?.confirm !== true || actor === null) {
       response.status(400).json({ error: "Restore requires a valid backup and explicit confirmation." }); return;
     }
     if (!input.key) { unavailable(response); return; }
@@ -111,14 +123,15 @@ export function registerPersistentStorageLifecycleRoutes(app: Express, input: {
         await enforceXfsProjectQuota({ storageRoot: input.storageRoot, resourceId, projectId, hardLimitBytes });
         await input.pool.query("UPDATE runtime_agent_storage_projects SET quota_applied_at=NOW() WHERE resource_id=$1", [resourceId]);
       });
-      await input.pool.query("INSERT INTO runtime_agent_storage_audit (resource_id, action, actor, metadata) VALUES ($1,'backup.restore','trusted-hosting-api',$2)", [resourceId, JSON.stringify({ backupId, ...restored })]);
+      await input.pool.query("INSERT INTO runtime_agent_storage_audit (resource_id, action, actor, metadata) VALUES ($1,'backup.restore',$2,$3)", [resourceId, actor, JSON.stringify({ backupId, ...restored })]);
       response.status(200).json({ resourceId, backupId, ...restored });
     } catch { response.status(409).json({ error: "Backup restore failed safely; live data was not intentionally replaced." }); }
   });
 
   app.delete("/v1/storage/:resourceId/backups/:backupId", async (request, response) => {
     const { resourceId, backupId } = request.params;
-    if (!validId(resourceId) || !BACKUP_ID.test(backupId) || (Buffer.isBuffer(request.body) && request.body.byteLength !== 0)) {
+    const actor = requestActor(request, "trusted-hosting-api");
+    if (!validId(resourceId) || !BACKUP_ID.test(backupId) || actor === null) {
       response.status(400).json({ error: "Backup deletion request is invalid." }); return;
     }
     try {
@@ -130,7 +143,7 @@ export function registerPersistentStorageLifecycleRoutes(app: Express, input: {
       if (!details.isFile() || details.isSymbolicLink()) throw new Error("Backup entry is unsafe.");
       await unlink(file);
       await input.pool.query("DELETE FROM runtime_agent_storage_backups WHERE backup_id=$1 AND resource_id=$2", [backupId, resourceId]);
-      await input.pool.query("INSERT INTO runtime_agent_storage_audit (resource_id, action, actor, metadata) VALUES ($1,'backup.delete','trusted-hosting-api',$2)", [resourceId, JSON.stringify({ backupId })]);
+      await input.pool.query("INSERT INTO runtime_agent_storage_audit (resource_id, action, actor, metadata) VALUES ($1,'backup.delete',$2,$3)", [resourceId, actor, JSON.stringify({ backupId })]);
       response.status(200).json({ resourceId, backupId, deleted: true });
     } catch { response.status(409).json({ error: "Backup could not be safely deleted." }); }
   });
@@ -175,12 +188,13 @@ export function registerPersistentStorageLifecycleRoutes(app: Express, input: {
 
   app.post("/v1/storage/:resourceId/tombstone", async (request, response) => {
     const resourceId = request.params.resourceId;
-    if (!validId(resourceId) || body(request)?.confirm !== true) {
+    const actor = requestActor(request, "trusted-hosting-api");
+    if (!validId(resourceId) || body(request)?.confirm !== true || actor === null) {
       response.status(400).json({ error: "Storage tombstone requires explicit confirmation." }); return;
     }
     try {
       const tombstone = await tombstonePersistentStorage(input.storageRoot, resourceId);
-      await input.pool.query("INSERT INTO runtime_agent_storage_audit (resource_id, action, actor, metadata) VALUES ($1,'storage.tombstone','trusted-hosting-api',$2)", [resourceId, JSON.stringify({ moved: Boolean(tombstone) })]);
+      await input.pool.query("INSERT INTO runtime_agent_storage_audit (resource_id, action, actor, metadata) VALUES ($1,'storage.tombstone',$2,$3)", [resourceId, actor, JSON.stringify({ moved: Boolean(tombstone) })]);
       response.status(200).json({ resourceId, tombstoned: Boolean(tombstone) });
     } catch { response.status(409).json({ error: "Persistent storage could not be safely tombstoned." }); }
   });
