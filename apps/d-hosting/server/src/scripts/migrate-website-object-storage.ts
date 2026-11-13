@@ -1,6 +1,7 @@
 import "dotenv/config";
 import {
   DeleteObjectCommand,
+  GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
@@ -117,7 +118,14 @@ async function migrateObject(input: {
     }));
     const verified = await storage.client.send(new HeadObjectCommand({ Bucket: storage.bucket, Key: newKey }));
     if (Number(verified.ContentLength) !== bytes.byteLength || verified.Metadata?.sha256 !== sha256) {
-      throw new Error(`Uploaded object verification failed: ${newKey}`);
+      throw new Error(`Uploaded object metadata verification failed: ${newKey}`);
+    }
+    const downloaded = await storage.client.send(new GetObjectCommand({ Bucket: storage.bucket, Key: newKey }));
+    if (!downloaded.Body) throw new Error(`Uploaded object could not be read back: ${newKey}`);
+    const verifiedBytes = Buffer.from(await downloaded.Body.transformToByteArray());
+    const verifiedSha256 = createHash("sha256").update(verifiedBytes).digest("hex");
+    if (verifiedBytes.byteLength !== bytes.byteLength || verifiedSha256 !== sha256) {
+      throw new Error(`Uploaded object content verification failed: ${newKey}`);
     }
     return { newKey, oldPath, sha256 };
   } catch (error) {
