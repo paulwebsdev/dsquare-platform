@@ -14,6 +14,7 @@ const row = {
   database_port: 5432,
   database_name: "d_database",
   database_role: "dsq_app_33333333333343338333333333333333",
+  database_connection_limit: 5,
   database_password_ciphertext: "encrypted-password",
   database_password_iv: "encrypted-iv",
   database_password_auth_tag: "encrypted-auth-tag",
