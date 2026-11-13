@@ -84,3 +84,39 @@ test("prunes only expired backups belonging to the selected website", async () =
     assert.equal(await readFile(other, "utf8"), "other");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("rolls back the previous website directory if quota reapplication fails during restore", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "dsquare-storage-restore-quota-"));
+  const storage = path.join(root, "storage"), backups = path.join(root, "backups");
+  try {
+    const website = path.join(storage, resourceId);
+    await mkdir(website, { recursive: true });
+    await writeFile(path.join(website, "index.html"), "snapshot");
+    const backup = await createPersistentStorageBackup(storage, backups, resourceId, key);
+    await writeFile(path.join(website, "index.html"), "current-live-data");
+    await assert.rejects(
+      restorePersistentStorageBackup(storage, backup.path, resourceId, key, async () => {
+        throw new Error("quota helper unavailable");
+      }),
+      /quota helper unavailable/,
+    );
+    assert.equal(await readFile(path.join(website, "index.html"), "utf8"), "current-live-data");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("runs the quota reapplication callback before restore completes", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "dsquare-storage-restore-quota-ok-"));
+  const storage = path.join(root, "storage"), backups = path.join(root, "backups");
+  try {
+    const website = path.join(storage, resourceId);
+    await mkdir(website, { recursive: true });
+    await writeFile(path.join(website, "index.html"), "snapshot");
+    const backup = await createPersistentStorageBackup(storage, backups, resourceId, key);
+    let quotaReapplied = false;
+    await restorePersistentStorageBackup(storage, backup.path, resourceId, key, async () => {
+      quotaReapplied = true;
+    });
+    assert.equal(quotaReapplied, true);
+    assert.equal(await readFile(path.join(website, "index.html"), "utf8"), "snapshot");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
