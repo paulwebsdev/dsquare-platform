@@ -152,6 +152,54 @@ export async function runDatabaseBackupRetentionSweep(pool: Pool): Promise<numbe
   return removed;
 }
 
+
+const BACKUP_SCHEDULER_LOCK_NAME = "dsquare-d-database-backup-scheduler";
+
+export type DatabaseBackupScheduledSweepResult = {
+  completed: number;
+  failed: number;
+  skipped: boolean;
+  expired: number;
+};
+
+/**
+ * Ensures only one D Database process performs a scheduled backup/retention sweep.
+ * The session advisory lock is held on a dedicated client for the full sweep.
+ */
+export async function runDatabaseBackupScheduledSweep(
+  pool: Pool,
+): Promise<DatabaseBackupScheduledSweepResult> {
+  const lockClient = await pool.connect();
+  let lockAcquired = false;
+
+  try {
+    const lockResult = await lockClient.query(
+      "SELECT pg_try_advisory_lock(hashtext($1)) AS acquired",
+      [BACKUP_SCHEDULER_LOCK_NAME],
+    );
+    lockAcquired = lockResult.rows[0]?.acquired === true;
+
+    if (!lockAcquired) {
+      return { completed: 0, failed: 0, skipped: true, expired: 0 };
+    }
+
+    const backup = await runDatabaseBackupSweep(pool);
+    const expired = await runDatabaseBackupRetentionSweep(pool);
+    return { ...backup, expired };
+  } finally {
+    try {
+      if (lockAcquired) {
+        await lockClient.query(
+          "SELECT pg_advisory_unlock(hashtext($1))",
+          [BACKUP_SCHEDULER_LOCK_NAME],
+        );
+      }
+    } finally {
+      lockClient.release();
+    }
+  }
+}
+
 export function startDatabaseBackupScheduler(pool: Pool): void {
   if (process.env.D_DATABASE_BACKUP_SCHEDULER_ENABLED !== "true") {
     console.log("D Database backup scheduler disabled; set D_DATABASE_BACKUP_SCHEDULER_ENABLED=true to enable it.");
