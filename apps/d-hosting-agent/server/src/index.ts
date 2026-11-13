@@ -521,6 +521,14 @@ export function createRuntimeAgentApp(input: {
       return;
     }
     try {
+      const [deployments, legacyRuntimes] = await Promise.all([
+        registry.listDeployments(),
+        registry.list(),
+      ]);
+      if ([...deployments, ...legacyRuntimes].some((runtime) => runtime.artifactId === artifactId)) {
+        response.status(409).json({ error: "Runtime artifact is still referenced by a managed deployment." });
+        return;
+      }
       const deleted = await deleteStoredArtifact(input.storageRoot, artifactId);
       response.status(deleted ? 200 : 404).json({ artifactId, deleted });
     } catch {
