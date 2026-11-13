@@ -1,6 +1,6 @@
 import { readdir } from "node:fs/promises";
 import path from "node:path";
-import { createPersistentStorageBackup, prunePersistentBackups } from "./persistent-storage-backups.js";
+import { createPersistentStorageBackup, prunePersistentBackups, type PersistentBackup } from "./persistent-storage-backups.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -17,7 +17,7 @@ export type BackupCycleResult = { resources: number; created: number; pruned: nu
 /** One bounded, non-overlapping backup/retention pass. */
 export async function runPersistentBackupCycle(input: {
   storageRoot: string; backupRoot: string; key: Uint8Array; retentionDays: number;
-  now?: number; onError?: (resourceId: string, error: unknown) => void;
+  now?: number; onError?: (resourceId: string, error: unknown) => void;\n  onBackup?: (backup: PersistentBackup) => Promise<void>; onResourceComplete?: (resourceId: string) => Promise<void>;
 }): Promise<BackupCycleResult> {
   const entries = await readdir(input.storageRoot, { withFileTypes: true });
   const resources = entries.filter((entry) => entry.isDirectory() && UUID.test(entry.name) && !entry.isSymbolicLink());
@@ -38,7 +38,7 @@ export async function runPersistentBackupCycle(input: {
 /** Starts a single-flight timer. The first run is delayed to avoid startup I/O spikes. */
 export function startPersistentBackupScheduler(input: {
   storageRoot: string; backupRoot: string; key: Uint8Array; retentionDays: number;
-  intervalMs: number; onError?: (resourceId: string, error: unknown) => void;
+  intervalMs: number; onError?: (resourceId: string, error: unknown) => void;\n  onBackup?: (backup: PersistentBackup) => Promise<void>; onResourceComplete?: (resourceId: string) => Promise<void>;
   onCycle?: (result: BackupCycleResult) => void;
 }): () => void {
   if (!Number.isInteger(input.intervalMs) || input.intervalMs < 60_000 || input.intervalMs > 7 * 86400_000) {
