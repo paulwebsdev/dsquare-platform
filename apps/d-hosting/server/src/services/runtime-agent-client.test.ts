@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildRuntimeAgentArtifact, changeRuntimeAgentRuntimeState, checkRuntimeAgentHealth, createRuntimeAgentRuntime, deleteRuntimeAgentArtifact, deleteRuntimeAgentRuntime, getRuntimeAgentLogs, getRuntimeAgentRuntime, requestRuntimeAgent, syncRuntimeAgentIngress } from "./runtime-agent-client.js";
+import { buildRuntimeAgentArtifact, changeRuntimeAgentRuntimeState, checkRuntimeAgentHealth, createRuntimeAgentRuntime, deleteRuntimeAgentArtifact, deleteRuntimeAgentRuntime, getRuntimeAgentLogs, getRuntimeAgentRuntime, requestRuntimeAgent, syncRuntimeAgentIngress, configureRuntimeAgentStorageQuota } from "./runtime-agent-client.js";
 
 const options = {
   baseUrl: "https://runtime.example.com",
@@ -125,6 +125,22 @@ test("checks authenticated runtime health and validates capability fields", asyn
   }), /invalid health response/);
 });
 
+
+test("provisions a validated hard storage quota through the authenticated agent", async () => {
+  const result = await configureRuntimeAgentStorageQuota({
+    ...options,
+    fetchImpl: fakeFetch((url, init) => {
+      assert.equal(url.pathname, "/v1/storage/123e4567-e89b-42d3-a456-426614174001/quota");
+      assert.equal(init.method, "POST");
+      assert.deepEqual(JSON.parse(String(init.body)), { hardLimitBytes: 128 * 1024 * 1024 });
+      return Response.json({ resourceId: "123e4567-e89b-42d3-a456-426614174001",
+        hardLimitBytes: 128 * 1024 * 1024, enforcement: "xfs-project-hard-quota", applied: true });
+    }),
+  }, "123e4567-e89b-42d3-a456-426614174001", 128 * 1024 * 1024);
+  assert.equal(result.applied, true);
+  await assert.rejects(configureRuntimeAgentStorageQuota(options, "bad", 128 * 1024 * 1024), /ID is invalid/);
+  await assert.rejects(configureRuntimeAgentStorageQuota(options, "123e4567-e89b-42d3-a456-426614174001", 1024), /at least 16 MiB/);
+});
 
 const RESOURCE_ID = "123e4567-e89b-42d3-a456-426614174001";
 const DEPLOYMENT_ID = "123e4567-e89b-42d3-a456-426614174002";

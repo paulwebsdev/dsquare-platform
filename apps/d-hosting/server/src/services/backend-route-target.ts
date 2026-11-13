@@ -2,16 +2,20 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const DEFAULT_INTERNAL_DOMAIN = "runtime.dsquare.internal";
 
 /**
- * Produces a deterministic internal-only upstream address for a resource.
- * The returned hostname is not a user-provided URL and cannot target localhost,
- * cloud metadata endpoints, or arbitrary internet hosts.
+ * Produces the private upstream address for one immutable deployment.
+ * The hostname format intentionally matches the alias assigned by the
+ * Runtime Agent and consumed by Caddy during deployment-specific cutover.
  */
 export function getBackendRouteTarget(
   resourceId: string,
+  deploymentId: string,
   internalDomain = DEFAULT_INTERNAL_DOMAIN,
 ): string {
   if (!UUID_PATTERN.test(resourceId)) {
     throw new Error("Invalid website resource ID for backend routing.");
+  }
+  if (!UUID_PATTERN.test(deploymentId)) {
+    throw new Error("Invalid deployment ID for backend routing.");
   }
   const domain = internalDomain.toLowerCase().trim();
   if (
@@ -22,7 +26,7 @@ export function getBackendRouteTarget(
   ) {
     throw new Error("Backend runtime domain must be a valid internal DNS domain.");
   }
-  return `http://dsquare-site-${resourceId}.${domain}:3000`;
+  return `http://dsquare-deploy-${deploymentId.toLowerCase()}.${domain}:3000`;
 }
 
 export function isAllowedBackendPath(path: string): boolean {

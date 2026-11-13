@@ -4,6 +4,8 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { encryptEnvironmentSecret } from "./environment-secrets.js";
+import { getAssignedDatabaseRuntimeConnection } from "./assigned-database-runtime-connection.js";
+import { getBackendRouteTarget } from "./backend-route-target.js";
 import {
   clearPreparedRuntimeEnvironment,
   prepareNodeRuntimeLaunch,
@@ -137,6 +139,76 @@ test("adds only the selected approved database connection to the isolated runtim
     assert.equal(launch.spec.environment.D_DATABASE_PASSWORD, databasePassword);
     assert.equal(launch.spec.environment.D_DATABASE_RESOURCE_ID, databaseResourceId);
     assert.equal(launch.spec.environment.PORT, "3000");
+    assert.equal(launch.spec.environment.HOSTING_SECRETS_KEY, undefined);
+    clearPreparedRuntimeEnvironment(launch);
+    assert.equal(launch.spec.environment.D_DATABASE_PASSWORD, undefined);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+
+
+test("integrates owner-scoped database assignment, encrypted secret injection, and deployment ingress target", async () => {
+  const root = await fixture();
+  const hostingUserId = "11111111-1111-4111-8111-111111111111";
+  const databaseResourceId = "33333333-3333-4333-8333-333333333333";
+  const databasePassword = "scoped-database-secret";
+  const encrypted = encryptEnvironmentSecret(
+    databasePassword,
+    environment,
+    `d-database:${hostingUserId}:${databaseResourceId}`,
+  );
+  const assignedRow = {
+    user_id: hostingUserId,
+    project_id: "22222222-2222-4222-8222-222222222222",
+    resource_id: databaseResourceId,
+    resource_name: "Customer Data",
+    schema_name: "db_09800acba6c642d093f09d8aa73c2515",
+    database_host: "database.internal",
+    database_port: 5432,
+    database_name: "d_database",
+    database_role: "dsq_app_33333333333343338333333333333333",
+    database_password_ciphertext: encrypted.ciphertext,
+    database_password_iv: encrypted.iv,
+    database_password_auth_tag: encrypted.authTag,
+  };
+  const queryable = {
+    async query(sql: string, values?: unknown[]) {
+      assert.match(sql, /assignment\.hosting_user_id = \$2/);
+      assert.match(sql, /c\.hosting_user_id = \$2/);
+      assert.match(sql, /c\.status = 'active'/);
+      assert.deepEqual(values, [resourceId, hostingUserId]);
+      return { rows: [assignedRow], rowCount: 1 };
+    },
+  };
+
+  try {
+    const assigned = await getAssignedDatabaseRuntimeConnection({
+      hostingUserId,
+      resourceId,
+      queryable,
+    });
+    assert.ok(assigned);
+
+    const launch = await prepareNodeRuntimeLaunch({
+      resourceId,
+      deploymentId,
+      storageRoot: root,
+      files: [{ originalName: "server.js", storageKey }],
+      validation,
+      encryptedVariables: [],
+      hostingUserId,
+      databaseConnection: assigned!,
+      processEnvironment: environment,
+    });
+
+    assert.equal(launch.spec.environment.D_DATABASE_PASSWORD, databasePassword);
+    assert.equal(launch.spec.environment.D_DATABASE_RESOURCE_ID, databaseResourceId);
+    assert.equal(
+      getBackendRouteTarget(resourceId, deploymentId),
+      `http://dsquare-deploy-${deploymentId}.runtime.dsquare.internal:3000`,
+    );
     assert.equal(launch.spec.environment.HOSTING_SECRETS_KEY, undefined);
     clearPreparedRuntimeEnvironment(launch);
     assert.equal(launch.spec.environment.D_DATABASE_PASSWORD, undefined);
