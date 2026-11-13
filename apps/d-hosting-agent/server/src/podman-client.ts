@@ -192,7 +192,7 @@ export class PodmanApiClient {
   }
 
   async createContainer(config: Record<string, unknown>, name: string): Promise<string> {
-    if (!/^dsquare-(?:site|builder)-[0-9a-f-]{36}$/i.test(name)) {
+    if (!/^dsquare-(?:site|deploy|builder)-[0-9a-f-]{36}$/i.test(name)) {
       throw new Error("Podman container name is invalid.");
     }
     const result = await this.call<{ Id?: unknown }>({
