@@ -26,6 +26,7 @@ export function buildPodmanContainerConfig(input: {
   artifactId: string;
   runtime: PodmanRuntimeInput;
   artifactDirectory: string;
+  persistentStorageDirectory: string;
   trustedImage: string;
   networkName: string;
 }): Record<string, unknown> {
@@ -34,10 +35,13 @@ export function buildPodmanContainerConfig(input: {
       input.deploymentId !== input.artifactId || runtime.name !== `dsquare-deploy-${input.deploymentId}`) {
     throw new Error("Podman runtime identity is invalid.");
   }
-  if (!input.artifactDirectory.startsWith("/") ||
-      input.artifactDirectory.includes("\0") ||
-      /[\r\n:]/.test(input.artifactDirectory)) {
-    throw new Error("Podman artifact mount path must be a safe Linux absolute path.");
+  for (const mountPath of [input.artifactDirectory, input.persistentStorageDirectory]) {
+    if (!mountPath.startsWith("/") || mountPath.includes("\0") || /[\r\n:,]/.test(mountPath)) {
+      throw new Error("Podman mount paths must be safe absolute Linux paths.");
+    }
+  }
+  if (input.artifactDirectory === input.persistentStorageDirectory) {
+    throw new Error("Deployment artifacts and persistent storage must use separate directories.");
   }
   if (!input.trustedImage || runtime.image !== input.trustedImage) {
     throw new Error("Runtime image does not match the pre-approved image.");
@@ -83,7 +87,7 @@ export function buildPodmanContainerConfig(input: {
       },
     },
     HostConfig: {
-      Binds: [`${input.artifactDirectory}:/app:ro`],
+      Binds: [`${input.artifactDirectory}:/app:ro`, `${input.persistentStorageDirectory}:/var/lib/dsquare:rw,U,Z`],
       Memory: runtime.memoryBytes,
       NanoCpus: runtime.nanoCpus,
       PidsLimit: runtime.pidsLimit,
