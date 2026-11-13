@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { mkdir, open, readFile, rm } from "node:fs/promises";
+import { mkdir, open, rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { pool } from "../config/database.js";
@@ -899,7 +899,7 @@ router.post("/:resourceId/deployments", async (req, res) => {
     });
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
-    for (const key of snapshotObjectKeys) await websiteObjectStorage.delete(key, resourceId).catch(() => undefined);
+    for (const key of snapshotObjectKeys) await websiteObjectStorage.delete(key, { ownerId: String(userId), projectId, resourceId }).catch(() => undefined);
     console.error("Deployment creation error:", error instanceof Error ? error.message : error);
     return res.status(500).json({ success: false, message: "Could not complete this deployment." });
   } finally {
