@@ -188,7 +188,7 @@ export function createRuntimeAgentApp(input: {
 
   if (input.persistentStorageRoot) {
     registerPersistentStorageLifecycleRoutes(app, { pool: input.pool, storageRoot: input.persistentStorageRoot,
-      backupRoot: input.persistentBackupRoot ?? path.join(input.persistentStorageRoot, ".backups"), key: input.persistentBackupKey });
+      backupRoot: input.persistentBackupRoot ?? path.resolve(path.dirname(input.persistentStorageRoot), "persistent-backups"), key: input.persistentBackupKey });
   }
 
   app.get("/v1/health", (_request, response) => {
