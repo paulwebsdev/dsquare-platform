@@ -44,6 +44,5 @@ test("requires a bounded server-enforced database connection limit", () => {
   assert.equal(isValidDatabaseConnectionCredentials({ ...valid, database_connection_limit: 0 }), false);
   assert.equal(isValidDatabaseConnectionCredentials({ ...valid, database_connection_limit: 51 }), false);
   assert.equal(isValidDatabaseConnectionCredentials({ ...valid, database_connection_limit: "5" }), false);
-  const { database_connection_limit: _limit, ...missing } = valid;
-  assert.equal(isValidDatabaseConnectionCredentials(missing), false);
+  assert.equal(isValidDatabaseConnectionCredentials({ ...valid, database_connection_limit: undefined }), false);
 });
