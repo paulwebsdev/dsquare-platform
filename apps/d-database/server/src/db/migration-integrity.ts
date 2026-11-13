@@ -19,6 +19,9 @@ export function validateMigrationFilenames(fileNames: string[]): string[] {
     }
 
     const version = match[1];
+    if (Number(version) < 1) {
+      throw new MigrationIntegrityError("Migration version must be greater than zero: " + fileName);
+    }
     const existing = versions.get(version);
     if (existing) {
       throw new MigrationIntegrityError(
