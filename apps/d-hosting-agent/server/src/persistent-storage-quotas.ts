@@ -41,8 +41,8 @@ export async function enforceXfsProjectQuota(input: {
   const mount = await run("findmnt", ["-n", "-o", "TARGET", "-T", root]);
   const mountPoint = mount.stdout.trim();
   if (!mountPoint.startsWith("/") || /[\r\n\0]/.test(mountPoint)) throw new Error("Could not safely resolve the XFS mount point.");
-  await run("xfs_io", ["-r", "-c", `chproj -R ${input.projectId}`, target]);
-  await run("xfs_io", ["-r", "-c", `chattr +P`, target]);
+  await run("xfs_io", ["-c", `chproj -R ${input.projectId}`, target]);
+  await run("xfs_io", ["-c", `chattr +P`, target]);
   const hardBlocks = Math.ceil(input.hardLimitBytes / 1024);
   await run("xfs_quota", ["-x", "-c", `limit -p bhard=${hardBlocks}k ${input.projectId}`, mountPoint]);
 }
