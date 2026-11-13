@@ -69,7 +69,8 @@ export async function uploadPersistentBackupObject(
     Bucket: store.bucket, Key: objectKey, Body: source, ContentLength: details.size,
     ContentType: "application/vnd.dsquare.encrypted-backup", ServerSideEncryption: "AES256",
   }));
-  await store.client.send(new HeadObjectCommand({ Bucket: store.bucket, Key: objectKey }));
+  const head = await store.client.send(new HeadObjectCommand({ Bucket: store.bucket, Key: objectKey }));
+  if (head.ContentLength !== details.size) throw new Error("Offsite backup object length does not match the local snapshot.");
   return { objectKey, sizeBytes: details.size, sha256: digest.digest("hex") };
 }
 
