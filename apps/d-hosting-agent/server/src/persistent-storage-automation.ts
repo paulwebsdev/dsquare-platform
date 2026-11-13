@@ -12,11 +12,46 @@ export function decodePersistentBackupKey(value: string): Buffer {
   return key;
 }
 
+export type PersistentBackupKeyring = {
+  activeKeyId: string;
+  keys: ReadonlyMap<string, Buffer>;
+};
+
+export function decodePersistentBackupKeyring(
+  keysJson?: string,
+  activeKeyIdValue?: string,
+  legacyKeyValue?: string,
+): PersistentBackupKeyring | undefined {
+  const keys = new Map<string, Buffer>();
+  if (legacyKeyValue?.trim()) keys.set("default", decodePersistentBackupKey(legacyKeyValue.trim()));
+  if (keysJson?.trim()) {
+    let parsed: unknown;
+    try { parsed = JSON.parse(keysJson); } catch { throw new Error("RUNTIME_AGENT_BACKUP_KEYS_JSON must contain a valid JSON object."); }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("RUNTIME_AGENT_BACKUP_KEYS_JSON must contain a key-ID to base64-key object.");
+    for (const [keyId, encoded] of Object.entries(parsed)) {
+      if (!/^[A-Za-z0-9._-]{1,32}$/.test(keyId) || typeof encoded !== "string") throw new Error("Persistent backup keyring entry is invalid.");
+      keys.set(keyId, decodePersistentBackupKey(encoded));
+    }
+  }
+  if (keys.size === 0) return undefined;
+  const activeKeyId = activeKeyIdValue?.trim() || (keys.has("default") ? "default" : "");
+  if (!/^[A-Za-z0-9._-]{1,32}$/.test(activeKeyId) || !keys.has(activeKeyId)) {
+    throw new Error("RUNTIME_AGENT_BACKUP_ACTIVE_KEY_ID must name a key present in the configured keyring.");
+  }
+  return { activeKeyId, keys };
+}
+
+export function resolvePersistentBackupKey(keyring: PersistentBackupKeyring, keyId: string): Buffer {
+  const key = keyring.keys.get(keyId);
+  if (!key) throw new Error("Persistent backup key ID is not present in the configured keyring.");
+  return key;
+}
+
 export type BackupCycleResult = { resources: number; created: number; pruned: number; failed: number };
 
 /** One bounded, non-overlapping backup/retention pass. */
 export async function runPersistentBackupCycle(input: {
-  storageRoot: string; backupRoot: string; key: Uint8Array; retentionDays: number;
+  storageRoot: string; backupRoot: string; key: Uint8Array; keyId?: string; retentionDays: number;
   now?: number; onError?: (resourceId: string, error: unknown) => void;
   onBackup?: (backup: PersistentBackup) => Promise<void>; onResourceComplete?: (resourceId: string) => Promise<void>;
 }): Promise<BackupCycleResult> {
@@ -26,7 +61,7 @@ export async function runPersistentBackupCycle(input: {
   const result: BackupCycleResult = { resources: resources.length, created: 0, pruned: 0, failed: 0 };
   for (const entry of resources) {
     try {
-      const backup = await createPersistentStorageBackup(input.storageRoot, input.backupRoot, entry.name, input.key);
+      const backup = await createPersistentStorageBackup(input.storageRoot, input.backupRoot, entry.name, input.key, input.keyId);
       await input.onBackup?.(backup);
       result.created += 1;
       result.pruned += await prunePersistentBackups(input.backupRoot, entry.name, input.retentionDays, input.now);
@@ -41,7 +76,7 @@ export async function runPersistentBackupCycle(input: {
 
 /** Starts a single-flight timer. The first run is delayed to avoid startup I/O spikes. */
 export function startPersistentBackupScheduler(input: {
-  storageRoot: string; backupRoot: string; key: Uint8Array; retentionDays: number;
+  storageRoot: string; backupRoot: string; key: Uint8Array; keyId?: string; retentionDays: number;
   intervalMs: number; onError?: (resourceId: string, error: unknown) => void;
   onBackup?: (backup: PersistentBackup) => Promise<void>; onResourceComplete?: (resourceId: string) => Promise<void>;
   onCycle?: (result: BackupCycleResult) => void;
