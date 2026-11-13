@@ -114,6 +114,7 @@ export async function createPersistentStorageBackup(
 /** Authenticates and validates a backup before atomically replacing a website's data directory. */
 export async function restorePersistentStorageBackup(
   storageRoot: string, backupPath: string, resourceId: string, keyBytes: Uint8Array,
+  afterRestore?: () => Promise<void>,
 ): Promise<{ restoredFiles: number; restoredBytes: number }> {
   if (!UUID.test(resourceId)) throw new Error("Persistent storage resource ID is invalid.");
   const key = encryptionKey(keyBytes);
@@ -186,9 +187,23 @@ export async function restorePersistentStorageBackup(
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
       await rename(temporary, destination);
+      // Reapply filesystem metadata (notably XFS project-quota inheritance)
+      // before discarding the previous directory. If enforcement fails,
+      // remove the restored tree and put the original directory back.
+      try {
+        await afterRestore?.();
+      } catch (error) {
+        await rm(destination, { recursive: true, force: true }).catch(() => undefined);
+        if (movedOld) await rename(previous, destination).catch(() => undefined);
+        throw error;
+      }
       if (movedOld) await rm(previous, { recursive: true, force: true });
     } catch (error) {
-      if (movedOld) await rename(previous, destination).catch(() => undefined);
+      if (movedOld) {
+        const previousStillExists = await lstat(previous).then(() => true).catch(() => false);
+        const destinationExists = await lstat(destination).then(() => true).catch(() => false);
+        if (previousStillExists && !destinationExists) await rename(previous, destination).catch(() => undefined);
+      }
       throw error;
     }
   } catch (error) {
