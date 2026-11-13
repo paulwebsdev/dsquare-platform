@@ -22,13 +22,18 @@ export async function checkWebsiteFileQuota(input: {
     throw new Error("Upload size must be a positive safe integer.");
   }
   const website = await input.queryable.query(
-    `SELECT file_storage_quota_bytes
+    `SELECT file_storage_quota_bytes, status
      FROM hosting_resources
      WHERE id = $1 AND project_id = $2
      FOR UPDATE`,
     [input.resourceId, input.projectId],
   );
   if (website.rowCount !== 1) throw new Error("Website resource not found.");
+  if (website.rows[0].status === "archived") {
+    const error = new Error("Restore this website resource before uploading files.");
+    Object.assign(error, { code: "HOSTING_WEBSITE_ARCHIVED" });
+    throw error;
+  }
   const quotaBytes = Number(website.rows[0].file_storage_quota_bytes);
   if (!Number.isSafeInteger(quotaBytes) || quotaBytes < 1) {
     throw new Error("Website storage quota configuration is invalid.");
