@@ -14,12 +14,40 @@ export type DDatabasePage<T = Record<string, unknown>> = {
   rows: T[];
 };
 
+export type DDatabaseCursorPage<T = Record<string, unknown>> = {
+  success: true;
+  table: string;
+  limit: number;
+  rows: T[];
+  hasMore: boolean;
+  nextCursor: string | null;
+};
+
+export type DDatabaseTransactionOperation =
+  | { type: "insert"; table: string; values: Record<string, unknown> }
+  | { type: "update"; table: string; values: Record<string, unknown>; where: Record<string, unknown> }
+  | { type: "delete"; table: string; where: Record<string, unknown> };
+
+export type DDatabaseTransactionResult<T = Record<string, unknown>> = {
+  success: true;
+  committed: true;
+  operationCount: number;
+  results: Array<{ type: string; table: string; affectedCount: number; rows: T[] }>;
+};
+
 export type DDatabaseClient = {
   listTables(): Promise<string[]>;
   select<T = Record<string, unknown>>(
     table: string,
     options?: { limit?: number; offset?: number },
   ): Promise<DDatabasePage<T>>;
+  selectCursor<T = Record<string, unknown>>(
+    table: string,
+    options?: { limit?: number; cursor?: string },
+  ): Promise<DDatabaseCursorPage<T>>;
+  transaction<T = Record<string, unknown>>(
+    operations: DDatabaseTransactionOperation[],
+  ): Promise<DDatabaseTransactionResult<T>>;
   insert<T = Record<string, unknown>>(
     table: string,
     values: Record<string, unknown>,
@@ -74,6 +102,19 @@ export function createDDatabaseClient(options: DDatabaseClientOptions): DDatabas
       if (query.offset !== undefined) params.set("offset", String(query.offset));
       const suffix = params.size ? `?${params.toString()}` : "";
       return request<DDatabasePage<T>>(`/tables/${encodeURIComponent(table)}/rows${suffix}`);
+    },
+    selectCursor<T = Record<string, unknown>>(table: string, query: { limit?: number; cursor?: string } = {}) {
+      const params = new URLSearchParams();
+      if (query.limit !== undefined) params.set("limit", String(query.limit));
+      if (query.cursor !== undefined) params.set("cursor", query.cursor);
+      const suffix = params.size ? `?${params.toString()}` : "";
+      return request<DDatabaseCursorPage<T>>(`/tables/${encodeURIComponent(table)}/rows/cursor${suffix}`);
+    },
+    transaction<T = Record<string, unknown>>(operations: DDatabaseTransactionOperation[]) {
+      return request<DDatabaseTransactionResult<T>>("/transactions", {
+        method: "POST",
+        body: JSON.stringify({ operations }),
+      });
     },
     async insert<T = Record<string, unknown>>(table: string, values: Record<string, unknown>) {
       const result = await request<{ row: T }>(`/tables/${encodeURIComponent(table)}/rows`, {
