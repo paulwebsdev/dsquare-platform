@@ -53,6 +53,16 @@ export class RuntimeRegistry {
     await this.pool.query(
       "CREATE INDEX IF NOT EXISTS runtime_agent_deployments_state_updated_idx ON runtime_agent_deployments (state, updated_at)"
     );
+    // Preserve any containers recorded by an older resource-scoped agent so
+    // reconciliation does not mistake still-running customer workloads for
+    // orphans during an in-place upgrade.
+    await this.pool.query(`
+      INSERT INTO runtime_agent_deployments
+        (deployment_id, resource_id, artifact_id, container_id, state, created_at, updated_at)
+      SELECT deployment_id, resource_id, artifact_id, container_id, state, created_at, updated_at
+      FROM runtime_agent_runtimes
+      ON CONFLICT (deployment_id) DO NOTHING
+    `);
   }
 
   async reserveDeployment(record: Pick<RuntimeRecord, "resourceId" | "deploymentId" | "artifactId">): Promise<boolean> {
