@@ -18,6 +18,7 @@ export const resourceProvisionerPool = provisionerUrl
 export type ProvisionedResourceAccess = {
   roleName: string;
   password: string;
+  connectionLimit: number;
 };
 
 export async function provisionResourceAccess(
@@ -54,12 +55,13 @@ export async function provisionResourceAccess(
     "SELECT current_database() AS database_name",
   );
   const databaseName = String(databaseResult.rows[0]?.database_name || "");
+  const limits = getResourceAccessLimits(process.env);
   const plan = createResourceAccessPlan({
     resourceId,
     schemaName,
     databaseName,
     schemaOwner,
-    limits: getResourceAccessLimits(process.env),
+    limits,
   });
 
   const client = await resourceProvisionerPool.connect();
@@ -134,7 +136,7 @@ export async function provisionResourceAccess(
     );
     await client.query("RESET ROLE");
     await client.query("COMMIT");
-    return { roleName: plan.roleName, password: plan.password };
+    return { roleName: plan.roleName, password: plan.password, connectionLimit: limits.connectionLimit };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
     throw error;
