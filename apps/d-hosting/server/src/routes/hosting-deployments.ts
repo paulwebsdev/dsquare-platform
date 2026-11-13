@@ -899,7 +899,7 @@ router.post("/:resourceId/deployments", async (req, res) => {
     });
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
-    for (const key of snapshotObjectKeys) await websiteObjectStorage.delete(key, { ownerId: String(userId), projectId, resourceId }).catch(() => undefined);
+    for (const key of snapshotObjectKeys) await websiteObjectStorage.delete(key, { ownerId: String(res.locals.userId || ""), projectId, resourceId }).catch(() => undefined);
     console.error("Deployment creation error:", error instanceof Error ? error.message : error);
     return res.status(500).json({ success: false, message: "Could not complete this deployment." });
   } finally {
