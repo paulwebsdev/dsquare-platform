@@ -34,13 +34,13 @@ export async function enforceXfsProjectQuota(input: {
     return { stdout: result.stdout };
   });
   const filesystem = await run("findmnt", ["-n", "-o", "FSTYPE,OPTIONS", "-T", root]);
-  const [filesystemType, mountOptions = ""] = filesystem.stdout.trim().split(/\\s+/, 2);
+  const [filesystemType, mountOptions = ""] = filesystem.stdout.trim().split(/\s+/, 2);
   if (filesystemType !== "xfs" || !/(^|,)(prjquota|pquota)(,|$)/.test(mountOptions)) {
     throw new Error("Persistent storage must reside on XFS mounted with prjquota or pquota.");
   }
   const mount = await run("findmnt", ["-n", "-o", "TARGET", "-T", root]);
   const mountPoint = mount.stdout.trim();
-  if (!mountPoint.startsWith("/") || /[\\r\\n\\0]/.test(mountPoint)) throw new Error("Could not safely resolve the XFS mount point.");
+  if (!mountPoint.startsWith("/") || /[\r\n\0]/.test(mountPoint)) throw new Error("Could not safely resolve the XFS mount point.");
   await run("xfs_io", ["-r", "-c", `chproj -R ${input.projectId}`, target]);
   await run("xfs_io", ["-r", "-c", `chattr +P`, target]);
   const hardBlocks = Math.ceil(input.hardLimitBytes / 1024);
