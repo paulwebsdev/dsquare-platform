@@ -1,4 +1,4 @@
-﻿import { Router, type Response } from "express";
+import { Router, type Response } from "express";
 import express from "express";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
@@ -6,6 +6,7 @@ import path from "node:path";
 import { pool } from "../config/database.js";
 import { requireAuth } from "../middleware/require-auth.js";
 import { normalizeWebsiteFilePath } from "../services/website-file-path.js";
+import { checkWebsiteFileQuota } from "../services/website-file-quota.js";
 
 const router = Router({ mergeParams: true });
 
@@ -191,38 +192,48 @@ router.post(
       const mimeType = FILE_TYPES[path.extname(originalName).toLowerCase()];
       const resourceDirectory = path.join(storageRoot, resourceId);
       const filePath = getFilePath(resourceId, storageKey);
-
-      await mkdir(resourceDirectory, { recursive: true });
-      await writeFile(filePath, req.body, { flag: "wx", mode: 0o600 });
+      const client = await pool.connect();
+      let fileWritten = false;
 
       try {
-        const result = await pool.query(
+        await client.query("BEGIN");
+        await checkWebsiteFileQuota({
+          queryable: client,
+          projectId,
+          resourceId,
+          uploadBytes: req.body.length,
+        });
+        await mkdir(resourceDirectory, { recursive: true });
+        await writeFile(filePath, req.body, { flag: "wx", mode: 0o600 });
+        fileWritten = true;
+
+        const result = await client.query(
           `INSERT INTO hosting_files
              (id, project_id, resource_id, original_name, storage_key, mime_type, size_bytes)
            VALUES ($1, $2, $3, $4, $5, $6, $7)
            RETURNING id, resource_id, original_name, mime_type, size_bytes, created_at`,
-          [
-            fileId,
-            projectId,
-            resourceId,
-            originalName,
-            storageKey,
-            mimeType,
-            req.body.length,
-          ]
+          [fileId, projectId, resourceId, originalName, storageKey, mimeType, req.body.length],
         );
+        await client.query("COMMIT");
 
         return res.status(201).json({
           success: true,
-          message: "File uploaded to private storage.",
+          message: "File uploaded to private website storage.",
           file: result.rows[0],
         });
       } catch (error) {
-        await unlink(filePath).catch(() => undefined);
+        await client.query("ROLLBACK").catch(() => undefined);
+        if (fileWritten) await unlink(filePath).catch(() => undefined);
         throw error;
+      } finally {
+        client.release();
       }
     } catch (error) {
       const code = (error as { code?: string })?.code;
+
+      if (code === "HOSTING_STORAGE_QUOTA_EXCEEDED") {
+        return res.status(413).json({ success: false, message: error instanceof Error ? error.message : "Website storage quota exceeded." });
+      }
 
       if (code === "23503") {
         return res.status(404).json({ success: false, message: "Website resource not found." });
