@@ -6,7 +6,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Durable, private per-website storage. It is independent of deployment artifacts. */
 export async function ensurePersistentStorageDirectory(root: string, resourceId: string): Promise<string> {
   if (!UUID.test(resourceId)) throw new Error("Persistent storage resource ID is invalid.");
-  if (!path.isAbsolute(root) || /[\\r\\n\\0:,]/.test(root)) {
+  if (!path.isAbsolute(root) || /[\r\n\0:,]/.test(root)) {
     throw new Error("Persistent storage root must be a safe absolute Linux path.");
   }
   await mkdir(root, { recursive: true, mode: 0o700 });
