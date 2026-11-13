@@ -13,6 +13,8 @@ test("encodes and decodes typed primary-key cursor values", () => {
   for (const value of ["row-123", 42, true]) {
     assert.deepEqual(decodePrimaryKeyCursor(encodePrimaryKeyCursor(value)), value);
   }
+  const timestamp = new Date("2026-11-13T12:00:00.000Z");
+  assert.equal(decodePrimaryKeyCursor(encodePrimaryKeyCursor(timestamp)), timestamp.toISOString());
 });
 
 test("builds deterministic first and next keyset pages", () => {
