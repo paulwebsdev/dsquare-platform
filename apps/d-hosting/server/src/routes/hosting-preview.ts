@@ -1,10 +1,12 @@
 import { Router, type Request, type Response } from "express";
 import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { pool } from "../config/database.js";
 import { requireAuth } from "../middleware/require-auth.js";
 import { normalizeWebsiteRequestPath } from "../services/website-file-path.js";
 import { getWebsiteFileCandidates } from "../services/website-file-resolution.js";
+import { websiteObjectStorage } from "../services/website-object-storage.js";
 
 const router = Router({ mergeParams: true });
 
@@ -135,14 +137,22 @@ export async function serveResourceFile(
         .map(candidate => manifest.find(file => file.original_name === candidate))
         .find(Boolean);
 
-      if (!selected || !UUID_PATTERN.test(selected.storage_key)) {
+      if (!selected || typeof selected.storage_key !== "string" || !selected.storage_key) {
         return res.status(404).json({
           success: false,
           message: "Website file not found in the active deployment snapshot.",
         });
       }
-      filePath = path.join(storageRoot, resourceId, "deployments", activeDeploymentId, selected.storage_key);
       mimeType = selected.mime_type || "";
+      try {
+        fileBytes = await websiteObjectStorage.get(selected.storage_key, resourceId);
+      } catch (error) {
+        if (UUID_PATTERN.test(selected.storage_key) && (error as NodeJS.ErrnoException).code === "ENOENT") {
+          const legacyPath = path.join(storageRoot, resourceId, "deployments", activeDeploymentId, selected.storage_key);
+          if (existsSync(legacyPath)) fileBytes = await readFile(legacyPath);
+          else throw error;
+        } else throw error;
+      }
     } else {
       const findStoredFile = async (storedPath: string) =>
         pool.query(
@@ -180,19 +190,13 @@ export async function serveResourceFile(
         });
       }
       const stored = fileResult.rows[0];
-      if (!UUID_PATTERN.test(stored.storage_key)) {
+      if (typeof stored.storage_key !== "string" || !stored.storage_key) {
         return res.status(400).json({ success: false, message: "Invalid stored file reference." });
       }
-      filePath = path.join(storageRoot, resourceId, stored.storage_key);
+      fileBytes = await websiteObjectStorage.get(stored.storage_key, resourceId);
       mimeType = stored.mime_type || "";
     }
 
-    if (!existsSync(filePath)) {
-      return res.status(404).json({
-        success: false,
-        message: "The stored file is missing.",
-      });
-    }
 
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Cache-Control", "private, no-store");
@@ -212,7 +216,9 @@ export async function serveResourceFile(
     );
 
     res.type(mimeType || extension);
-    return res.sendFile(filePath);
+    if (!fileBytes) return res.status(404).json({ success: false, message: "The stored file is missing." });
+    res.setHeader("Content-Length", String(fileBytes.byteLength));
+    return res.send(fileBytes);
   } catch (error) {
     console.error("Website preview error:", error);
 
