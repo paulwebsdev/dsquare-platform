@@ -76,7 +76,7 @@ test("rejects runtime requests that weaken the isolation contract", () => {
       fileCount: 1,
     },
     runtime: {
-      name: "dsquare-site-11111111-1111-4111-8111-111111111111",
+      name: "dsquare-deploy-22222222-2222-4222-8222-222222222222",
       image: "node:22-bookworm-slim",
       workingDirectory: "/app",
       command: ["npm", "start"],
@@ -375,7 +375,7 @@ test("refuses runtime creation while execution is disabled, even with a trusted 
       deploymentId,
       artifact: stored,
       runtime: {
-        name: "dsquare-site-" + resourceId,
+        name: "dsquare-deploy-" + deploymentId,
         image: "node:22-bookworm-slim",
         workingDirectory: "/app",
         command: ["npm", "start"],
