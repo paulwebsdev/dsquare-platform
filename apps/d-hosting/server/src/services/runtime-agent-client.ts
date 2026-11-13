@@ -262,6 +262,31 @@ export async function syncRuntimeAgentIngress(
   return result as { applied: true; routeCount: number };
 }
 
+/** Applies the per-website hard storage limit before any runtime is started. */
+export async function configureRuntimeAgentStorageQuota(
+  options: RuntimeAgentClientOptions,
+  resourceId: string,
+  hardLimitBytes: number,
+): Promise<{ resourceId: string; hardLimitBytes: number; enforcement: "xfs-project-hard-quota"; applied: true }> {
+  assertRuntimeAgentResourceId(resourceId);
+  if (!Number.isSafeInteger(hardLimitBytes) || hardLimitBytes < 16 * 1024 * 1024) {
+    throw new Error("Persistent storage quota must be at least 16 MiB.");
+  }
+  const result = await requestRuntimeAgent<unknown>(options, {
+    method: "POST",
+    path: `/v1/storage/${resourceId}/quota`,
+    body: { hardLimitBytes },
+  });
+  if (!result || typeof result !== "object" ||
+      (result as Record<string, unknown>).resourceId !== resourceId ||
+      (result as Record<string, unknown>).hardLimitBytes !== hardLimitBytes ||
+      (result as Record<string, unknown>).enforcement !== "xfs-project-hard-quota" ||
+      (result as Record<string, unknown>).applied !== true) {
+    throw new Error("Runtime agent did not confirm hard persistent storage quota activation.");
+  }
+  return result as { resourceId: string; hardLimitBytes: number; enforcement: "xfs-project-hard-quota"; applied: true };
+}
+
 export type RuntimeAgentState = "running" | "stopped";
 export type RuntimeAgentRuntimeResult = {
   resourceId: string;
