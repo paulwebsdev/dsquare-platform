@@ -2,6 +2,7 @@ import "dotenv/config";
 import express, { type Request, type Response, type NextFunction } from "express";
 import { Pool } from "pg";
 import path from "node:path";
+import { stat } from "node:fs/promises";
 import { isIP } from "node:net";
 import { verifyRuntimeAgentRequest, type RuntimeAgentAuthHeaders, type RuntimeAgentNonceStore } from "../../../d-hosting/server/src/services/runtime-agent-verifier.js";
 import { deleteStoredArtifact, readStoredArtifact, storeRuntimeArtifact } from "./artifact-store.js";
@@ -11,6 +12,9 @@ import { RuntimeRegistry } from "./runtime-registry.js";
 import { PodmanNodeBuildRunner, type NodeBuildRequest } from "./node-build-runner.js";
 import { redactRuntimeLogMessage } from "../../../d-hosting/server/src/services/runtime-logs.js";
 import { applyPrivateIngressConfig, renderPrivateIngressJsonConfig, type PrivateIngressJsonRoute } from "./private-ingress-controller.js";
+import { decodePersistentBackupKey, resolveBackupDirectory, startPersistentBackupScheduler } from "./persistent-storage-automation.js";
+import { initializePersistentStorageLifecycle, registerPersistentStorageLifecycleRoutes } from "./persistent-storage-lifecycle-api.js";
+import { enforceXfsProjectQuota } from "./persistent-storage-quotas.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_BODY_BYTES = 100 * 1024 * 1024;
@@ -143,6 +147,9 @@ export function createRuntimeAgentApp(input: {
   trustedImage?: string;
   /** Must remain false in production until Linux isolation acceptance is complete. */
   executionEnabled?: boolean;
+  persistentBackupRoot?: string;
+  persistentBackupKey?: Uint8Array;
+  persistentStorageRoot?: string;
 }) {
   const app = express();
   const nonceStore = new PostgresNonceStore(input.pool);
@@ -178,6 +185,11 @@ export function createRuntimeAgentApp(input: {
       response.status(401).json({ error: "Runtime agent authentication failed." });
     }
   });
+
+  if (input.persistentStorageRoot) {
+    registerPersistentStorageLifecycleRoutes(app, { pool: input.pool, storageRoot: input.persistentStorageRoot,
+      backupRoot: input.persistentBackupRoot ?? path.join(input.persistentStorageRoot, ".backups"), key: input.persistentBackupKey });
+  }
 
   app.get("/v1/health", (_request, response) => {
     response.status(200).json({ status: "ready", providerConfigured: Boolean(input.provider), executionEnabled, builderConfigured: Boolean(input.builder), builderEnabled, ingressConfigured: Boolean(input.ingressAdminUrl) });
@@ -334,6 +346,21 @@ export function createRuntimeAgentApp(input: {
     if (!executionEnabled || !input.provider) {
       response.status(503).json({ error: "Website execution is disabled pending Linux isolation acceptance." });
       return;
+    }
+    if (input.persistentStorageRoot) {
+      const quota = await input.pool.query("SELECT project_id, hard_limit_bytes FROM runtime_agent_storage_projects WHERE resource_id=$1", [payload.resourceId]);
+      if (!quota.rowCount) {
+        response.status(503).json({ error: "Website persistent storage hard quota has not been provisioned." });
+        return;
+      }
+      try {
+        await enforceXfsProjectQuota({ storageRoot: input.persistentStorageRoot, resourceId: payload.resourceId,
+          projectId: Number(quota.rows[0].project_id), hardLimitBytes: Number(quota.rows[0].hard_limit_bytes) });
+        await input.pool.query("UPDATE runtime_agent_storage_projects SET quota_applied_at=NOW() WHERE resource_id=$1", [payload.resourceId]);
+      } catch {
+        response.status(503).json({ error: "Website persistent storage hard quota could not be verified; runtime startup is blocked." });
+        return;
+      }
     }
     const reserved = await registry.reserveDeployment({
       resourceId: payload.resourceId,
@@ -583,6 +610,7 @@ export async function startRuntimeAgent(): Promise<void> {
     await pool.query("CREATE INDEX IF NOT EXISTS runtime_agent_nonces_expires_at_idx ON runtime_agent_nonces (expires_at)");
     await pool.query("SELECT 1");
     await new RuntimeRegistry(pool).initialize();
+    await initializePersistentStorageLifecycle(pool);
   } catch (error) {
     await pool.end();
     throw error;
@@ -683,9 +711,56 @@ export async function startRuntimeAgent(): Promise<void> {
     throw error;
   }
 
+  const backupKeyValue = process.env.RUNTIME_AGENT_BACKUP_KEY?.trim();
+  const backupRootValue = process.env.RUNTIME_AGENT_BACKUP_ROOT?.trim();
+  let persistentBackupKey: Buffer | undefined;
+  let persistentBackupRoot: string | undefined;
+  if (backupKeyValue || backupRootValue) {
+    if (!backupKeyValue || !backupRootValue) {
+      await pool.end();
+      throw new Error("RUNTIME_AGENT_BACKUP_KEY and RUNTIME_AGENT_BACKUP_ROOT must be configured together.");
+    }
+    try {
+      persistentBackupKey = decodePersistentBackupKey(backupKeyValue);
+      persistentBackupRoot = resolveBackupDirectory(backupRootValue);
+    } catch (error) {
+      await pool.end();
+      throw error;
+    }
+  }
+
   // Production execution is deliberately hard-disabled until Linux acceptance tests pass.
   const ingressAdminUrl = process.env.RUNTIME_AGENT_CADDY_ADMIN_URL?.trim();
-  const app = createRuntimeAgentApp({ pool, secret, storageRoot, provider, builder, builderEnabled, ingressAdminUrl, executionEnabled: false });
+  const app = createRuntimeAgentApp({ pool, secret, storageRoot, provider, builder, builderEnabled, ingressAdminUrl,
+    persistentBackupRoot, persistentBackupKey, persistentStorageRoot: persistentStorageRootValue ? path.resolve(persistentStorageRootValue) : undefined, executionEnabled: false });
+  const stopBackupScheduler = persistentBackupKey && persistentBackupRoot && persistentStorageRootValue
+    ? startPersistentBackupScheduler({
+        storageRoot: path.resolve(persistentStorageRootValue),
+        backupRoot: persistentBackupRoot,
+        key: persistentBackupKey,
+        retentionDays: Number(process.env.RUNTIME_AGENT_BACKUP_RETENTION_DAYS || 30),
+        intervalMs: Number(process.env.RUNTIME_AGENT_BACKUP_INTERVAL_MS || 86_400_000),
+        onError: (resourceId, error) => console.error("Persistent backup failed for resource", resourceId, error instanceof Error ? error.message : "Unknown error"),
+        onBackup: async (backup) => {
+          await pool.query("INSERT INTO runtime_agent_storage_backups (backup_id, resource_id, backup_path, size_bytes, sha256, created_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (backup_id) DO NOTHING",
+            [backup.backupId, backup.resourceId, backup.path, backup.sizeBytes, backup.sha256, backup.createdAt]);
+          await pool.query("INSERT INTO runtime_agent_storage_audit (resource_id, action, actor, metadata) VALUES ($1,'backup.create','scheduled-agent',$2)",
+            [backup.resourceId, JSON.stringify({ backupId: backup.backupId, sizeBytes: backup.sizeBytes })]);
+        },
+        onResourceComplete: async (resourceId) => {
+          const records = await pool.query("SELECT backup_id, backup_path FROM runtime_agent_storage_backups WHERE resource_id=$1", [resourceId]);
+          for (const record of records.rows) {
+            try { await stat(record.backup_path); }
+            catch (error) {
+              if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+                await pool.query("DELETE FROM runtime_agent_storage_backups WHERE backup_id=$1", [record.backup_id]);
+              } else { throw error; }
+            }
+          }
+        },
+        onCycle: (result) => console.log("Persistent backup cycle:", JSON.stringify(result)),
+      })
+    : undefined;
   const port = Number(process.env.RUNTIME_AGENT_PORT || 5003);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     await pool.end();

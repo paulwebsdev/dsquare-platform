@@ -10,6 +10,7 @@ import {
   createRuntimeAgentRuntime,
   getRuntimeAgentRuntime,
   deleteRuntimeAgentArtifact,
+  configureRuntimeAgentStorageQuota,
   deleteRuntimeAgentRuntime,
   uploadRuntimeAgentArtifact,
   type RuntimeAgentClientOptions,
@@ -40,6 +41,16 @@ export type StartRemoteNodeRuntimeInput = {
  * This client-side flow remains unusable until a compatible authenticated
  * agent receiver and isolated OCI provider are deployed.
  */
+function persistentStorageQuotaBytes(input: StartRemoteNodeRuntimeInput): number {
+  const configured = input.processEnvironment?.D_HOSTING_PERSISTENT_STORAGE_QUOTA_BYTES ??
+    process.env.D_HOSTING_PERSISTENT_STORAGE_QUOTA_BYTES;
+  const value = Number(configured);
+  if (!configured || !Number.isSafeInteger(value) || value < 16 * 1024 * 1024) {
+    throw new Error("D_HOSTING_PERSISTENT_STORAGE_QUOTA_BYTES must be configured to at least 16 MiB.");
+  }
+  return value;
+}
+
 export async function startRemoteNodeRuntime(
   input: StartRemoteNodeRuntimeInput,
   loadAssignedConnection: typeof getAssignedDatabaseRuntimeConnection = getAssignedDatabaseRuntimeConnection,
@@ -56,6 +67,7 @@ export async function startRemoteNodeRuntime(
   let artifactUploaded = false;
 
   try {
+    await configureRuntimeAgentStorageQuota(input.agent, input.resourceId, persistentStorageQuotaBytes(input));
     artifactId = input.deploymentId;
     const bundle = await buildRuntimeArtifactBundle({
       artifactId,
@@ -126,6 +138,7 @@ export async function startBuiltRemoteNodeRuntime(
   let sourceUploaded = false;
   let buildAttempted = false;
   try {
+    await configureRuntimeAgentStorageQuota(input.agent, input.resourceId, persistentStorageQuotaBytes(input));
     const sourceBundle = await buildRuntimeArtifactBundle({
       artifactId: sourceArtifactId,
       artifactDirectory: launch.artifactDirectory,
