@@ -1,4 +1,5 @@
 import path from "node:path";
+import { ensurePersistentStorageDirectory } from "./persistent-storage.js";
 import { PodmanApiClient, type PodmanTransport } from "./podman-client.js";
 import type { RuntimeRegistry } from "./runtime-registry.js";
 import { buildPodmanContainerConfig, type PodmanRuntimeInput } from "./podman-runtime-config.js";
@@ -18,10 +19,12 @@ export type PodmanRuntimeProviderOptions = {
   transport: PodmanTransport;
   storageRoot: string;
   runtimeRoot: string;
+  persistentStorageRoot: string;
   trustedImage: string;
   networkName: string;
   /** Absolute Linux path visible to Podman for the workspace bind mount. */
   containerWorkspacePath?: (workspacePath: string, artifactId: string) => string;
+  readinessTimeoutMs?: number;
 };
 
 /**
@@ -37,6 +40,10 @@ export class PodmanRuntimeProvider {
     if (!options.trustedImage.trim() || !options.networkName.trim()) {
       throw new Error("Podman provider requires a trusted image and private network.");
     }
+    const readinessTimeoutMs = options.readinessTimeoutMs ?? 30_000;
+    if (!Number.isInteger(readinessTimeoutMs) || readinessTimeoutMs < 1_000 || readinessTimeoutMs > 120_000) {
+      throw new Error("Runtime readiness timeout must be between 1 and 120 seconds.");
+    }
     this.client = new PodmanApiClient(options.transport);
     this.options = options;
   }
@@ -47,6 +54,7 @@ export class PodmanRuntimeProvider {
       throw new Error("Podman runtime deployment identity is invalid.");
     }
 
+    const persistentStorageDirectory = await ensurePersistentStorageDirectory(this.options.persistentStorageRoot, request.resourceId);
     const workspacePath = await materializeRuntimeWorkspace(
       this.options.storageRoot,
       request.artifactId,
@@ -67,11 +75,13 @@ export class PodmanRuntimeProvider {
         artifactId: request.artifactId,
         runtime: request.runtime,
         artifactDirectory,
+        persistentStorageDirectory,
         trustedImage: this.options.trustedImage,
         networkName: this.options.networkName,
       });
       containerId = await this.client.createContainer(config, request.runtime.name);
       await this.client.startContainer(containerId);
+      await this.waitForReadiness(containerId);
       return { containerId, workspacePath };
     } catch (error) {
       const cleanupErrors: unknown[] = [];
@@ -94,6 +104,33 @@ export class PodmanRuntimeProvider {
     }
   }
 
+  /**
+   * Do not report a deployment as started until its Node process accepts HTTP
+   * traffic on the private container interface. A 4xx response still proves
+   * the application is listening; 5xx, connection failures and timeouts retry.
+   */
+  private async waitForReadiness(containerId: string): Promise<void> {
+    const deadline = Date.now() + (this.options.readinessTimeoutMs ?? 30_000);
+    let lastError: unknown;
+    while (Date.now() < deadline) {
+      try {
+        const execId = await this.client.createRuntimeReadinessExec(containerId);
+        await this.client.startDetachedExec(execId);
+        let status = await this.client.inspectExec(execId);
+        while (status.running && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          status = await this.client.inspectExec(execId);
+        }
+        if (!status.running && status.exitCode === 0) return;
+        lastError = new Error("Website did not accept a successful private HTTP readiness probe.");
+      } catch (error) {
+        lastError = error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+    throw new Error("Website runtime did not become ready before the startup deadline.", { cause: lastError });
+  }
+
   /** Adopt a container whose reservation survived a process crash, and remove only labelled DSquare orphans. */
   async reconcile(registry: RuntimeRegistry): Promise<{ adopted: number; removed: number }> {
     const containers = await this.client.listManagedContainers();
@@ -101,11 +138,12 @@ export class PodmanRuntimeProvider {
     let removed = 0;
     const seenContainerIds = new Set(containers.map((container) => container.id));
     for (const container of containers) {
-      const record = await registry.get(container.resourceId);
-      const identityMatches = record && record.deploymentId === container.deploymentId && record.artifactId === container.artifactId;
+      const record = await registry.getDeployment(container.deploymentId);
+      const identityMatches = record && record.resourceId === container.resourceId &&
+        record.deploymentId === container.deploymentId && record.artifactId === container.artifactId;
       if (identityMatches && record.containerId === container.id) continue;
       if (identityMatches && record.containerId === null && record.state === "creating") {
-        if (await registry.complete(container.resourceId, container.id)) { adopted += 1; continue; }
+        if (await registry.completeDeployment(container.deploymentId, container.id)) { adopted += 1; continue; }
       }
       await this.client.removeContainer(container.id);
       await removeRuntimeWorkspace(this.options.runtimeRoot, container.artifactId);
@@ -114,10 +152,10 @@ export class PodmanRuntimeProvider {
 
     // A registry entry pointing to a container Podman no longer knows about
     // must not continue to advertise a healthy running/stopped runtime.
-    for (const record of await registry.list()) {
+    for (const record of await registry.listDeployments()) {
       if (record.containerId && !seenContainerIds.has(record.containerId) &&
           (record.state === "running" || record.state === "stopped")) {
-        await registry.setState(record.resourceId, "unknown");
+        await registry.setDeploymentState(record.deploymentId, "unknown");
       }
     }
     return { adopted, removed };
@@ -131,6 +169,9 @@ export class PodmanRuntimeProvider {
   async restart(containerId: string): Promise<void> {
     this.assertContainerId(containerId);
     await this.client.restartContainer(containerId);
+    // A successful Podman restart only means the container process was relaunched.
+    // Wait until the website is accepting private HTTP traffic before reporting success.
+    await this.waitForReadiness(containerId);
   }
 
   async inspect(containerId: string): Promise<Record<string, unknown>> {

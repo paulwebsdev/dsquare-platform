@@ -19,7 +19,7 @@ function runtimeRequest() {
     deploymentId: artifactId,
     artifactId,
     runtime: {
-      name: `dsquare-site-${resourceId}`,
+      name: `dsquare-deploy-${artifactId}`,
       image: "node:22-bookworm-slim",
       workingDirectory: "/app" as const,
       command: ["npm", "start"] as ["npm", "start"],
@@ -40,6 +40,7 @@ async function setup() {
   const root = await mkdtemp(path.join(os.tmpdir(), "dsquare-podman-provider-"));
   const storageRoot = path.join(root, "stored");
   const runtimeRoot = path.join(root, "runtime");
+  const persistentStorageRoot = path.join(root, "persistent");
   const packageBytes = Buffer.from('{"scripts":{"start":"node index.js"}}');
   const file = { path: "package.json", sizeBytes: packageBytes.byteLength, sha256: createHash("sha256").update(packageBytes).digest("hex") };
   const manifest = {
@@ -58,6 +59,12 @@ async function setup() {
     if (request.path.startsWith("/v1.40/containers/create")) {
       return { statusCode: 201, headers: {}, body: Buffer.from(JSON.stringify({ Id: containerId })) };
     }
+    if (request.method === "POST" && request.path.endsWith("/exec")) {
+      return { statusCode: 201, headers: {}, body: Buffer.from(JSON.stringify({ Id: "e".repeat(64) })) };
+    }
+    if (request.path.includes("/exec/") && request.path.endsWith("/json")) {
+      return { statusCode: 200, headers: {}, body: Buffer.from('{"Running":false,"ExitCode":0}') };
+    }
     if (request.path.endsWith("/json")) {
       return { statusCode: 200, headers: {}, body: Buffer.from('{"State":{"Status":"running"}}') };
     }
@@ -70,11 +77,12 @@ async function setup() {
     transport,
     storageRoot,
     runtimeRoot,
+    persistentStorageRoot,
     trustedImage: "node:22-bookworm-slim",
     networkName: "dsquare-private",
     containerWorkspacePath: (_workspace, id) => `/var/lib/dsquare/runtime-workspaces/${id}`,
   });
-  return { root, storageRoot, runtimeRoot, calls, transport, provider };
+  return { root, storageRoot, runtimeRoot, persistentStorageRoot, calls, transport, provider };
 }
 
 test("creates and starts an isolated container, then manages its lifecycle", async () => {
@@ -89,15 +97,24 @@ test("creates and starts an isolated container, then manages its lifecycle", asy
     const config = createCall.body as { HostConfig: { Binds: string[]; PortBindings?: unknown } };
     assert.deepEqual(config.HostConfig.Binds, [
       `/var/lib/dsquare/runtime-workspaces/${artifactId}:/app:ro`,
+      `${fixture.persistentStorageRoot}/${resourceId}:/var/lib/dsquare:rw,U,Z`,
     ]);
     assert.equal(config.HostConfig.PortBindings, undefined);
+    const probeCall = fixture.calls.find((call) => call.method === "POST" && call.path.endsWith("/exec"));
+    assert.ok(probeCall, "runtime must be probed from inside its private container");
+    assert.deepEqual((probeCall.body as { Cmd: string[] }).Cmd.slice(0, 2), ["node", "-e"]);
 
     await fixture.provider.stop(containerId);
     await fixture.provider.restart(containerId);
     assert.deepEqual(await fixture.provider.inspect(containerId), { State: { Status: "running" } });
+    const restartIndex = fixture.calls.findIndex((call) => call.path.endsWith("/restart?t=10"));
+    const postRestartProbeIndex = fixture.calls.findIndex((call, index) => index > restartIndex && call.method === "POST" && call.path.endsWith("/exec"));
+    assert.ok(postRestartProbeIndex > restartIndex, "restart must be followed by a private readiness probe");
     assert.equal((await fixture.provider.logs(containerId)).toString(), "runtime logs");
     assert.equal(await fixture.provider.remove(containerId, artifactId), true);
     await assert.rejects(lstat(path.join(fixture.runtimeRoot, artifactId)));
+    assert.equal((await lstat(path.join(fixture.persistentStorageRoot, resourceId))).isDirectory(), true,
+      "removing a deployment must retain website persistent storage");
     assert.ok(fixture.calls.some((call) => call.path.endsWith("/stop?t=10")));
     assert.ok(fixture.calls.some((call) => call.path.endsWith("/restart?t=10")));
     assert.ok(fixture.calls.some((call) => call.method === "DELETE"));
@@ -122,6 +139,7 @@ test("rolls back the container and workspace when start fails", async () => {
     },
     storageRoot: path.join(fixture.root, "stored"),
     runtimeRoot: fixture.runtimeRoot,
+    persistentStorageRoot: path.join(fixture.root, "persistent"),
     trustedImage: "node:22-bookworm-slim",
     networkName: "dsquare-private",
     containerWorkspacePath: (_workspace, id) => `/var/lib/dsquare/runtime-workspaces/${id}`,
@@ -152,6 +170,7 @@ test("reports incomplete rollback when Podman refuses container removal", async 
     },
     storageRoot: fixture.storageRoot,
     runtimeRoot: fixture.runtimeRoot,
+    persistentStorageRoot: path.join(fixture.root, "persistent"),
     trustedImage: "node:22-bookworm-slim",
     networkName: "dsquare-private",
     containerWorkspacePath: (_workspace, id) => `/var/lib/dsquare/runtime-workspaces/${id}`,
@@ -185,33 +204,37 @@ test("reconciles registered, pending, missing, and orphaned containers safely", 
   const pendingResourceId = "33333333-3333-4333-8333-333333333333";
   const missingResourceId = "44444444-4444-4444-8444-444444444444";
   const orphanResourceId = "55555555-5555-4555-8555-555555555555";
+  const pendingDeploymentId = "66666666-6666-4666-8666-666666666666";
+  const missingDeploymentId = "77777777-7777-4777-8777-777777777777";
+  const orphanDeploymentId = "88888888-8888-4888-8888-888888888888";
   const existingContainerId = "a".repeat(64);
   const pendingContainerId = "b".repeat(64);
   const orphanContainerId = "c".repeat(64);
   const missingContainerId = "d".repeat(64);
   const rows = [
     { Id: existingContainerId, Labels: { "io.dsquare.managed": "true", "io.dsquare.resource-id": resourceId, "io.dsquare.deployment-id": artifactId, "io.dsquare.artifact-id": artifactId } },
-    { Id: pendingContainerId, Labels: { "io.dsquare.managed": "true", "io.dsquare.resource-id": pendingResourceId, "io.dsquare.deployment-id": artifactId, "io.dsquare.artifact-id": artifactId } },
-    { Id: orphanContainerId, Labels: { "io.dsquare.managed": "true", "io.dsquare.resource-id": orphanResourceId, "io.dsquare.deployment-id": artifactId, "io.dsquare.artifact-id": artifactId } },
+    { Id: pendingContainerId, Labels: { "io.dsquare.managed": "true", "io.dsquare.resource-id": pendingResourceId, "io.dsquare.deployment-id": pendingDeploymentId, "io.dsquare.artifact-id": pendingDeploymentId } },
+    { Id: orphanContainerId, Labels: { "io.dsquare.managed": "true", "io.dsquare.resource-id": orphanResourceId, "io.dsquare.deployment-id": orphanDeploymentId, "io.dsquare.artifact-id": orphanDeploymentId } },
   ];
   const records: RuntimeRecord[] = [
     { resourceId, deploymentId: artifactId, artifactId, containerId: existingContainerId, state: "running" },
-    { resourceId: pendingResourceId, deploymentId: artifactId, artifactId, containerId: null, state: "creating" },
-    { resourceId: missingResourceId, deploymentId: artifactId, artifactId, containerId: missingContainerId, state: "running" },
+    { resourceId: pendingResourceId, deploymentId: pendingDeploymentId, artifactId: pendingDeploymentId, containerId: null, state: "creating" },
+    { resourceId: missingResourceId, deploymentId: missingDeploymentId, artifactId: missingDeploymentId, containerId: missingContainerId, state: "running" },
   ];
   const stateChanges: Array<{ resourceId: string; state: string }> = [];
   const registry = {
-    get: async (id: string) => records.find((record) => record.resourceId === id) ?? null,
-    complete: async (id: string, idValue: string) => {
-      const record = records.find((item) => item.resourceId === id);
+    getDeployment: async (id: string) => records.find((record) => record.deploymentId === id) ?? null,
+    completeDeployment: async (id: string, idValue: string) => {
+      const record = records.find((item) => item.deploymentId === id);
       if (!record || record.state !== "creating" || record.containerId !== null) return false;
       record.containerId = idValue;
       record.state = "running";
       return true;
     },
-    list: async () => records,
-    setState: async (id: string, state: "unknown") => {
-      stateChanges.push({ resourceId: id, state });
+    listDeployments: async () => records,
+    setDeploymentState: async (id: string, state: "unknown") => {
+      const record = records.find((item) => item.deploymentId === id);
+      stateChanges.push({ resourceId: record?.resourceId ?? id, state });
     },
   };
   const provider = new PodmanRuntimeProvider({
@@ -223,6 +246,7 @@ test("reconciles registered, pending, missing, and orphaned containers safely", 
     },
     storageRoot: fixture.storageRoot,
     runtimeRoot: fixture.runtimeRoot,
+    persistentStorageRoot: path.join(fixture.root, "persistent"),
     trustedImage: "node:22-bookworm-slim",
     networkName: "dsquare-private",
   });

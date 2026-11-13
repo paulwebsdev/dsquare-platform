@@ -1,17 +1,22 @@
 import { Router } from "express";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, readFile, rm } from "node:fs/promises";
+import { copyFile, lstat, mkdir, open, readFile, rm } from "node:fs/promises";
+import { constants } from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { pool } from "../config/database.js";
 import { requireAuth } from "../middleware/require-auth.js";
 import { getWebsiteFileCandidates } from "../services/website-file-resolution.js";
 import { validateNodeProject } from "../services/node-project-validation.js";
+import { startBuiltRemoteNodeRuntime } from "../services/remote-node-runtime.js";
+import { syncPublishedNodeIngress } from "../services/private-ingress-sync.js";
 import {
   checkRuntimeAgentHealth,
   getRuntimeAgentRuntime,
   getRuntimeAgentLogs,
   changeRuntimeAgentRuntimeState,
+  deleteRuntimeAgentArtifact,
+  deleteRuntimeAgentRuntime,
 } from "../services/runtime-agent-client.js";
 
 const router = Router({ mergeParams: true });
@@ -117,6 +122,29 @@ function runtimeAgentOptions() {
   return { baseUrl, secret };
 }
 
+/** Retain the live deployment and two rollback candidates; retire older containers only after ingress cutover. */
+async function cleanupRetiredNodeRuntimes(resourceId: string, agent: NonNullable<ReturnType<typeof runtimeAgentOptions>>): Promise<void> {
+  const stale = await pool.query<{ id: string }>(
+    `SELECT id
+     FROM hosting_deployments
+     WHERE resource_id = $1 AND status = 'succeeded'
+     ORDER BY deployment_number DESC
+     OFFSET 3`,
+    [resourceId],
+  );
+  for (const row of stale.rows) {
+    if (!UUID_PATTERN.test(row.id)) continue;
+    try {
+      const removed = await deleteRuntimeAgentRuntime(agent, resourceId, row.id);
+      if (removed.deleted) await deleteRuntimeAgentArtifact(agent, row.id);
+    } catch (error) {
+      // Cleanup is best-effort. A retained artifact is safer than deleting one
+      // while its runtime may still be serving traffic.
+      console.error("Retired Node runtime cleanup failed:", error instanceof Error ? error.message : error);
+    }
+  }
+}
+
 // Read the actual isolated runtime state for an owned Node.js website.
 router.get("/:resourceId/runtime", async (req, res) => {
   const { projectId = "", resourceId = "" } = params(req);
@@ -126,11 +154,13 @@ router.get("/:resourceId/runtime", async (req, res) => {
   try {
     const owned = await ownedResource(projectId, resourceId, String(res.locals.userId || ""));
     if (owned.rowCount !== 1) return res.status(404).json({ success: false, message: "Website resource not found." });
+    const deploymentId = String(owned.rows[0].active_deployment_id || "");
+    if (!UUID_PATTERN.test(deploymentId)) return res.status(404).json({ success: false, message: "No active Node.js deployment was found." });
     if (owned.rows[0].site_type !== "node") return res.status(409).json({ success: false, message: "Runtime controls are only available for Node.js websites." });
     const agent = runtimeAgentOptions();
     if (!agent) return res.status(503).json({ success: false, message: "The private runtime agent is not configured." });
 
-    const runtime = await getRuntimeAgentRuntime(agent, resourceId);
+    const runtime = await getRuntimeAgentRuntime(agent, resourceId, deploymentId);
     await pool.query(
       `INSERT INTO hosting_runtime_instances
          (resource_id, provider, status, deployment_id, started_at, stopped_at, updated_at)
@@ -168,10 +198,12 @@ router.get("/:resourceId/runtime/logs", async (req, res) => {
   try {
     const owned = await ownedResource(projectId, resourceId, String(res.locals.userId || ""));
     if (owned.rowCount !== 1) return res.status(404).json({ success: false, message: "Website resource not found." });
+    const deploymentId = String(owned.rows[0].active_deployment_id || "");
+    if (!UUID_PATTERN.test(deploymentId)) return res.status(404).json({ success: false, message: "No active Node.js deployment was found." });
     if (owned.rows[0].site_type !== "node") return res.status(409).json({ success: false, message: "Runtime logs are only available for Node.js websites." });
     const agent = runtimeAgentOptions();
     if (!agent) return res.status(503).json({ success: false, message: "The private runtime agent is not configured." });
-    const result = await getRuntimeAgentLogs(agent, resourceId);
+    const result = await getRuntimeAgentLogs(agent, resourceId, deploymentId);
     return res.json({ success: true, resourceId, logs: result.logs });
   } catch (error) {
     console.error("Runtime log retrieval failed:", error instanceof Error ? error.message : error);
@@ -188,11 +220,13 @@ for (const action of ["stop", "restart"] as const) {
     try {
       const owned = await ownedResource(projectId, resourceId, String(res.locals.userId || ""));
       if (owned.rowCount !== 1) return res.status(404).json({ success: false, message: "Website resource not found." });
+      const deploymentId = String(owned.rows[0].active_deployment_id || "");
+      if (!UUID_PATTERN.test(deploymentId)) return res.status(404).json({ success: false, message: "No active Node.js deployment was found." });
       if (owned.rows[0].site_type !== "node") return res.status(409).json({ success: false, message: "Runtime controls are only available for Node.js websites." });
       if (owned.rows[0].status === "archived") return res.status(409).json({ success: false, message: "Restore this website before changing its runtime." });
       const agent = runtimeAgentOptions();
       if (!agent) return res.status(503).json({ success: false, message: "The private runtime agent is not configured." });
-      const runtime = await changeRuntimeAgentRuntimeState(agent, resourceId, action);
+      const runtime = await changeRuntimeAgentRuntimeState(agent, resourceId, deploymentId, action);
       await pool.query(
         `INSERT INTO hosting_runtime_instances
            (resource_id, provider, status, deployment_id, started_at, stopped_at, updated_at)
@@ -264,7 +298,7 @@ router.post("/:resourceId/deployments/:deploymentId/activate", async (req, res) 
   try {
     await client.query("BEGIN");
     const resource = await client.query(
-      `SELECT r.id, r.status
+      `SELECT r.id, r.status, r.site_type, r.active_deployment_id
        FROM hosting_resources r
        INNER JOIN projects p ON p.id = r.project_id
        WHERE r.id = $1 AND r.project_id = $2 AND p.owner_id = $3
@@ -279,7 +313,6 @@ router.post("/:resourceId/deployments/:deploymentId/activate", async (req, res) 
       await client.query("ROLLBACK");
       return res.status(409).json({ success: false, message: "Restore this website before activating a deployment." });
     }
-
     const deployment = await client.query(
       `SELECT id FROM hosting_deployments
        WHERE id = $1 AND project_id = $2 AND resource_id = $3 AND status = 'succeeded'
@@ -291,6 +324,24 @@ router.post("/:resourceId/deployments/:deploymentId/activate", async (req, res) 
       return res.status(409).json({ success: false, message: "Only a successful deployment belonging to this website can be activated." });
     }
 
+    if (resource.rows[0].site_type === "node") {
+      const agent = runtimeAgentOptions();
+      if (!agent) {
+        await client.query("ROLLBACK");
+        return res.status(503).json({ success: false, message: "The private runtime agent is not configured; the live deployment was left unchanged." });
+      }
+      try {
+        const targetRuntime = await getRuntimeAgentRuntime(agent, resourceId, deploymentId);
+        if (targetRuntime.state !== "running") {
+          await client.query("ROLLBACK");
+          return res.status(409).json({ success: false, message: "This Node.js deployment is not running; the live deployment was left unchanged." });
+        }
+      } catch {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ success: false, message: "This Node.js deployment is unavailable; the live deployment was left unchanged." });
+      }
+    }
+
     const updated = await client.query(
       `UPDATE hosting_resources
        SET active_deployment_id = $3, status = 'published', updated_at = NOW()
@@ -298,7 +349,59 @@ router.post("/:resourceId/deployments/:deploymentId/activate", async (req, res) 
        RETURNING id, status, active_deployment_id`,
       [resourceId, projectId, deploymentId]
     );
+    if (resource.rows[0].site_type === "node") {
+      await client.query(
+        `INSERT INTO hosting_runtime_instances
+           (resource_id, provider, status, deployment_id, started_at, stopped_at, updated_at)
+         VALUES ($1, 'podman', 'running', $2, NOW(), NULL, NOW())
+         ON CONFLICT (resource_id) DO UPDATE
+         SET provider = 'podman', status = 'running', deployment_id = EXCLUDED.deployment_id,
+             started_at = NOW(), stopped_at = NULL, updated_at = NOW()`,
+        [resourceId, deploymentId],
+      );
+    }
     await client.query("COMMIT");
+
+    if (resource.rows[0].site_type === "node") {
+      try {
+        await syncPublishedNodeIngress();
+      } catch (ingressError) {
+        console.error("Deployment activation ingress sync failed:", ingressError instanceof Error ? ingressError.message : ingressError);
+        // Keep the database's active pointer consistent with the last known
+        // working route. Runtime containers are retained; no live version is
+        // deleted during a failed cutover.
+        try {
+          await client.query("BEGIN");
+          await client.query(
+            `UPDATE hosting_resources
+             SET active_deployment_id = $3, status = $4, updated_at = NOW()
+             WHERE id = $1 AND project_id = $2 AND active_deployment_id = $5`,
+            [resourceId, projectId, resource.rows[0].active_deployment_id, resource.rows[0].status, deploymentId],
+          );
+          if (resource.rows[0].active_deployment_id && UUID_PATTERN.test(String(resource.rows[0].active_deployment_id))) {
+            await client.query(
+              `UPDATE hosting_runtime_instances
+               SET provider = 'podman', status = 'running', deployment_id = $2,
+                   started_at = NOW(), stopped_at = NULL, updated_at = NOW()
+               WHERE resource_id = $1`,
+              [resourceId, resource.rows[0].active_deployment_id],
+            );
+          } else {
+            await client.query("DELETE FROM hosting_runtime_instances WHERE resource_id = $1", [resourceId]);
+          }
+          await client.query("COMMIT");
+          await syncPublishedNodeIngress();
+        } catch (restoreError) {
+          await client.query("ROLLBACK").catch(() => undefined);
+          console.error("Could not restore previous ingress selection:", restoreError instanceof Error ? restoreError.message : restoreError);
+        }
+        return res.status(502).json({
+          success: false,
+          message: "The deployment could not be safely switched at the ingress layer. The previous runtime was retained and the active pointer was restored where possible.",
+        });
+      }
+    }
+
     return res.json({
       success: true,
       message: "Deployment is now the live website version.",
@@ -372,11 +475,330 @@ router.post("/:resourceId/validate-node", async (req, res) => {
   }
 });
 
+
+
+async function copyNodeSnapshotFile(source: string, destination: string): Promise<number> {
+  const metadata = await lstat(source);
+  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size > 10 * 1024 * 1024) {
+    throw new Error("A Node deployment source is not a permitted regular file.");
+  }
+  const sourceHandle = await open(source, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  const destinationHandle = await open(destination, "wx", 0o600);
+  try {
+    const opened = await sourceHandle.stat();
+    if (!opened.isFile() || opened.dev !== metadata.dev || opened.ino !== metadata.ino ||
+        opened.size !== metadata.size) {
+      throw new Error("A Node deployment source changed while its snapshot was being created.");
+    }
+    const bytes = await sourceHandle.readFile();
+    if (bytes.byteLength !== metadata.size) throw new Error("A Node deployment source changed while being copied.");
+    await destinationHandle.writeFile(bytes);
+    await destinationHandle.sync();
+    return bytes.byteLength;
+  } finally {
+    await sourceHandle.close();
+    await destinationHandle.close();
+  }
+}
+
+/**
+ * Node deployments are built remotely and activated only after the private
+ * runtime agent confirms its readiness probe. No database transaction is held
+ * open while the remote builder or runtime is working.
+ */
+async function deployNodeWebsite(
+  projectId: string,
+  resourceId: string,
+  userId: string,
+  response: import("express").Response,
+) {
+  const agent = runtimeAgentOptions();
+  if (!agent) {
+    return response.status(503).json({
+      success: false,
+      message: "The private Linux builder and runtime agent are not configured.",
+    });
+  }
+
+  const client = await pool.connect();
+  const deploymentId = randomUUID();
+  const snapshotKeys: string[] = [];
+  let snapshotManifest: ManifestFile[] = [];
+  let runtimeStarted = false;
+  let snapshotBytes = 0;
+  try {
+    await client.query("BEGIN");
+    const resource = await client.query(
+      `SELECT r.id, r.status, r.site_type, r.active_deployment_id
+       FROM hosting_resources r
+       INNER JOIN projects p ON p.id = r.project_id
+       WHERE r.id = $1 AND r.project_id = $2 AND p.owner_id = $3
+       FOR UPDATE OF r`,
+      [resourceId, projectId, userId],
+    );
+    if (resource.rowCount !== 1) {
+      await client.query("ROLLBACK");
+      return response.status(404).json({ success: false, message: "Website resource not found." });
+    }
+    if (resource.rows[0].site_type !== "node") {
+      await client.query("ROLLBACK");
+      return response.status(409).json({ success: false, message: "This deployment path is only for Node.js websites." });
+    }
+    if (resource.rows[0].status === "archived") {
+      await client.query("ROLLBACK");
+      return response.status(409).json({ success: false, message: "Restore this website before deploying." });
+    }
+
+    const previousActiveDeploymentId = resource.rows[0].active_deployment_id ?? null;
+
+    const files = await client.query(
+      `SELECT original_name, storage_key, mime_type, size_bytes
+       FROM hosting_files
+       WHERE project_id = $1 AND resource_id = $2
+       ORDER BY original_name ASC`,
+      [projectId, resourceId],
+    );
+    const sourceFiles = files.rows as ManifestFile[];
+    const uploadedPaths = sourceFiles.map((file) => file.original_name);
+    const packageFile = sourceFiles.find((file) => file.original_name === "package.json");
+    let packageJson = "";
+    if (packageFile && UUID_PATTERN.test(packageFile.storage_key)) {
+      packageJson = await readFile(path.join(storageRoot, resourceId, packageFile.storage_key), "utf8");
+    }
+    const validation = validateNodeProject(packageJson, uploadedPaths);
+    if (!validation.valid) {
+      await client.query("ROLLBACK");
+      return response.status(422).json({ success: false, message: validation.error, validation });
+    }
+    if (sourceFiles.length < 1 || sourceFiles.length > 2_000) {
+      await client.query("ROLLBACK");
+      return response.status(422).json({ success: false, message: "Node deployment must contain between 1 and 2,000 files." });
+    }
+
+    for (const file of sourceFiles) {
+      if (!UUID_PATTERN.test(file.storage_key)) throw new Error("A stored website file has an invalid storage key.");
+      const source = path.join(storageRoot, resourceId, file.storage_key);
+      if (!existsSync(source)) throw new Error("A stored website file is missing.");
+      const snapshotKey = randomUUID();
+      snapshotKeys.push(snapshotKey);
+      snapshotBytes += await copyNodeSnapshotFile(source, path.join(storageRoot, resourceId, snapshotKey));
+      if (snapshotBytes > 100 * 1024 * 1024) throw new Error("Node deployment exceeds the 100 MB snapshot limit.");
+      snapshotManifest.push({ ...file, storage_key: snapshotKey });
+    }
+    await client.query("COMMIT");
+
+    const environmentRows = await pool.query(
+      `SELECT name, encrypted_value AS ciphertext,
+              encryption_iv AS iv, encryption_auth_tag AS "authTag"
+       FROM hosting_environment_variables
+       WHERE resource_id = $1
+       ORDER BY name ASC`,
+      [resourceId],
+    );
+    const started = await startBuiltRemoteNodeRuntime({
+      resourceId,
+      deploymentId,
+      storageRoot,
+      files: snapshotManifest.map((file) => ({
+        originalName: file.original_name,
+        storageKey: file.storage_key,
+      })),
+      validation,
+      encryptedVariables: environmentRows.rows,
+      hostingUserId: userId,
+      agent,
+    });
+    runtimeStarted = true;
+
+    await client.query("BEGIN");
+    const currentResource = await client.query(
+      `SELECT r.id, r.status, r.active_deployment_id
+       FROM hosting_resources r
+       INNER JOIN projects p ON p.id = r.project_id
+       WHERE r.id = $1 AND r.project_id = $2 AND p.owner_id = $3
+       FOR UPDATE OF r`,
+      [resourceId, projectId, userId],
+    );
+    if (currentResource.rowCount !== 1 || currentResource.rows[0].status === "archived") {
+      throw new Error("Website ownership or availability changed during deployment.");
+    }
+    if (String(currentResource.rows[0].active_deployment_id || "") !== String(previousActiveDeploymentId || "")) {
+      throw new Error("A newer deployment became active while this build was running.");
+    }
+    const numberResult = await client.query(
+      `SELECT COALESCE(MAX(deployment_number), 0) + 1 AS next_number
+       FROM hosting_deployments WHERE resource_id = $1`,
+      [resourceId],
+    );
+    const deploymentNumber = Number(numberResult.rows[0].next_number);
+    const inserted = await client.query(
+      `INSERT INTO hosting_deployments
+         (id, project_id, resource_id, deployment_number, status, file_manifest,
+          error_summary, finished_at, created_by)
+       VALUES ($1, $2, $3, $4, 'succeeded', $5::jsonb, NULL, NOW(), $6)
+       RETURNING id, project_id, resource_id, deployment_number, status,
+                 file_manifest, error_summary, started_at, finished_at, created_at`,
+      [deploymentId, projectId, resourceId, deploymentNumber, JSON.stringify(snapshotManifest), userId],
+    );
+    await client.query(
+      `UPDATE hosting_resources
+       SET active_deployment_id = $3, status = 'published', updated_at = NOW()
+       WHERE id = $1 AND project_id = $2`,
+      [resourceId, projectId, deploymentId],
+    );
+    await client.query(
+      `INSERT INTO hosting_runtime_instances
+         (resource_id, provider, status, deployment_id, started_at, stopped_at, updated_at)
+       VALUES ($1, 'podman', 'running', $2, NOW(), NULL, NOW())
+       ON CONFLICT (resource_id) DO UPDATE
+       SET provider = 'podman', status = 'running', deployment_id = EXCLUDED.deployment_id,
+           started_at = NOW(), stopped_at = NULL, updated_at = NOW()`,
+      [resourceId, deploymentId],
+    );
+    await client.query("COMMIT");
+
+    let ingressSynced = true;
+    try {
+      await syncPublishedNodeIngress();
+    } catch (ingressError) {
+      ingressSynced = false;
+      console.error("Node deployment ingress synchronization failed:", ingressError instanceof Error ? ingressError.message : ingressError);
+
+      // The deployment is built and healthy, but it must not be reported as
+      // live when the public route did not switch. Restore the previous active
+      // pointer before returning, while retaining this healthy version as a
+      // successful deployment that an operator can retry/activate later.
+      try {
+        await client.query("BEGIN");
+        const restoredResource = await client.query(
+          `UPDATE hosting_resources
+           SET active_deployment_id = $3, status = $4, updated_at = NOW()
+           WHERE id = $1 AND project_id = $2 AND active_deployment_id = $5
+           RETURNING id`,
+          [resourceId, projectId, previousActiveDeploymentId, currentResource.rows[0].status, deploymentId],
+        );
+        if (restoredResource.rowCount !== 1) {
+          await client.query("ROLLBACK");
+          // A newer deployment won the race. Never overwrite its pointer or
+          // runtime metadata with this older deployment's recovery state.
+          await syncPublishedNodeIngress();
+          throw new Error("A newer deployment changed the active version during ingress recovery.");
+        }
+        if (UUID_PATTERN.test(String(previousActiveDeploymentId || ""))) {
+          await client.query(
+            `INSERT INTO hosting_runtime_instances
+               (resource_id, provider, status, deployment_id, started_at, stopped_at, updated_at)
+             VALUES ($1, 'podman', 'running', $2, NOW(), NULL, NOW())
+             ON CONFLICT (resource_id) DO UPDATE
+             SET provider = 'podman', status = 'running', deployment_id = EXCLUDED.deployment_id,
+                 started_at = NOW(), stopped_at = NULL, updated_at = NOW()`,
+            [resourceId, previousActiveDeploymentId],
+          );
+        } else {
+          await client.query("DELETE FROM hosting_runtime_instances WHERE resource_id = $1", [resourceId]);
+        }
+        await client.query("COMMIT");
+        await syncPublishedNodeIngress();
+      } catch (restoreError) {
+        await client.query("ROLLBACK").catch(() => undefined);
+        console.error("Node deployment could not restore the previous ingress selection:", restoreError instanceof Error ? restoreError.message : restoreError);
+      }
+    }
+    if (ingressSynced) await cleanupRetiredNodeRuntimes(resourceId, agent);
+
+    if (!ingressSynced) {
+      return response.status(502).json({
+        success: false,
+        message: "The new Node.js version built and passed readiness, but public ingress could not be switched. The previous version was restored where possible; the new healthy version was retained for a safe retry.",
+        deployment: inserted.rows[0],
+        runtime: { state: started.state, deploymentId: started.deploymentId },
+        ingress: { synchronized: false },
+      });
+    }
+
+    return response.status(201).json({
+      success: true,
+      message: "Node.js website built in isolation, started, health-checked and activated.",
+      deployment: inserted.rows[0],
+      runtime: { state: started.state, deploymentId: started.deploymentId },
+      ingress: { synchronized: true },
+    });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    if (runtimeStarted) {
+      await deleteRuntimeAgentRuntime(agent, resourceId, deploymentId).catch(() => undefined);
+      await deleteRuntimeAgentArtifact(agent, deploymentId).catch(() => undefined);
+    }
+    for (const key of snapshotKeys) {
+      await rm(path.join(storageRoot, resourceId, key), { force: true }).catch(() => undefined);
+    }
+
+    // Preserve a failed deployment history entry without changing the active
+    // deployment pointer. Use a fresh short transaction and owner check.
+    try {
+      await client.query("BEGIN");
+      const current = await client.query(
+        `SELECT r.id FROM hosting_resources r
+         INNER JOIN projects p ON p.id = r.project_id
+         WHERE r.id = $1 AND r.project_id = $2 AND p.owner_id = $3
+         FOR UPDATE OF r`,
+        [resourceId, projectId, userId],
+      );
+      if (current.rowCount === 1) {
+        const numberResult = await client.query(
+          `SELECT COALESCE(MAX(deployment_number), 0) + 1 AS next_number
+           FROM hosting_deployments WHERE resource_id = $1`,
+          [resourceId],
+        );
+        await client.query(
+          `INSERT INTO hosting_deployments
+             (id, project_id, resource_id, deployment_number, status, file_manifest,
+              error_summary, finished_at, created_by)
+           VALUES ($1, $2, $3, $4, 'failed', $5::jsonb, $6, NOW(), $7)`,
+          [
+            deploymentId, projectId, resourceId, Number(numberResult.rows[0].next_number),
+            JSON.stringify(snapshotManifest),
+            "Deployment failed during isolated build, runtime startup or activation.",
+            userId,
+          ],
+        );
+      }
+      await client.query("COMMIT");
+    } catch (historyError) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      console.error("Could not record failed Node deployment:", historyError instanceof Error ? historyError.message : "Unknown error");
+    }
+
+    console.error("Node deployment failed:", error instanceof Error ? error.message : "Unknown error");
+    return response.status(502).json({
+      success: false,
+      message: "Node.js deployment failed during isolated build, runtime startup or activation. The previous active deployment was not changed.",
+    });
+  } finally {
+    client.release();
+  }
+}
+
 // Create an immutable snapshot of validated static website files.
 router.post("/:resourceId/deployments", async (req, res) => {
   const { projectId = "", resourceId = "" } = params(req);
   if (!UUID_PATTERN.test(projectId) || !UUID_PATTERN.test(resourceId)) {
     return res.status(400).json({ success: false, message: "Invalid project or website ID." });
+  }
+
+
+  let existingResource;
+  try {
+    existingResource = await ownedResource(projectId, resourceId, String(res.locals.userId || ""));
+  } catch (error) {
+    console.error("Deployment resource lookup failed:", error instanceof Error ? error.message : error);
+    return res.status(500).json({ success: false, message: "Could not load website resource." });
+  }
+  if (existingResource.rowCount !== 1) {
+    return res.status(404).json({ success: false, message: "Website resource not found." });
+  }
+  if (existingResource.rows[0].site_type === "node") {
+    return deployNodeWebsite(projectId, resourceId, String(res.locals.userId || ""), res);
   }
 
   const client = await pool.connect();

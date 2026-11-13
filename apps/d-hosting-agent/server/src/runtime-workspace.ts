@@ -84,7 +84,8 @@ export async function materializeRuntimeWorkspace(
       }
 
       const sourceHandle = await open(sourcePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-      const destinationHandle = await open(destinationPath, "wx", 0o444);
+      const executable = Boolean(stat.mode & 0o111);
+      const destinationHandle = await open(destinationPath, "wx", executable ? 0o555 : 0o444);
       try {
         const opened = await sourceHandle.stat();
         if (!opened.isFile() || opened.dev !== stat.dev || opened.ino !== stat.ino || opened.size !== stat.size) {
@@ -98,7 +99,7 @@ export async function materializeRuntimeWorkspace(
         await sourceHandle.close();
         await destinationHandle.close();
       }
-      await chmod(destinationPath, 0o444);
+      await chmod(destinationPath, executable ? 0o555 : 0o444);
     }
   };
 

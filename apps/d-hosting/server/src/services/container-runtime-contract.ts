@@ -42,6 +42,7 @@ const PLATFORM_DATABASE_ENVIRONMENT_NAMES = new Set([
  */
 export function buildNodeContainerSpec(input: {
   resourceId: string;
+  deploymentId?: string;
   validation: NodeProjectValidation;
   artifactDirectory: string;
   environment: Record<string, string>;
@@ -74,7 +75,7 @@ export function buildNodeContainerSpec(input: {
   }
 
   return {
-    name: `dsquare-site-${input.resourceId}`,
+    name: `dsquare-deploy-${input.deploymentId ?? input.resourceId}`,
     image,
     workingDirectory: "/app",
     mounts: [{ source: input.artifactDirectory, target: "/app", readOnly: true }],

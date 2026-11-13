@@ -209,6 +209,7 @@ export type RuntimeAgentHealth = {
   status: "ready";
   providerConfigured: boolean;
   executionEnabled: boolean;
+  ingressConfigured?: boolean;
 };
 
 /** Checks the authenticated private agent endpoint without enabling deployments. */
@@ -226,6 +227,119 @@ export async function checkRuntimeAgentHealth(
     throw new Error("Runtime agent returned an invalid health response.");
   }
   return result as RuntimeAgentHealth;
+}
+
+export type RuntimeAgentIngressRoute = {
+  domain: string;
+  resourceId: string;
+  deploymentId: string;
+};
+
+/** Replaces the complete private ingress table through the authenticated agent. */
+export async function syncRuntimeAgentIngress(
+  options: RuntimeAgentClientOptions,
+  routes: RuntimeAgentIngressRoute[],
+  tlsEmail?: string,
+): Promise<{ applied: true; routeCount: number }> {
+  if (!Array.isArray(routes) || routes.length > 2_000 ||
+      routes.some((route) =>
+        !RUNTIME_UUID.test(route.resourceId) ||
+        !RUNTIME_UUID.test(route.deploymentId) ||
+        typeof route.domain !== "string" || route.domain.length > 253
+      )) {
+    throw new Error("Private ingress route list is invalid.");
+  }
+  const result = await requestRuntimeAgent<unknown>(options, {
+    method: "POST",
+    path: "/v1/ingress/routes",
+    body: { routes, ...(tlsEmail ? { tlsEmail } : {}) },
+  });
+  if (!result || typeof result !== "object" ||
+      (result as Record<string, unknown>).applied !== true ||
+      (result as Record<string, unknown>).routeCount !== routes.length) {
+    throw new Error("Runtime agent did not confirm private ingress synchronization.");
+  }
+  return result as { applied: true; routeCount: number };
+}
+
+/** Applies the per-website hard storage limit before any runtime is started. */
+export async function configureRuntimeAgentStorageQuota(
+  options: RuntimeAgentClientOptions,
+  resourceId: string,
+  hardLimitBytes: number,
+): Promise<{ resourceId: string; hardLimitBytes: number; enforcement: "xfs-project-hard-quota"; applied: true }> {
+  assertRuntimeAgentResourceId(resourceId);
+  if (!Number.isSafeInteger(hardLimitBytes) || hardLimitBytes < 16 * 1024 * 1024) {
+    throw new Error("Persistent storage quota must be at least 16 MiB.");
+  }
+  const result = await requestRuntimeAgent<unknown>(options, {
+    method: "POST",
+    path: `/v1/storage/${resourceId}/quota`,
+    body: { hardLimitBytes },
+  });
+  if (!result || typeof result !== "object" ||
+      (result as Record<string, unknown>).resourceId !== resourceId ||
+      (result as Record<string, unknown>).hardLimitBytes !== hardLimitBytes ||
+      (result as Record<string, unknown>).enforcement !== "xfs-project-hard-quota" ||
+      (result as Record<string, unknown>).applied !== true) {
+    throw new Error("Runtime agent did not confirm hard persistent storage quota activation.");
+  }
+  return result as { resourceId: string; hardLimitBytes: number; enforcement: "xfs-project-hard-quota"; applied: true };
+}
+
+export type RuntimeAgentStorageBackup = {
+  backupId: string; resourceId: string; sizeBytes: number; sha256: string; createdAt: string;
+};
+function assertStorageBackupId(value: string): void {
+  if (!/^[a-f0-9]{32}$/.test(value)) throw new Error("Persistent backup ID is invalid.");
+}
+export async function createRuntimeAgentStorageBackup(options: RuntimeAgentClientOptions, resourceId: string): Promise<RuntimeAgentStorageBackup> {
+  assertRuntimeAgentResourceId(resourceId);
+  const result = await requestRuntimeAgent<unknown>(options, { method: "POST", path: `/v1/storage/${resourceId}/backups` });
+  if (!result || typeof result !== "object" || (result as Record<string, unknown>).resourceId !== resourceId ||
+      typeof (result as Record<string, unknown>).backupId !== "string" ||
+      !/^[a-f0-9]{32}$/.test(String((result as Record<string, unknown>).backupId)) ||
+      !Number.isSafeInteger((result as Record<string, unknown>).sizeBytes) ||
+      !/^[a-f0-9]{64}$/.test(String((result as Record<string, unknown>).sha256))) {
+    throw new Error("Runtime agent returned invalid persistent backup metadata.");
+  }
+  return result as RuntimeAgentStorageBackup;
+}
+export async function listRuntimeAgentStorageBackups(options: RuntimeAgentClientOptions, resourceId: string): Promise<RuntimeAgentStorageBackup[]> {
+  assertRuntimeAgentResourceId(resourceId);
+  const result = await requestRuntimeAgent<unknown>(options, { method: "GET", path: `/v1/storage/${resourceId}/backups` });
+  if (!result || typeof result !== "object" || (result as Record<string, unknown>).resourceId !== resourceId ||
+      !Array.isArray((result as Record<string, unknown>).backups)) throw new Error("Runtime agent returned invalid backup history.");
+  return (result as { backups: RuntimeAgentStorageBackup[] }).backups;
+}
+export async function restoreRuntimeAgentStorageBackup(options: RuntimeAgentClientOptions, resourceId: string, backupId: string): Promise<{ restoredFiles: number; restoredBytes: number }> {
+  assertRuntimeAgentResourceId(resourceId); assertStorageBackupId(backupId);
+  const result = await requestRuntimeAgent<unknown>(options, { method: "POST", path: `/v1/storage/${resourceId}/backups/${backupId}/restore`, body: { confirm: true } });
+  if (!result || typeof result !== "object" || (result as Record<string, unknown>).resourceId !== resourceId ||
+      !Number.isSafeInteger((result as Record<string, unknown>).restoredFiles) ||
+      !Number.isSafeInteger((result as Record<string, unknown>).restoredBytes)) throw new Error("Runtime agent returned invalid restore confirmation.");
+  return result as { restoredFiles: number; restoredBytes: number };
+}
+export async function deleteRuntimeAgentStorageBackup(options: RuntimeAgentClientOptions, resourceId: string, backupId: string): Promise<{ deleted: true }> {
+  assertRuntimeAgentResourceId(resourceId); assertStorageBackupId(backupId);
+  const result = await requestRuntimeAgent<unknown>(options, { method: "DELETE", path: `/v1/storage/${resourceId}/backups/${backupId}` });
+  if (!result || typeof result !== "object" || (result as Record<string, unknown>).resourceId !== resourceId ||
+      (result as Record<string, unknown>).backupId !== backupId || (result as Record<string, unknown>).deleted !== true) throw new Error("Runtime agent did not confirm backup deletion.");
+  return { deleted: true };
+}
+export async function getRuntimeAgentStorageUsage(options: RuntimeAgentClientOptions, resourceId: string): Promise<{ usedBytes: number }> {
+  assertRuntimeAgentResourceId(resourceId);
+  const result = await requestRuntimeAgent<unknown>(options, { method: "GET", path: `/v1/storage/${resourceId}/usage` });
+  if (!result || typeof result !== "object" || (result as Record<string, unknown>).resourceId !== resourceId ||
+      !Number.isSafeInteger((result as Record<string, unknown>).usedBytes)) throw new Error("Runtime agent returned invalid storage usage.");
+  return result as { usedBytes: number };
+}
+export async function tombstoneRuntimeAgentStorage(options: RuntimeAgentClientOptions, resourceId: string): Promise<{ tombstoned: boolean }> {
+  assertRuntimeAgentResourceId(resourceId);
+  const result = await requestRuntimeAgent<unknown>(options, { method: "POST", path: `/v1/storage/${resourceId}/tombstone`, body: { confirm: true } });
+  if (!result || typeof result !== "object" || (result as Record<string, unknown>).resourceId !== resourceId ||
+      typeof (result as Record<string, unknown>).tombstoned !== "boolean") throw new Error("Runtime agent returned invalid storage tombstone confirmation.");
+  return result as { tombstoned: boolean };
 }
 
 export type RuntimeAgentState = "running" | "stopped";
@@ -305,21 +419,23 @@ export async function createRuntimeAgentRuntime(
   return value as RuntimeAgentCreatedRuntime;
 }
 
-/** Reads the current state of one managed runtime. */
+/** Reads the state of one immutable runtime deployment. */
 export async function getRuntimeAgentRuntime(
   options: RuntimeAgentClientOptions,
   resourceId: string,
+  deploymentId: string,
 ): Promise<RuntimeAgentRuntimeResult> {
   assertRuntimeAgentResourceId(resourceId);
+  assertRuntimeAgentResourceId(deploymentId);
   const result = await requestRuntimeAgent<unknown>(options, {
     method: "GET",
-    path: `/v1/runtimes/${resourceId}`,
+    path: `/v1/runtimes/${resourceId}/${deploymentId}`,
   });
   if (!result || typeof result !== "object") {
     throw new Error("Runtime agent returned an invalid runtime status response.");
   }
   const value = result as Record<string, unknown>;
-  if (value.resourceId !== resourceId || !RUNTIME_UUID.test(String(value.deploymentId)) ||
+  if (value.resourceId !== resourceId || value.deploymentId !== deploymentId ||
       !isRuntimeAgentState(value.state)) {
     throw new Error("Runtime agent returned invalid runtime status fields.");
   }
@@ -328,63 +444,73 @@ export async function getRuntimeAgentRuntime(
 
 export type RuntimeAgentLogsResult = {
   resourceId: string;
+  deploymentId: string;
   logs: string;
 };
 
-/** Retrieves the latest bounded log output for one managed runtime. */
+/** Retrieves bounded logs for one immutable runtime deployment. */
 export async function getRuntimeAgentLogs(
   options: RuntimeAgentClientOptions,
   resourceId: string,
+  deploymentId: string,
 ): Promise<RuntimeAgentLogsResult> {
   assertRuntimeAgentResourceId(resourceId);
+  assertRuntimeAgentResourceId(deploymentId);
   const result = await requestRuntimeAgent<unknown>(options, {
     method: "GET",
-    path: `/v1/runtimes/${resourceId}/logs`,
+    path: `/v1/runtimes/${resourceId}/${deploymentId}/logs`,
   });
   if (!result || typeof result !== "object" ||
       (result as Record<string, unknown>).resourceId !== resourceId ||
+      (result as Record<string, unknown>).deploymentId !== deploymentId ||
       typeof (result as Record<string, unknown>).logs !== "string") {
     throw new Error("Runtime agent returned invalid runtime logs.");
   }
   return result as RuntimeAgentLogsResult;
 }
 
-/** Stops or restarts one managed runtime and verifies the resulting state. */
+/** Stops or restarts one immutable runtime deployment. */
 export async function changeRuntimeAgentRuntimeState(
   options: RuntimeAgentClientOptions,
   resourceId: string,
+  deploymentId: string,
   action: "stop" | "restart",
 ): Promise<RuntimeAgentLifecycleResult> {
   assertRuntimeAgentResourceId(resourceId);
+  assertRuntimeAgentResourceId(deploymentId);
   const result = await requestRuntimeAgent<unknown>(options, {
     method: "POST",
-    path: `/v1/runtimes/${resourceId}/${action}`,
+    path: `/v1/runtimes/${resourceId}/${deploymentId}/${action}`,
   });
   const expectedState = action === "stop" ? "stopped" : "running";
   if (!result || typeof result !== "object" ||
       (result as Record<string, unknown>).resourceId !== resourceId ||
+      (result as Record<string, unknown>).deploymentId !== deploymentId ||
       (result as Record<string, unknown>).state !== expectedState) {
     throw new Error("Runtime agent did not confirm the requested lifecycle operation.");
   }
   return result as RuntimeAgentLifecycleResult;
 }
 
-/** Removes the runtime before its deployment artifact is eligible for deletion. */
+/** Removes one immutable runtime deployment. */
 export async function deleteRuntimeAgentRuntime(
   options: RuntimeAgentClientOptions,
   resourceId: string,
-): Promise<{ resourceId: string; deleted: true }> {
+  deploymentId: string,
+): Promise<{ resourceId: string; deploymentId: string; deleted: true }> {
   assertRuntimeAgentResourceId(resourceId);
+  assertRuntimeAgentResourceId(deploymentId);
   const result = await requestRuntimeAgent<unknown>(options, {
     method: "DELETE",
-    path: `/v1/runtimes/${resourceId}`,
+    path: `/v1/runtimes/${resourceId}/${deploymentId}`,
   });
   if (!result || typeof result !== "object" ||
       (result as Record<string, unknown>).resourceId !== resourceId ||
+      (result as Record<string, unknown>).deploymentId !== deploymentId ||
       (result as Record<string, unknown>).deleted !== true) {
     throw new Error("Runtime agent did not confirm runtime deletion.");
   }
-  return result as { resourceId: string; deleted: true };
+  return result as { resourceId: string; deploymentId: string; deleted: true };
 }
 
 /** Deletes an artifact only after its runtime has been removed. */
@@ -405,3 +531,65 @@ export async function deleteRuntimeAgentArtifact(
   return result as { artifactId: string; deleted: boolean };
 }
 
+
+
+export type RuntimeAgentBuildInput = {
+  sourceArtifactId: string;
+  deploymentId: string;
+  cacheAttestation?: {
+    schemaVersion: 1;
+    lockfileSha256: string;
+    builderImage: string;
+    npmVersion: string;
+    verifiedCacheIntegrities: string[];
+    npmCacheVerified: true;
+    verifiedAt: string;
+    signature: string;
+  };
+};
+
+export type RuntimeAgentBuildResult = {
+  artifact: {
+    artifactId: string;
+    sha256: string;
+    sizeBytes: number;
+    fileCount: number;
+  };
+  output: string;
+};
+
+/** Builds a source artifact in the private isolated builder and returns its immutable runtime artifact descriptor. */
+export async function buildRuntimeAgentArtifact(
+  options: RuntimeAgentClientOptions,
+  input: RuntimeAgentBuildInput,
+): Promise<RuntimeAgentBuildResult> {
+  assertRuntimeAgentResourceId(input.sourceArtifactId);
+  assertRuntimeAgentResourceId(input.deploymentId);
+  if (input.sourceArtifactId === input.deploymentId) {
+    throw new Error("Source and built runtime artifact IDs must be different.");
+  }
+  const result = await requestRuntimeAgent<unknown>(options, {
+    method: "POST",
+    path: "/v1/builds",
+    body: input,
+  });
+  if (!result || typeof result !== "object") {
+    throw new Error("Runtime agent returned an invalid build response.");
+  }
+  const value = result as Record<string, unknown>;
+  const artifact = value.artifact;
+  if (!artifact || typeof artifact !== "object") {
+    throw new Error("Runtime agent did not return a built artifact.");
+  }
+  const descriptor = artifact as Record<string, unknown>;
+  if (descriptor.artifactId !== input.deploymentId ||
+      !/^[a-f0-9]{64}$/i.test(String(descriptor.sha256)) ||
+      !Number.isSafeInteger(descriptor.sizeBytes) ||
+      (descriptor.sizeBytes as number) < 1 || (descriptor.sizeBytes as number) > 100 * 1024 * 1024 ||
+      !Number.isInteger(descriptor.fileCount) ||
+      (descriptor.fileCount as number) < 1 || (descriptor.fileCount as number) > 2_000 ||
+      typeof value.output !== "string" || value.output.length > 64 * 1024) {
+    throw new Error("Runtime agent returned invalid built artifact metadata.");
+  }
+  return value as RuntimeAgentBuildResult;
+}

@@ -6,7 +6,7 @@ const resourceId = "11111111-1111-4111-8111-111111111111";
 const deploymentId = "22222222-2222-4222-8222-222222222222";
 const artifactId = deploymentId;
 const runtime = {
-  name: `dsquare-site-${resourceId}`,
+  name: `dsquare-deploy-${deploymentId}`,
   image: "node:22-bookworm-slim",
   workingDirectory: "/app" as const,
   command: ["npm", "start"] as ["npm", "start"],
@@ -23,10 +23,10 @@ const runtime = {
 
 test("builds a restricted Podman config without publishing a host port", () => {
   const config = buildPodmanContainerConfig({
-    resourceId, deploymentId, artifactId, runtime, artifactDirectory: "/srv/dsquare/artifacts/site-1",
+    resourceId, deploymentId, artifactId, runtime, artifactDirectory: "/srv/dsquare/artifacts/site-1", persistentStorageDirectory: "/srv/persistent/11111111-1111-4111-8111-111111111111",
     trustedImage: "node:22-bookworm-slim", networkName: "dsquare-hosting-internal",
   }) as { HostConfig: Record<string, unknown>; ExposedPorts: Record<string, unknown>; Labels: Record<string, string>; NetworkingConfig: Record<string, unknown> };
-  assert.deepEqual(config.HostConfig.Binds, ["/srv/dsquare/artifacts/site-1:/app:ro"]);
+  assert.deepEqual(config.HostConfig.Binds, ["/srv/dsquare/artifacts/site-1:/app:ro", "/srv/persistent/11111111-1111-4111-8111-111111111111:/var/lib/dsquare:rw,U,Z"]);
   assert.equal(config.HostConfig.Memory, runtime.memoryBytes);
   assert.equal(config.HostConfig.NanoCpus, runtime.nanoCpus);
   assert.equal(config.HostConfig.PidsLimit, runtime.pidsLimit);
@@ -37,7 +37,7 @@ test("builds a restricted Podman config without publishing a host port", () => {
   assert.deepEqual(config.NetworkingConfig, {
     EndpointsConfig: {
       "dsquare-hosting-internal": {
-        Aliases: [`dsquare-site-${resourceId}.runtime.dsquare.internal`],
+        Aliases: [`dsquare-deploy-${deploymentId}.runtime.dsquare.internal`],
       },
     },
   });
@@ -53,24 +53,24 @@ test("builds a restricted Podman config without publishing a host port", () => {
 test("rejects unapproved images and unsafe mounts", () => {
   assert.throws(() => buildPodmanContainerConfig({
     resourceId, deploymentId, artifactId, runtime: { ...runtime, image: "attacker/image:latest" },
-    artifactDirectory: "/srv/artifacts/site", trustedImage: "node:22-bookworm-slim",
+    artifactDirectory: "/srv/artifacts/site", persistentStorageDirectory: "/srv/persistent/11111111-1111-4111-8111-111111111111", trustedImage: "node:22-bookworm-slim",
     networkName: "dsquare-hosting-internal",
   }), /pre-approved image/);
   assert.throws(() => buildPodmanContainerConfig({
-    resourceId, deploymentId, artifactId, runtime, artifactDirectory: "/srv/artifacts/site:rw",
+    resourceId, deploymentId, artifactId, runtime, artifactDirectory: "/srv/artifacts/site:rw", persistentStorageDirectory: "/srv/persistent/11111111-1111-4111-8111-111111111111",
     trustedImage: runtime.image, networkName: "dsquare-hosting-internal",
-  }), /safe Linux absolute path/);
+  }), /safe absolute Linux paths/);
 });
 
 test("rejects weakened isolation and invalid resource limits", () => {
   assert.throws(() => buildPodmanContainerConfig({
     resourceId, deploymentId, artifactId, runtime: { ...runtime, readOnlyRootFilesystem: false as true },
-    artifactDirectory: "/srv/artifacts/site", trustedImage: runtime.image,
+    artifactDirectory: "/srv/artifacts/site", persistentStorageDirectory: "/srv/persistent/11111111-1111-4111-8111-111111111111", trustedImage: runtime.image,
     networkName: "dsquare-hosting-internal",
   }), /isolation contract/);
   assert.throws(() => buildPodmanContainerConfig({
     resourceId, deploymentId, artifactId, runtime: { ...runtime, pidsLimit: 2 },
-    artifactDirectory: "/srv/artifacts/site", trustedImage: runtime.image,
+    artifactDirectory: "/srv/artifacts/site", persistentStorageDirectory: "/srv/persistent/11111111-1111-4111-8111-111111111111", trustedImage: runtime.image,
     networkName: "dsquare-hosting-internal",
   }), /resource limits/);
 });

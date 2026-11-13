@@ -2,13 +2,20 @@ import "dotenv/config";
 import express, { type Request, type Response, type NextFunction } from "express";
 import { Pool } from "pg";
 import path from "node:path";
+import { stat } from "node:fs/promises";
 import { isIP } from "node:net";
 import { verifyRuntimeAgentRequest, type RuntimeAgentAuthHeaders, type RuntimeAgentNonceStore } from "../../../d-hosting/server/src/services/runtime-agent-verifier.js";
 import { deleteStoredArtifact, readStoredArtifact, storeRuntimeArtifact } from "./artifact-store.js";
 import { PodmanRuntimeProvider } from "./podman-runtime-provider.js";
 import { createPodmanSocketTransport } from "./podman-client.js";
 import { RuntimeRegistry } from "./runtime-registry.js";
+import { PodmanNodeBuildRunner, type NodeBuildRequest } from "./node-build-runner.js";
 import { redactRuntimeLogMessage } from "../../../d-hosting/server/src/services/runtime-logs.js";
+import { applyPrivateIngressConfig, renderPrivateIngressJsonConfig, type PrivateIngressJsonRoute } from "./private-ingress-controller.js";
+import { decodePersistentBackupKeyring, resolvePersistentBackupKey, resolveBackupDirectory, startPersistentBackupScheduler } from "./persistent-storage-automation.js";
+import { initializePersistentStorageLifecycle, registerPersistentStorageLifecycleRoutes } from "./persistent-storage-lifecycle-api.js";
+import { enforceXfsProjectQuota } from "./persistent-storage-quotas.js";
+import { createPersistentBackupObjectStoreFromEnvironment, deletePersistentBackupObject, uploadPersistentBackupObject, type PersistentBackupObjectStore } from "./persistent-storage-object-store.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_BODY_BYTES = 100 * 1024 * 1024;
@@ -73,7 +80,7 @@ export function isRuntimeCreateRequest(value: unknown): value is {
       !Number.isInteger(artifact.fileCount) ||
       (artifact.fileCount as number) < 1 || (artifact.fileCount as number) > 2_000) return false;
 
-  if (runtime.name !== `dsquare-site-${value.resourceId}` ||
+  if (runtime.name !== `dsquare-deploy-${value.deploymentId}` ||
       typeof runtime.image !== "string" ||
       !/^[A-Za-z0-9][A-Za-z0-9._/:@-]{2,255}$/.test(runtime.image) ||
       runtime.workingDirectory !== "/app" ||
@@ -135,14 +142,24 @@ export function createRuntimeAgentApp(input: {
   secret: string;
   storageRoot: string;
   provider?: PodmanRuntimeProvider;
+  builder?: PodmanNodeBuildRunner;
+  builderEnabled?: boolean;
+  ingressAdminUrl?: string;
   trustedImage?: string;
   /** Must remain false in production until Linux isolation acceptance is complete. */
   executionEnabled?: boolean;
+  persistentBackupRoot?: string;
+  persistentBackupKey?: Uint8Array;
+  persistentBackupKeyId?: string;
+  persistentBackupKeyResolver?: (keyId: string) => Uint8Array;
+  persistentStorageRoot?: string;
+  persistentBackupObjectStore?: PersistentBackupObjectStore;
 }) {
   const app = express();
   const nonceStore = new PostgresNonceStore(input.pool);
   const registry = new RuntimeRegistry(input.pool);
   const executionEnabled = input.executionEnabled === true && Boolean(input.provider);
+  const builderEnabled = input.builderEnabled === true && Boolean(input.builder);
   app.disable("x-powered-by");
   app.use(express.raw({
     type: "*/*",
@@ -173,8 +190,13 @@ export function createRuntimeAgentApp(input: {
     }
   });
 
+  if (input.persistentStorageRoot) {
+    registerPersistentStorageLifecycleRoutes(app, { pool: input.pool, storageRoot: input.persistentStorageRoot,
+      backupRoot: input.persistentBackupRoot ?? path.join(input.persistentStorageRoot, ".backups"), key: input.persistentBackupKey, keyId: input.persistentBackupKeyId, keyResolver: input.persistentBackupKeyResolver, objectStore: input.persistentBackupObjectStore });
+  }
+
   app.get("/v1/health", (_request, response) => {
-    response.status(200).json({ status: "ready", providerConfigured: Boolean(input.provider), executionEnabled });
+    response.status(200).json({ status: "ready", providerConfigured: Boolean(input.provider), executionEnabled, builderConfigured: Boolean(input.builder), builderEnabled, ingressConfigured: Boolean(input.ingressAdminUrl) });
   });
 
   app.get("/healthz", (_request, response) => {
@@ -205,6 +227,89 @@ export function createRuntimeAgentApp(input: {
       response.status(201).json({ artifactId: artifact.artifactId, accepted: true });
     } catch {
       response.status(400).json({ error: "Runtime artifact was rejected." });
+    }
+  });
+
+  app.post("/v1/ingress/routes", async (request, response) => {
+    if (!/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(request.headers["content-type"] ?? "")) {
+      response.status(415).json({ error: "Ingress route updates must use application/json." });
+      return;
+    }
+    if (!input.ingressAdminUrl) {
+      response.status(503).json({ error: "The private Caddy ingress admin endpoint is not configured." });
+      return;
+    }
+    let payload: unknown;
+    try {
+      payload = JSON.parse(getRawBody(request).toString("utf8"));
+    } catch {
+      response.status(400).json({ error: "Ingress route update must contain valid JSON." });
+      return;
+    }
+    if (!isRecord(payload) || !Array.isArray(payload.routes) || payload.routes.length > 2_000 ||
+        (payload.tlsEmail !== undefined && typeof payload.tlsEmail !== "string")) {
+      response.status(400).json({ error: "Ingress route update payload is invalid." });
+      return;
+    }
+    const routes: PrivateIngressJsonRoute[] = [];
+    for (const value of payload.routes) {
+      if (!isRecord(value) || typeof value.domain !== "string" ||
+          typeof value.resourceId !== "string" || typeof value.deploymentId !== "string") {
+        response.status(400).json({ error: "Ingress route entry is invalid." });
+        return;
+      }
+      routes.push({
+        domain: value.domain,
+        resourceId: value.resourceId,
+        deploymentId: value.deploymentId,
+      });
+    }
+    try {
+      const config = renderPrivateIngressJsonConfig(routes, payload.tlsEmail as string | undefined);
+      await applyPrivateIngressConfig({ adminUrl: input.ingressAdminUrl, config });
+      response.status(200).json({ applied: true, routeCount: routes.length });
+    } catch (error) {
+      console.error("Private ingress update failed:", error instanceof Error ? error.message : "Unknown error");
+      response.status(502).json({ error: "Private ingress configuration could not be applied." });
+    }
+  });
+
+  app.post("/v1/builds", async (request, response) => {
+    if (!/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(request.headers["content-type"] ?? "")) {
+      response.status(415).json({ error: "Node build request must use application/json." });
+      return;
+    }
+    if (!builderEnabled || !input.builder) {
+      response.status(503).json({ error: "The isolated Node builder is not enabled on this agent." });
+      return;
+    }
+    let payload: unknown;
+    try {
+      payload = JSON.parse(getRawBody(request).toString("utf8"));
+    } catch {
+      response.status(400).json({ error: "Node build request must contain valid JSON." });
+      return;
+    }
+    if (!isRecord(payload) || !UUID.test(String(payload.sourceArtifactId)) ||
+        !UUID.test(String(payload.deploymentId)) || payload.sourceArtifactId === payload.deploymentId ||
+        (payload.cacheAttestation !== undefined && !isRecord(payload.cacheAttestation))) {
+      response.status(400).json({ error: "Node build request identity or cache attestation is invalid." });
+      return;
+    }
+    try {
+      const result = await input.builder.build(payload as unknown as NodeBuildRequest);
+      response.status(201).json({
+        artifact: {
+          artifactId: result.artifactId,
+          sha256: result.sha256,
+          sizeBytes: result.sizeBytes,
+          fileCount: result.fileCount,
+        },
+        output: result.output.split(/\r?\n/).map(redactRuntimeLogMessage).join("\n").slice(-64 * 1024),
+      });
+    } catch (error) {
+      console.error("Isolated Node build failed:", error instanceof Error ? error.message : "Unknown error");
+      response.status(422).json({ error: "The isolated Node build failed validation, execution or artifact packaging." });
     }
   });
 
@@ -246,14 +351,31 @@ export function createRuntimeAgentApp(input: {
       response.status(503).json({ error: "Website execution is disabled pending Linux isolation acceptance." });
       return;
     }
-    const reserved = await registry.reserve({
+    if (input.persistentStorageRoot) {
+      const quota = await input.pool.query("SELECT project_id, hard_limit_bytes FROM runtime_agent_storage_projects WHERE resource_id=$1", [payload.resourceId]);
+      if (!quota.rowCount) {
+        response.status(503).json({ error: "Website persistent storage hard quota has not been provisioned." });
+        return;
+      }
+      try {
+        await enforceXfsProjectQuota({ storageRoot: input.persistentStorageRoot, resourceId: payload.resourceId,
+          projectId: Number(quota.rows[0].project_id), hardLimitBytes: Number(quota.rows[0].hard_limit_bytes) });
+        await input.pool.query("UPDATE runtime_agent_storage_projects SET quota_applied_at=NOW() WHERE resource_id=$1", [payload.resourceId]);
+      } catch {
+        response.status(503).json({ error: "Website persistent storage hard quota could not be verified; runtime startup is blocked." });
+        return;
+      }
+    }
+    const reserved = await registry.reserveDeployment({
       resourceId: payload.resourceId,
       deploymentId: payload.deploymentId,
       artifactId: payload.artifact.artifactId,
     });
     if (!reserved) {
-      const existing = await registry.get(payload.resourceId);
-      if (existing?.deploymentId === payload.deploymentId &&
+      const existing = await registry.getDeployment(payload.deploymentId);
+      if (existing?.resourceId === payload.resourceId &&
+          existing.deploymentId === payload.deploymentId &&
+          existing.artifactId === payload.artifact.artifactId &&
           existing.state === "running" && existing.containerId) {
         response.status(200).json({
           resourceId: existing.resourceId,
@@ -275,20 +397,20 @@ export function createRuntimeAgentApp(input: {
         runtime: payload.runtime,
       });
     } catch {
-      await registry.delete(payload.resourceId).catch(() => undefined);
+      await registry.deleteDeployment(payload.deploymentId).catch(() => undefined);
       response.status(502).json({ error: "Isolated runtime could not be created; the reservation was released." });
       return;
     }
 
     let persisted = false;
     try {
-      persisted = await registry.complete(payload.resourceId, created.containerId);
+      persisted = await registry.completeDeployment(payload.deploymentId, created.containerId);
     } catch {
       persisted = false;
     }
     if (!persisted) {
       await input.provider.remove(created.containerId, payload.artifact.artifactId).catch(() => false);
-      await registry.delete(payload.resourceId).catch(() => undefined);
+      await registry.deleteDeployment(payload.deploymentId).catch(() => undefined);
       response.status(503).json({ error: "Runtime state could not be finalized; the container rollback was attempted." });
       return;
     }
@@ -299,13 +421,13 @@ export function createRuntimeAgentApp(input: {
     });
   });
 
-  app.get("/v1/runtimes/:resourceId", async (request, response) => {
-    if (!UUID.test(request.params.resourceId)) {
+  app.get("/v1/runtimes/:resourceId/:deploymentId", async (request, response) => {
+    if (!UUID.test(request.params.resourceId) || !UUID.test(request.params.deploymentId)) {
       response.status(400).json({ error: "Runtime resource identifier is invalid." });
       return;
     }
-    const record = await registry.get(request.params.resourceId);
-    if (!record) {
+    const record = await registry.getDeployment(request.params.deploymentId);
+    if (!record || record.resourceId !== request.params.resourceId) {
       response.status(404).json({ error: "Runtime was not found." });
       return;
     }
@@ -321,7 +443,7 @@ export function createRuntimeAgentApp(input: {
       const inspected = await input.provider.inspect(record.containerId);
       const state = isRecord(inspected.State) && inspected.State.Status === "running"
         ? "running" : "stopped";
-      await registry.setState(record.resourceId, state);
+      await registry.setDeploymentState(record.deploymentId, state);
       response.status(200).json({
         resourceId: record.resourceId,
         deploymentId: record.deploymentId,
@@ -332,8 +454,8 @@ export function createRuntimeAgentApp(input: {
     }
   });
 
-  app.get("/v1/runtimes/:resourceId/logs", async (request, response) => {
-    if (!UUID.test(request.params.resourceId)) {
+  app.get("/v1/runtimes/:resourceId/:deploymentId/logs", async (request, response) => {
+    if (!UUID.test(request.params.resourceId) || !UUID.test(request.params.deploymentId)) {
       response.status(400).json({ error: "Runtime resource identifier is invalid." });
       return;
     }
@@ -341,8 +463,8 @@ export function createRuntimeAgentApp(input: {
       response.status(503).json({ error: "Runtime provider is unavailable." });
       return;
     }
-    const record = await registry.get(request.params.resourceId);
-    if (!record) {
+    const record = await registry.getDeployment(request.params.deploymentId);
+    if (!record || record.resourceId !== request.params.resourceId) {
       response.status(404).json({ error: "Runtime was not found." });
       return;
     }
@@ -354,15 +476,15 @@ export function createRuntimeAgentApp(input: {
       const logs = await input.provider.logs(record.containerId, 200);
       const safeLogs = logs.toString("utf8").split(/\r?\n/).slice(-200)
         .map(redactRuntimeLogMessage).join("\n");
-      response.status(200).json({ resourceId: record.resourceId, logs: safeLogs });
+      response.status(200).json({ resourceId: record.resourceId, deploymentId: record.deploymentId, logs: safeLogs });
     } catch {
       response.status(502).json({ error: "Runtime logs could not be retrieved." });
     }
   });
 
   for (const action of ["stop", "restart"] as const) {
-    app.post(`/v1/runtimes/:resourceId/${action}`, async (request, response) => {
-      if (getRawBody(request).byteLength !== 0 || !UUID.test(request.params.resourceId)) {
+    app.post(`/v1/runtimes/:resourceId/:deploymentId/${action}`, async (request, response) => {
+      if (getRawBody(request).byteLength !== 0 || !UUID.test(request.params.resourceId) || !UUID.test(request.params.deploymentId)) {
         response.status(400).json({ error: "Runtime lifecycle request is invalid." });
         return;
       }
@@ -370,8 +492,8 @@ export function createRuntimeAgentApp(input: {
         response.status(503).json({ error: "Website execution is disabled pending Linux isolation acceptance." });
         return;
       }
-      const record = await registry.get(request.params.resourceId);
-      if (!record) {
+      const record = await registry.getDeployment(request.params.deploymentId);
+      if (!record || record.resourceId !== request.params.resourceId) {
         response.status(404).json({ error: "Runtime was not found." });
         return;
       }
@@ -383,16 +505,16 @@ export function createRuntimeAgentApp(input: {
         if (action === "stop") await input.provider.stop(record.containerId);
         else await input.provider.restart(record.containerId);
         const state = action === "stop" ? "stopped" : "running";
-        await registry.setState(record.resourceId, state);
-        response.status(200).json({ resourceId: record.resourceId, state });
+        await registry.setDeploymentState(record.deploymentId, state);
+        response.status(200).json({ resourceId: record.resourceId, deploymentId: record.deploymentId, state });
       } catch {
         response.status(502).json({ error: "Runtime lifecycle operation failed." });
       }
     });
   }
 
-  app.delete("/v1/runtimes/:resourceId", async (request, response) => {
-    if (getRawBody(request).byteLength !== 0 || !UUID.test(request.params.resourceId)) {
+  app.delete("/v1/runtimes/:resourceId/:deploymentId", async (request, response) => {
+    if (getRawBody(request).byteLength !== 0 || !UUID.test(request.params.resourceId) || !UUID.test(request.params.deploymentId)) {
       response.status(400).json({ error: "Runtime deletion request is invalid." });
       return;
     }
@@ -400,20 +522,20 @@ export function createRuntimeAgentApp(input: {
       response.status(503).json({ error: "Website execution is disabled pending Linux isolation acceptance." });
       return;
     }
-    const record = await registry.get(request.params.resourceId);
-    if (!record) {
+    const record = await registry.getDeployment(request.params.deploymentId);
+    if (!record || record.resourceId !== request.params.resourceId) {
       response.status(404).json({ error: "Runtime was not found." });
       return;
     }
     if (!record.containerId) {
-      await registry.delete(record.resourceId);
-      response.status(200).json({ resourceId: record.resourceId, deleted: true });
+      await registry.deleteDeployment(record.deploymentId);
+      response.status(200).json({ resourceId: record.resourceId, deploymentId: record.deploymentId, deleted: true });
       return;
     }
     try {
       await input.provider.remove(record.containerId, record.artifactId);
-      await registry.delete(record.resourceId);
-      response.status(200).json({ resourceId: record.resourceId, deleted: true });
+      await registry.deleteDeployment(record.deploymentId);
+      response.status(200).json({ resourceId: record.resourceId, deploymentId: record.deploymentId, deleted: true });
     } catch {
       response.status(502).json({ error: "Runtime could not be safely removed." });
     }
@@ -430,6 +552,14 @@ export function createRuntimeAgentApp(input: {
       return;
     }
     try {
+      const [deployments, legacyRuntimes] = await Promise.all([
+        registry.listDeployments(),
+        registry.list(),
+      ]);
+      if ([...deployments, ...legacyRuntimes].some((runtime) => runtime.artifactId === artifactId)) {
+        response.status(409).json({ error: "Runtime artifact is still referenced by a managed deployment." });
+        return;
+      }
       const deleted = await deleteStoredArtifact(input.storageRoot, artifactId);
       response.status(deleted ? 200 : 404).json({ artifactId, deleted });
     } catch {
@@ -484,6 +614,7 @@ export async function startRuntimeAgent(): Promise<void> {
     await pool.query("CREATE INDEX IF NOT EXISTS runtime_agent_nonces_expires_at_idx ON runtime_agent_nonces (expires_at)");
     await pool.query("SELECT 1");
     await new RuntimeRegistry(pool).initialize();
+    await initializePersistentStorageLifecycle(pool);
   } catch (error) {
     await pool.end();
     throw error;
@@ -494,10 +625,19 @@ export async function startRuntimeAgent(): Promise<void> {
   const trustedImage = process.env.RUNTIME_AGENT_TRUSTED_IMAGE?.trim();
   const privateNetwork = process.env.RUNTIME_AGENT_PODMAN_NETWORK?.trim();
   const runtimeRootValue = process.env.RUNTIME_AGENT_RUNTIME_ROOT?.trim();
+  const persistentStorageRootValue = process.env.RUNTIME_AGENT_PERSISTENT_STORAGE_ROOT?.trim();
   const containerRuntimeRoot = process.env.RUNTIME_AGENT_CONTAINER_RUNTIME_ROOT?.trim();
   let provider: PodmanRuntimeProvider | undefined;
-  if (podmanSocket && trustedImage && privateNetwork && runtimeRootValue && containerRuntimeRoot) {
-    if (!podmanSocket.startsWith("/") || !runtimeRootValue.startsWith("/") ||
+  let builder: PodmanNodeBuildRunner | undefined;
+  let builderEnabled = false;
+  const builderWorkspaceRootValue = process.env.RUNTIME_AGENT_BUILDER_WORKSPACE_ROOT?.trim();
+  const npmCacheRootValue = process.env.RUNTIME_AGENT_NPM_CACHE_ROOT?.trim();
+  const containerStorageRoot = process.env.RUNTIME_AGENT_CONTAINER_STORAGE_ROOT?.trim();
+  const containerBuilderWorkspaceRoot = process.env.RUNTIME_AGENT_CONTAINER_BUILDER_WORKSPACE_ROOT?.trim();
+  const containerNpmCacheRoot = process.env.RUNTIME_AGENT_CONTAINER_NPM_CACHE_ROOT?.trim();
+  const builderSigningKey = process.env.RUNTIME_AGENT_BUILDER_CACHE_SIGNING_KEY;
+  if (podmanSocket && trustedImage && privateNetwork && runtimeRootValue && persistentStorageRootValue && containerRuntimeRoot) {
+    if (!podmanSocket.startsWith("/") || !runtimeRootValue.startsWith("/") || !persistentStorageRootValue.startsWith("/") || /[\\r\\n\\0:,]/.test(persistentStorageRootValue) ||
         !path.posix.isAbsolute(containerRuntimeRoot) ||
         /[\r\n\0:]/.test(containerRuntimeRoot)) {
       await pool.end();
@@ -507,14 +647,64 @@ export async function startRuntimeAgent(): Promise<void> {
       transport: createPodmanSocketTransport({ socketPath: podmanSocket }),
       storageRoot,
       runtimeRoot: path.resolve(runtimeRootValue),
+      persistentStorageRoot: path.resolve(persistentStorageRootValue),
       trustedImage,
       networkName: privateNetwork,
       containerWorkspacePath: (_workspacePath, artifactId) =>
         path.posix.join(containerRuntimeRoot, artifactId),
     });
   }
+  const builderConfigured = Boolean(
+    podmanSocket && builderWorkspaceRootValue && npmCacheRootValue &&
+    containerStorageRoot && containerBuilderWorkspaceRoot && containerNpmCacheRoot &&
+    builderSigningKey && Buffer.byteLength(builderSigningKey, "utf8") >= 32 &&
+    process.env.RUNTIME_AGENT_NPM_REGISTRY_EGRESS_RESTRICTED === "true"
+  );
+  if (builderConfigured) {
+    const roots = [
+      builderWorkspaceRootValue!, npmCacheRootValue!, containerStorageRoot!,
+      containerBuilderWorkspaceRoot!, containerNpmCacheRoot!,
+    ];
+    if (roots.some((value) => !path.posix.isAbsolute(value) || /[\\r\\n\\0:]/.test(value))) {
+      await pool.end();
+      throw new Error("Builder host and container mount roots must be safe absolute Linux paths.");
+    }
+    const transport = createPodmanSocketTransport({ socketPath: podmanSocket! });
+    const mapContainerPath = (hostPath: string): string => {
+      const absolute = path.resolve(hostPath);
+      const mappings = [
+        { host: storageRoot, container: containerStorageRoot! },
+        { host: path.resolve(builderWorkspaceRootValue!), container: containerBuilderWorkspaceRoot! },
+        { host: path.resolve(npmCacheRootValue!), container: containerNpmCacheRoot! },
+      ];
+      for (const mapping of mappings) {
+        const relative = path.relative(mapping.host, absolute);
+        if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) {
+          return relative
+            ? path.posix.join(mapping.container, ...relative.split(path.sep))
+            : mapping.container;
+        }
+      }
+      throw new Error("Builder mount path is outside the configured Podman host roots.");
+    };
+    builder = new PodmanNodeBuildRunner({
+      transport,
+      storageRoot,
+      workspaceRoot: path.resolve(builderWorkspaceRootValue!),
+      cacheRoot: path.resolve(npmCacheRootValue!),
+      signingKey: builderSigningKey!,
+      containerPath: mapContainerPath,
+      allowRegistryEgress: true,
+    });
+    builderEnabled = process.env.RUNTIME_AGENT_BUILDER_ENABLED === "true";
+  }
+
   const registry = new RuntimeRegistry(pool);
   try {
+    if (builder) {
+      const removedBuilders = await builder.reconcile();
+      console.log(`Builder recovery: removed ${removedBuilders} abandoned build containers.`);
+    }
     if (provider) {
       const recovered = await provider.reconcile(registry);
       console.log(`Runtime recovery: adopted ${recovered.adopted}, removed ${recovered.removed} orphaned containers.`);
@@ -525,8 +715,92 @@ export async function startRuntimeAgent(): Promise<void> {
     throw error;
   }
 
+  const backupKeyValue = process.env.RUNTIME_AGENT_BACKUP_KEY?.trim();
+  const backupKeysJson = process.env.RUNTIME_AGENT_BACKUP_KEYS_JSON?.trim();
+  const backupActiveKeyId = process.env.RUNTIME_AGENT_BACKUP_ACTIVE_KEY_ID?.trim();
+  const backupRootValue = process.env.RUNTIME_AGENT_BACKUP_ROOT?.trim();
+  let persistentBackupKey: Buffer | undefined;
+  let persistentBackupKeyId: string | undefined;
+  let persistentBackupKeyResolver: ((keyId: string) => Buffer) | undefined;
+  let persistentBackupRoot: string | undefined;
+  if (backupKeyValue || backupKeysJson || backupActiveKeyId || backupRootValue) {
+    if (!backupRootValue) {
+      await pool.end();
+      throw new Error("RUNTIME_AGENT_BACKUP_ROOT must be configured with the backup keyring.");
+    }
+    try {
+      const keyring = decodePersistentBackupKeyring(backupKeysJson, backupActiveKeyId, backupKeyValue);
+      if (!keyring) throw new Error("A persistent backup keyring is required when backup automation is enabled.");
+      persistentBackupKeyId = keyring.activeKeyId;
+      persistentBackupKey = resolvePersistentBackupKey(keyring, keyring.activeKeyId);
+      persistentBackupKeyResolver = (keyId) => resolvePersistentBackupKey(keyring, keyId);
+      persistentBackupRoot = resolveBackupDirectory(backupRootValue);
+    } catch (error) {
+      await pool.end();
+      throw error;
+    }
+  }
+
+  if (persistentBackupKey && !persistentStorageRootValue) {
+    await pool.end();
+    throw new Error("RUNTIME_AGENT_PERSISTENT_STORAGE_ROOT is required when persistent backups are enabled.");
+  }
+  let persistentBackupObjectStore: PersistentBackupObjectStore | undefined;
+  try {
+    persistentBackupObjectStore = createPersistentBackupObjectStoreFromEnvironment();
+    if (persistentBackupKey && !persistentBackupObjectStore) {
+      throw new Error("Offsite S3-compatible backup storage is required when encrypted backup automation is enabled.");
+    }
+  } catch (error) {
+    await pool.end();
+    throw error;
+  }
+
   // Production execution is deliberately hard-disabled until Linux acceptance tests pass.
-  const app = createRuntimeAgentApp({ pool, secret, storageRoot, provider, executionEnabled: false });
+  const ingressAdminUrl = process.env.RUNTIME_AGENT_CADDY_ADMIN_URL?.trim();
+  const app = createRuntimeAgentApp({ pool, secret, storageRoot, provider, builder, builderEnabled, ingressAdminUrl,
+    persistentBackupRoot, persistentBackupKey, persistentBackupKeyId, persistentBackupKeyResolver, persistentStorageRoot: persistentStorageRootValue ? path.resolve(persistentStorageRootValue) : undefined, persistentBackupObjectStore, executionEnabled: false });
+  const backupRetentionDays = Number(process.env.RUNTIME_AGENT_BACKUP_RETENTION_DAYS || 30);
+  const backupIntervalMs = Number(process.env.RUNTIME_AGENT_BACKUP_INTERVAL_MS || 86_400_000);
+  const stopBackupScheduler = persistentBackupKey && persistentBackupRoot && persistentStorageRootValue && persistentBackupObjectStore
+    ? startPersistentBackupScheduler({
+        storageRoot: path.resolve(persistentStorageRootValue),
+        backupRoot: persistentBackupRoot,
+        key: persistentBackupKey,
+        keyId: persistentBackupKeyId,
+        retentionDays: backupRetentionDays,
+        intervalMs: backupIntervalMs,
+        onError: (resourceId, error) => console.error("Persistent backup failed for resource", resourceId, error instanceof Error ? error.message : "Unknown error"),
+        onBackup: async (backup) => {
+          const remote = await uploadPersistentBackupObject(persistentBackupObjectStore!, backup.path, backup.resourceId, backup.backupId);
+          if (remote.sha256 !== backup.sha256 || remote.sizeBytes !== backup.sizeBytes) throw new Error("Offsite backup integrity check failed.");
+          await pool.query("INSERT INTO runtime_agent_storage_backups (backup_id, resource_id, backup_path, object_key, key_id, size_bytes, sha256, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (backup_id) DO NOTHING",
+            [backup.backupId, backup.resourceId, backup.path, remote.objectKey, backup.keyId, backup.sizeBytes, backup.sha256, backup.createdAt]);
+          await pool.query("INSERT INTO runtime_agent_storage_audit (resource_id, action, actor, metadata) VALUES ($1,'backup.create','scheduled-agent',$2)",
+            [backup.resourceId, JSON.stringify({ backupId: backup.backupId, sizeBytes: backup.sizeBytes, offsiteStored: true })]);
+        },
+        onResourceComplete: async (resourceId) => {
+          const records = await pool.query("SELECT backup_id, backup_path, object_key, created_at FROM runtime_agent_storage_backups WHERE resource_id=$1", [resourceId]);
+          const cutoff = Date.now() - backupRetentionDays * 86_400_000;
+          for (const record of records.rows) {
+            if (new Date(record.created_at).getTime() < cutoff) {
+              if (record.object_key) await deletePersistentBackupObject(persistentBackupObjectStore!, record.object_key);
+              await pool.query("DELETE FROM runtime_agent_storage_backups WHERE backup_id=$1", [record.backup_id]);
+              continue;
+            }
+            if (!record.object_key) {
+              try { await stat(record.backup_path); }
+              catch (error) {
+                if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+                  await pool.query("DELETE FROM runtime_agent_storage_backups WHERE backup_id=$1", [record.backup_id]);
+                } else { throw error; }
+              }
+            }
+          }
+        },
+        onCycle: (result) => console.log("Persistent backup cycle:", JSON.stringify(result)),
+      })
+    : undefined;
   const port = Number(process.env.RUNTIME_AGENT_PORT || 5003);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     await pool.end();
@@ -534,7 +808,9 @@ export async function startRuntimeAgent(): Promise<void> {
   }
   const server = app.listen(port, host, () => {
     console.log(`D Hosting Runtime Agent listening on port ${port}`);
-    console.log("Runtime provider: disabled (customer code execution is blocked).");
+    console.log("Runtime provider: disabled (customer runtime execution is blocked).");
+    console.log(`Isolated builder: ${builderEnabled ? "enabled" : "disabled"}.`);
+    console.log(`Private ingress controller: ${ingressAdminUrl ? "configured" : "disabled"}.`);
   });
   const shutdown = () => {
     server.close(() => void pool.end());

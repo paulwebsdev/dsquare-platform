@@ -62,6 +62,7 @@ export async function prepareNodeRuntimeLaunch(input: {
       : {};
     const spec = buildNodeContainerSpec({
       resourceId: input.resourceId,
+      deploymentId: input.deploymentId,
       validation: input.validation,
       artifactDirectory: artifact.directory,
       environment: { ...environment, ...databaseEnvironment },

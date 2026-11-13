@@ -26,18 +26,22 @@ export function buildPodmanContainerConfig(input: {
   artifactId: string;
   runtime: PodmanRuntimeInput;
   artifactDirectory: string;
+  persistentStorageDirectory: string;
   trustedImage: string;
   networkName: string;
 }): Record<string, unknown> {
   const { runtime } = input;
   if (!UUID.test(input.resourceId) || !UUID.test(input.deploymentId) || !UUID.test(input.artifactId) ||
-      input.deploymentId !== input.artifactId || runtime.name !== `dsquare-site-${input.resourceId}`) {
+      input.deploymentId !== input.artifactId || runtime.name !== `dsquare-deploy-${input.deploymentId}`) {
     throw new Error("Podman runtime identity is invalid.");
   }
-  if (!input.artifactDirectory.startsWith("/") ||
-      input.artifactDirectory.includes("\0") ||
-      /[\r\n:]/.test(input.artifactDirectory)) {
-    throw new Error("Podman artifact mount path must be a safe Linux absolute path.");
+  for (const mountPath of [input.artifactDirectory, input.persistentStorageDirectory]) {
+    if (!mountPath.startsWith("/") || mountPath.includes("\0") || /[\r\n:,]/.test(mountPath)) {
+      throw new Error("Podman mount paths must be safe absolute Linux paths.");
+    }
+  }
+  if (input.artifactDirectory === input.persistentStorageDirectory) {
+    throw new Error("Deployment artifacts and persistent storage must use separate directories.");
   }
   if (!input.trustedImage || runtime.image !== input.trustedImage) {
     throw new Error("Runtime image does not match the pre-approved image.");
@@ -76,14 +80,14 @@ export function buildPodmanContainerConfig(input: {
     NetworkingConfig: {
       EndpointsConfig: {
         [input.networkName]: {
-          // Matches getBackendRouteTarget() exactly. The proxy must share this
-          // private network; no host port is published for customer containers.
-          Aliases: [`dsquare-site-${input.resourceId}.runtime.dsquare.internal`],
+          // Each immutable deployment has its own alias so old and new versions
+          // can coexist during readiness checks and ingress cutover.
+          Aliases: [`dsquare-deploy-${input.deploymentId}.runtime.dsquare.internal`],
         },
       },
     },
     HostConfig: {
-      Binds: [`${input.artifactDirectory}:/app:ro`],
+      Binds: [`${input.artifactDirectory}:/app:ro`, `${input.persistentStorageDirectory}:/var/lib/dsquare:rw,U,Z`],
       Memory: runtime.memoryBytes,
       NanoCpus: runtime.nanoCpus,
       PidsLimit: runtime.pidsLimit,

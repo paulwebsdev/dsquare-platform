@@ -1,5 +1,7 @@
 # D Hosting Runtime Agent (secure receiver + Podman transport)
 
+See [Caddy private ingress provisioning](./CADDY-INGRESS.md) for the Linux host network layout, persistent certificate storage, loopback-only admin publication, and pre-activation acceptance checklist.
+
 The runtime agent is a separate service for a dedicated Linux runtime host. It must not run customer code on the D Hosting API process or the Windows development PC.
 
 ## Current safety state
@@ -8,9 +10,40 @@ The runtime agent is a separate service for a dedicated Linux runtime host. It m
 - Accepts bounded `DSQART01` bundles and verifies the manifest and every file hash.
 - Stores uploads privately without extracting or executing them.
 - Can materialize validated uploads into a separate workspace with read-only files/directories, rejecting symlinks and enforcing file-count and size limits.
+- Each website resource receives a private persistent directory mounted read/write at `/var/lib/dsquare` in its runtime. The directory is keyed by resource ID, reused across deployment versions, and retained when a deployment is removed; deployment artifacts remain immutable and read-only.
+- Persistent storage is a host bind mount using Podman's `:U,Z` options. The dedicated Linux host must validate rootless UID mapping and SELinux relabel behavior. Encrypted persistent-storage backup creation and authenticated restore are implemented in `persistent-storage-backups.ts`. Backups use a versioned format, gzip compression, AES-256-GCM authenticated encryption, per-file SHA-256 verification, bounded file/size limits, symlink rejection, and an atomic directory swap on restore. Usage measurement, deletion tombstoning, and age-based backup pruning are also implemented. The agent now exposes HMAC-authenticated backup/list/restore/delete, usage, and tombstone routes under `/v1/storage/:resourceId`. Restore and tombstone require explicit confirmation. Backup metadata and lifecycle audit events are stored in the runtime-agent database. The trusted D Hosting API must authenticate the website owner, authorize the resource, and scope every request before forwarding it to this agent; the agent HMAC authenticates the service caller, not an end customer.
+
+A single-flight scheduled backup pass runs at the configured interval and prunes expired local snapshots only after a new snapshot succeeds for that resource. Configure a dedicated base64 32-byte `RUNTIME_AGENT_BACKUP_KEY` and private `RUNTIME_AGENT_BACKUP_ROOT`; this key is distinct from the HMAC and database credentials. The local backup directory is not an off-host disaster-recovery copy and must be replicated to independently protected object storage or another host.
+
+An XFS project-quota adapter and authenticated quota-provisioning route are included. The route reserves a deterministic project-ID candidate under a database UNIQUE constraint, creates the private website directory, verifies that its backing filesystem is XFS mounted with `prjquota` or `pquota`, applies project inheritance and a hard block limit, and records successful activation. Runtime creation checks this activation record and fails closed if the quota was not applied. Hash collisions fail closed and require operator allocation. Directory usage measurement is accounting only, never enforcement. The adapter and command behavior still require live validation on the dedicated Linux host before execution can be enabled.
 - The Podman API client now supports a private Linux Unix socket transport and bounded container lifecycle requests.
 - Runtime artifact intake, Podman provider wiring, registry reconciliation, inspect, bounded/redacted logs, stop/restart and deletion APIs are implemented. D Hosting exposes owner-scoped runtime status, logs and lifecycle routes.
-- **Runtime creation remains disabled (HTTP 503).** `startRuntimeAgent` deliberately passes `executionEnabled: false`; do not change this until the dedicated Linux host passes isolation, ingress, lifecycle, restart/recovery and end-to-end security acceptance tests. Merely setting Podman environment variables does not enable customer code.
+- **Runtime creation remains disabled (HTTP 503).** `startRuntimeAgent` deliberately passes `executionEnabled: false`; do not change this until the dedicated Linux host passes isolation, ingress, lifecycle, restart/recovery and end-to-end security acceptance tests. Merely setting Podman environment variables does not enable customer runtime processes.
+- The isolated Node builder creates a rootless, networkless Podman container with a read-only source mount, writable disposable workspace, read-only verified npm cache, CPU/memory/PID limits, read-only root filesystem, dropped capabilities and no-new-privileges. Build output is bounded, integrity checked and packaged as a new immutable runtime artifact.
+- The authenticated `/v1/builds` API remains disabled unless `RUNTIME_AGENT_BUILDER_ENABLED=true` and every builder setting is present. Cache provisioning runs npm 10 on the trusted agent host, so a real outbound firewall policy restricting it to approved npm registry/CDN endpoints is mandatory before acknowledging `RUNTIME_AGENT_NPM_REGISTRY_EGRESS_RESTRICTED=true`.
+- The Hosting API now has a Node deployment pipeline that transfers source, requests the isolated build, starts the built artifact, waits for the runtime readiness probe, and only then records/activates the deployment. It cannot run until the builder and runtime agent are configured.
+
+## ## Persistent storage backup, offsite replication, and key rotation
+
+`src/persistent-storage-backups.ts` creates authenticated, compressed AES-256-GCM snapshots with per-file SHA-256 checks and staged restore rollback. New backups use the `DSQBAK02` envelope and embed a key ID; legacy `DSQBAK01` backups remain readable with the legacy `default` key. The runtime agent accepts a versioned keyring through `RUNTIME_AGENT_BACKUP_KEYS_JSON` and selects the active key with `RUNTIME_AGENT_BACKUP_ACTIVE_KEY_ID`. Keep previous keys in the keyring until every backup encrypted with them has expired or been deliberately re-encrypted. Losing a previous key makes its backups unrecoverable.
+
+A single-flight scheduler creates snapshots and applies local plus offsite retention. Backups are uploaded to a private S3-compatible bucket, verified by object length and SHA-256, and recorded with their object key and encryption key ID. Configure `RUNTIME_AGENT_BACKUP_S3_BUCKET` and `RUNTIME_AGENT_BACKUP_S3_REGION`; use the host's IAM/default credential chain where possible, or configure both access-key variables. Custom endpoints must use HTTPS. Restore can retrieve a missing local snapshot from object storage and verifies its SHA-256 before decrypting it. Expired remote objects are deleted only after the retention window.
+
+The HMAC-authenticated agent exposes backup create/list/restore/delete, storage usage, quota provisioning, and tombstone routes. D Hosting applies website-owner authorization before forwarding customer requests. Restore/tombstone require confirmation; restore and tombstone are blocked while the active runtime is running. Website data deletion is tombstoned rather than immediately erased.
+
+XFS project quotas are provisioned through the authenticated quota route. The adapter verifies that the backing filesystem is XFS mounted with `prjquota` or `pquota`, applies the project ID and hard block limit, and the runtime agent revalidates the quota before every runtime start. Hash collisions fail closed and require operator allocation.
+
+The dedicated Linux host must still validate real S3 credentials/bucket permissions, remote restore and disaster recovery, key rotation procedures, XFS quota exhaustion, rootless UID mapping, SELinux behavior, and the complete runtime/ingress security checklist. Runtime execution remains disabled until acceptance is complete.
+
+## Public website request handling
+
+The generated Caddy JSON config is the public HTTPS edge for verified website domains. Use Caddy v2.11.8 or newer for the request-body and HTTP idle-timeout controls in this configuration. Caddy's TLS automation manages certificates for configured public hostnames, and the generated HTTP routes explicitly issue a 308 redirect to HTTPS; the Linux host must make TCP ports 80 and 443 reachable and retain Caddy's data/config volumes.
+
+Each website route applies a 10 MiB request-body ceiling before proxying. The HTTP server also has bounded header, upload, idle-read and idle-write settings to reduce slow-client resource exhaustion. The reverse proxy uses low-latency flushing for streaming responses, supports WebSocket upgrades through Caddy's native reverse proxy, and allows streams up to 24 hours. A five-minute stream-close delay reduces abrupt WebSocket disconnects during config reloads. Upstream connection and response-header timeouts remain bounded.
+
+Upstream gateway failures (502/503/504) are replaced with a generic 503 response and `Cache-Control: no-store`; internal upstream addresses and error details are not exposed. Application-generated responses such as an intentional 404 or 500 are passed through unchanged.
+
+These controls are configuration-level protections. They still require Linux-host acceptance with real HTTPS certificates, oversized and chunked uploads, SSE/streaming responses, WebSocket upgrades, slow-client behavior, unavailable runtimes and Caddy reloads before customer execution can be enabled.
 
 ## Podman host requirements (future activation)
 
@@ -24,7 +57,9 @@ The runtime agent is a separate service for a dedicated Linux runtime host. It m
 
 - `RUNTIME_AGENT_SHARED_SECRET`: same random secret as the D Hosting API; at least 32 UTF-8 bytes.
 - `RUNTIME_AGENT_DATABASE_URL`: dedicated runtime-agent PostgreSQL database.
-- `RUNTIME_AGENT_STORAGE_ROOT`: absolute private persistent directory outside any web root.
+- `RUNTIME_AGENT_STORAGE_ROOT`: absolute private directory for immutable runtime artifacts, outside any web root.
+- `RUNTIME_AGENT_PERSISTENT_STORAGE_ROOT`: absolute private host directory for durable per-website data. Back it up separately; it must be writable by the runtime-agent service account and accessible to the local Podman service.
+- Builder settings in `.env.example` are optional. Keep both enable flags false until the dedicated Linux host and firewall policy are verified. Never set the npm egress acknowledgement based only on application configuration.
 - `RUNTIME_AGENT_HOST`: optional bind IP; defaults to `127.0.0.1`.
 - `RUNTIME_AGENT_PORT`: optional TCP port; defaults to `5003`.
 - `RUNTIME_AGENT_DB_SSL=true`: certificate-verified PostgreSQL TLS when required.

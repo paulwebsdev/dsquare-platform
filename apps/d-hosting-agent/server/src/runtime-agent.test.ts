@@ -76,7 +76,7 @@ test("rejects runtime requests that weaken the isolation contract", () => {
       fileCount: 1,
     },
     runtime: {
-      name: "dsquare-site-11111111-1111-4111-8111-111111111111",
+      name: "dsquare-deploy-22222222-2222-4222-8222-222222222222",
       image: "node:22-bookworm-slim",
       workingDirectory: "/app",
       command: ["npm", "start"],
@@ -246,6 +246,9 @@ test("provides authenticated runtime capability status without enabling executio
       status: "ready",
       providerConfigured: false,
       executionEnabled: false,
+      builderConfigured: false,
+      builderEnabled: false,
+      ingressConfigured: false,
     });
     const unauthenticated = await fetch(`http://127.0.0.1:${address.port}${pathname}`);
     assert.equal(unauthenticated.status, 401);
@@ -307,6 +310,9 @@ test("keeps customer execution disabled by default even when a provider is confi
       status: "ready",
       providerConfigured: true,
       executionEnabled: false,
+      builderConfigured: false,
+      builderEnabled: false,
+      ingressConfigured: false,
     });
   } finally {
     await new Promise<void>((resolve, reject) =>
@@ -369,7 +375,7 @@ test("refuses runtime creation while execution is disabled, even with a trusted 
       deploymentId,
       artifact: stored,
       runtime: {
-        name: "dsquare-site-" + resourceId,
+        name: "dsquare-deploy-" + deploymentId,
         image: "node:22-bookworm-slim",
         workingDirectory: "/app",
         command: ["npm", "start"],
@@ -394,6 +400,48 @@ test("refuses runtime creation while execution is disabled, even with a trusted 
     assert.equal(response.status, 503);
     assert.match((await response.json() as { error: string }).error, /disabled pending Linux isolation acceptance/);
     assert.equal(createCalls, 0);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => error ? reject(error) : resolve()),
+    );
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+
+test("keeps the isolated builder endpoint disabled unless explicitly configured", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "dsquare-agent-builder-disabled-"));
+  const claimedNonces = new Set<string>();
+  const fakePool = {
+    query: async (sql: string, values?: unknown[]) => {
+      if (sql.includes("INSERT INTO runtime_agent_nonces")) {
+        const nonce = String(values?.[0] ?? "");
+        if (claimedNonces.has(nonce)) return { rowCount: 0, rows: [] };
+        claimedNonces.add(nonce);
+        return { rowCount: 1, rows: [] };
+      }
+      return { rowCount: 0, rows: [] };
+    },
+  } as unknown as Pool;
+  const server = createServer(createRuntimeAgentApp({ pool: fakePool, secret: SECRET, storageRoot: root }));
+  try {
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const pathname = "/v1/builds";
+    const body = Buffer.from(JSON.stringify({
+      sourceArtifactId: "11111111-1111-4111-8111-111111111111",
+      deploymentId: "22222222-2222-4222-8222-222222222222",
+      cacheAttestation: {},
+    }));
+    const headers = signRuntimeAgentRequest({ method: "POST", pathname, body, secret: SECRET });
+    const response = await fetch("http://127.0.0.1:" + address.port + pathname, {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: new Uint8Array(body),
+    });
+    assert.equal(response.status, 503);
+    assert.match((await response.json() as { error: string }).error, /builder is not enabled/);
   } finally {
     await new Promise<void>((resolve, reject) =>
       server.close((error) => error ? reject(error) : resolve()),

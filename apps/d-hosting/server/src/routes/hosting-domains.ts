@@ -4,6 +4,7 @@ import { domainToASCII } from "node:url";
 import { resolveTxt } from "node:dns/promises";
 import { pool } from "../config/database.js";
 import { requireAuth } from "../middleware/require-auth.js";
+import { syncPublishedNodeIngress } from "../services/private-ingress-sync.js";
 
 const router = Router({ mergeParams: true });
 const UUID_PATTERN =
@@ -209,9 +210,20 @@ router.post("/:resourceId/domains/:domainId/verify", async (req, res) => {
       [domainId]
     );
 
+    try {
+      await syncPublishedNodeIngress();
+    } catch (error) {
+      console.error("Verified domain ingress synchronization failed:", error instanceof Error ? error.message : error);
+      return res.status(503).json({
+        success: false,
+        message: "Domain ownership is verified, but private routing is not ready yet. The domain remains verified and can be synchronized after ingress is configured.",
+        domain: { id: domainId, domain: domainRecord.domain, status: "verified" },
+      });
+    }
+
     return res.json({
       success: true,
-      message: "Domain ownership verified. DNS routing and HTTPS activation are separate setup steps.",
+      message: "Domain ownership verified. Published Node websites are synchronized to private HTTPS ingress.",
       domain: { id: domainId, domain: domainRecord.domain, status: "verified" },
     });
   } catch (error) {
@@ -219,7 +231,8 @@ router.post("/:resourceId/domains/:domainId/verify", async (req, res) => {
   }
 });
 
-// Remove a domain from this website.
+// Remove a domain from this website. Remove the proxy route first so a
+// failed ingress update cannot leave a deleted domain serving customer code.
 router.delete("/:resourceId/domains/:domainId", async (req, res) => {
   const params = getParams(req);
   const projectId = params.projectId || "";
@@ -230,20 +243,43 @@ router.delete("/:resourceId/domains/:domainId", async (req, res) => {
   }
 
   try {
+    const existing = await pool.query(
+      `SELECT d.id, r.site_type, r.status AS resource_status
+       FROM hosting_custom_domains d
+       INNER JOIN hosting_resources r ON r.id = d.resource_id AND r.project_id = d.project_id
+       INNER JOIN projects p ON p.id = d.project_id
+       WHERE d.id = $1 AND d.project_id = $2 AND d.resource_id = $3
+         AND p.owner_id = $4 LIMIT 1`,
+      [domainId, projectId, resourceId, res.locals.userId],
+    );
+    if (existing.rowCount === 0) {
+      return res.status(404).json({ success: false, message: "Custom domain not found." });
+    }
+
+    try {
+      if (existing.rows[0].site_type === "node" && existing.rows[0].resource_status === "published") {
+        await syncPublishedNodeIngress(domainId);
+      }
+    } catch (error) {
+      console.error("Domain ingress removal failed:", error instanceof Error ? error.message : error);
+      return res.status(503).json({
+        success: false,
+        message: "The domain was not removed because its private ingress route could not be safely disabled. Try again when the runtime agent is available.",
+      });
+    }
+
     const result = await pool.query(
       `DELETE FROM hosting_custom_domains d
        USING projects p
        WHERE d.id = $1 AND d.project_id = $2 AND d.resource_id = $3
          AND p.id = d.project_id AND p.owner_id = $4
        RETURNING d.id`,
-      [domainId, projectId, resourceId, res.locals.userId]
+      [domainId, projectId, resourceId, res.locals.userId],
     );
-
     if (result.rowCount === 0) {
-      return res.status(404).json({ success: false, message: "Custom domain not found." });
+      return res.status(409).json({ success: false, message: "Custom domain changed while it was being removed. Its ingress route has been disabled." });
     }
-
-    return res.json({ success: true, message: "Custom domain removed." });
+    return res.json({ success: true, message: "Custom domain removed and private ingress synchronized." });
   } catch (error) {
     return sendError(error, res);
   }
