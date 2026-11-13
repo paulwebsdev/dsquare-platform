@@ -46,3 +46,7 @@ test("fails closed when an API alias collides with another verified website doma
     },
   ]), /assigned more than once/);
 });
+
+test("rejects aliases already reserved by pending or static custom domains", () => {
+  assert.throws(() => expandIngressRoutes([first], ["api.example.com"]), /already reserved/);
+});
