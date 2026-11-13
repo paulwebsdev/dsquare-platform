@@ -74,7 +74,7 @@ export function buildNodeContainerSpec(input: {
   }
 
   return {
-    name: `dsquare-site-${input.resourceId}`,
+    name: `dsquare-deploy-${input.deploymentId ?? input.resourceId}`,
     image,
     workingDirectory: "/app",
     mounts: [{ source: input.artifactDirectory, target: "/app", readOnly: true }],
