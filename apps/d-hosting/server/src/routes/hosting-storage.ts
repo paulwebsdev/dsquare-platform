@@ -77,7 +77,7 @@ router.post("/:resourceId/storage/backups", async (req, res) => {
   try {
     const access = await authorize(req, res); if (!access) return;
     if (access.resource.status === "archived") return res.status(409).json({ success: false, message: "Restore this website before creating a backup." });
-    const backup = await createRuntimeAgentStorageBackup(access.agent, req.params.resourceId);
+    const backup = await createRuntimeAgentStorageBackup(access.agent, req.params.resourceId, String(res.locals.userId));
     return res.status(201).json({ success: true, backup });
   } catch (error) {
     console.error("Persistent backup creation failed:", error instanceof Error ? error.message : error);
@@ -94,7 +94,7 @@ router.post("/:resourceId/storage/backups/:backupId/restore", async (req, res) =
       const runtime = await getRuntimeAgentRuntime(access.agent, req.params.resourceId, access.resource.active_deployment_id);
       if (runtime.state === "running") return res.status(409).json({ success: false, message: "Stop the website runtime before restoring persistent data." });
     }
-    const restored = await restoreRuntimeAgentStorageBackup(access.agent, req.params.resourceId, backupId);
+    const restored = await restoreRuntimeAgentStorageBackup(access.agent, req.params.resourceId, backupId, String(res.locals.userId));
     return res.json({ success: true, resourceId: req.params.resourceId, ...restored });
   } catch (error) {
     console.error("Persistent backup restore failed:", error instanceof Error ? error.message : error);
@@ -107,7 +107,7 @@ router.delete("/:resourceId/storage/backups/:backupId", async (req, res) => {
     const access = await authorize(req, res); if (!access) return;
     const backupId = String(req.params.backupId || "");
     if (!BACKUP_ID.test(backupId)) return res.status(400).json({ success: false, message: "Invalid backup ID." });
-    await deleteRuntimeAgentStorageBackup(access.agent, req.params.resourceId, backupId);
+    await deleteRuntimeAgentStorageBackup(access.agent, req.params.resourceId, backupId, String(res.locals.userId));
     return res.json({ success: true, backupId, deleted: true });
   } catch (error) {
     console.error("Persistent backup deletion failed:", error instanceof Error ? error.message : error);
@@ -123,7 +123,7 @@ router.post("/:resourceId/storage/tombstone", async (req, res) => {
       const runtime = await getRuntimeAgentRuntime(access.agent, req.params.resourceId, access.resource.active_deployment_id);
       if (runtime.state === "running") return res.status(409).json({ success: false, message: "Stop the website runtime before tombstoning persistent data." });
     }
-    const result = await tombstoneRuntimeAgentStorage(access.agent, req.params.resourceId);
+    const result = await tombstoneRuntimeAgentStorage(access.agent, req.params.resourceId, String(res.locals.userId));
     return res.json({ success: true, resourceId: req.params.resourceId, ...result });
   } catch (error) {
     console.error("Persistent storage tombstone failed:", error instanceof Error ? error.message : error);
