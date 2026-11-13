@@ -11,6 +11,8 @@ import { RuntimeRegistry } from "./runtime-registry.js";
 import { PodmanNodeBuildRunner, type NodeBuildRequest } from "./node-build-runner.js";
 import { redactRuntimeLogMessage } from "../../../d-hosting/server/src/services/runtime-logs.js";
 import { applyPrivateIngressConfig, renderPrivateIngressJsonConfig, type PrivateIngressJsonRoute } from "./private-ingress-controller.js";
+import { decodePersistentBackupKey, resolveBackupDirectory, startPersistentBackupScheduler } from "./persistent-storage-automation.js";
+import { initializePersistentStorageLifecycle, registerPersistentStorageLifecycleRoutes } from "./persistent-storage-lifecycle-api.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_BODY_BYTES = 100 * 1024 * 1024;
@@ -179,7 +181,7 @@ export function createRuntimeAgentApp(input: {
     }
   });
 
-  app.get("/v1/health", (_request, response) => {
+  if (input.persistentBackupRoot) {\n    registerPersistentStorageLifecycleRoutes(app, { pool: input.pool, storageRoot: process.env.RUNTIME_AGENT_PERSISTENT_STORAGE_ROOT ?? "", backupRoot: input.persistentBackupRoot, key: input.persistentBackupKey });\n  }\n\n  app.get("/v1/health", (_request, response) => {
     response.status(200).json({ status: "ready", providerConfigured: Boolean(input.provider), executionEnabled, builderConfigured: Boolean(input.builder), builderEnabled, ingressConfigured: Boolean(input.ingressAdminUrl) });
   });
 
@@ -582,7 +584,7 @@ export async function startRuntimeAgent(): Promise<void> {
     `);
     await pool.query("CREATE INDEX IF NOT EXISTS runtime_agent_nonces_expires_at_idx ON runtime_agent_nonces (expires_at)");
     await pool.query("SELECT 1");
-    await new RuntimeRegistry(pool).initialize();
+    await new RuntimeRegistry(pool).initialize();\n    await initializePersistentStorageLifecycle(pool);
   } catch (error) {
     await pool.end();
     throw error;
@@ -685,7 +687,19 @@ export async function startRuntimeAgent(): Promise<void> {
 
   // Production execution is deliberately hard-disabled until Linux acceptance tests pass.
   const ingressAdminUrl = process.env.RUNTIME_AGENT_CADDY_ADMIN_URL?.trim();
-  const app = createRuntimeAgentApp({ pool, secret, storageRoot, provider, builder, builderEnabled, ingressAdminUrl, executionEnabled: false });
+  const app = createRuntimeAgentApp({ pool, secret, storageRoot, provider, builder, builderEnabled, ingressAdminUrl,
+    persistentBackupRoot, persistentBackupKey, executionEnabled: false });
+  const stopBackupScheduler = persistentBackupKey && persistentBackupRoot && persistentStorageRootValue
+    ? startPersistentBackupScheduler({
+        storageRoot: path.resolve(persistentStorageRootValue),
+        backupRoot: persistentBackupRoot,
+        key: persistentBackupKey,
+        retentionDays: Number(process.env.RUNTIME_AGENT_BACKUP_RETENTION_DAYS || 30),
+        intervalMs: Number(process.env.RUNTIME_AGENT_BACKUP_INTERVAL_MS || 86_400_000),
+        onError: (resourceId, error) => console.error("Persistent backup failed for resource", resourceId, error instanceof Error ? error.message : "Unknown error"),
+        onCycle: (result) => console.log("Persistent backup cycle:", JSON.stringify(result)),
+      })
+    : undefined;
   const port = Number(process.env.RUNTIME_AGENT_PORT || 5003);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     await pool.end();
