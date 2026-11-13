@@ -41,6 +41,7 @@ test("loads only the active connection assigned to the requested website and own
   assert.deepEqual(result, row);
   assert.deepEqual(queryable.calls[0].values, [resourceId, hostingUserId]);
   assert.match(queryable.calls[0].sql, /c\.status = 'active'/);
+  assert.match(queryable.calls[0].sql, /c\.database_connection_limit/);
   assert.match(queryable.calls[0].sql, /assignment\.hosting_user_id = \$2/);
   assert.match(queryable.calls[0].sql, /c\.hosting_user_id = \$2/);
 });
