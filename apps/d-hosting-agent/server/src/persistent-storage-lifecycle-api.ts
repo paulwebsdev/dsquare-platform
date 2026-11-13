@@ -3,6 +3,7 @@ import type { Pool } from "pg";
 import { lstat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { enforceXfsProjectQuota, persistentStorageProjectId } from "./persistent-storage-quotas.js";
+import { ensurePersistentStorageDirectory } from "./persistent-storage.js";
 import {
   createPersistentStorageBackup, measurePersistentStorageUsage,
   restorePersistentStorageBackup, tombstonePersistentStorage,
@@ -145,6 +146,7 @@ export function registerPersistentStorageLifecycleRoutes(app: Express, input: {
       );
       const collision = await input.pool.query("SELECT resource_id FROM runtime_agent_storage_projects WHERE project_id=$1 AND resource_id<>$2", [projectId, resourceId]);
       if (collision.rowCount) { response.status(409).json({ error: "Quota project ID collision; operator allocation is required." }); return; }
+      await ensurePersistentStorageDirectory(input.storageRoot, resourceId);
       await enforceXfsProjectQuota({ storageRoot: input.storageRoot, resourceId, projectId: Number(reserved.rows[0].project_id), hardLimitBytes: hardLimitBytes as number });
       await input.pool.query("UPDATE runtime_agent_storage_projects SET quota_applied_at=NOW() WHERE resource_id=$1", [resourceId]);
       response.status(200).json({ resourceId, hardLimitBytes, enforcement: "xfs-project-hard-quota", applied: true });
