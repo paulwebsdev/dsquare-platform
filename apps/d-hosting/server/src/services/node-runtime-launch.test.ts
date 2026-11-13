@@ -157,7 +157,7 @@ test("integrates owner-scoped database assignment, encrypted secret injection, a
   const encrypted = encryptEnvironmentSecret(
     databasePassword,
     environment,
-    \`d-database:\${hostingUserId}:\${databaseResourceId}\`,
+    `d-database:${hostingUserId}:${databaseResourceId}`,
   );
   const assignedRow = {
     user_id: hostingUserId,
@@ -207,7 +207,7 @@ test("integrates owner-scoped database assignment, encrypted secret injection, a
     assert.equal(launch.spec.environment.D_DATABASE_RESOURCE_ID, databaseResourceId);
     assert.equal(
       getBackendRouteTarget(resourceId, deploymentId),
-      \`http://dsquare-deploy-\${deploymentId}.runtime.dsquare.internal:3000\`,
+      `http://dsquare-deploy-${deploymentId}.runtime.dsquare.internal:3000`,
     );
     assert.equal(launch.spec.environment.HOSTING_SECRETS_KEY, undefined);
     clearPreparedRuntimeEnvironment(launch);
