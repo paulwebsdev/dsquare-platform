@@ -798,7 +798,7 @@ router.post("/:resourceId/deployments", async (req, res) => {
   }
 
   const client = await pool.connect();
-  let snapshotDirectory = "";
+  const snapshotObjectKeys: string[] = [];
   try {
     await client.query("BEGIN");
 
@@ -839,11 +839,7 @@ router.post("/:resourceId/deployments", async (req, res) => {
     if (!homepage) {
       failure = "Deployment failed: upload an index.html homepage at the website root.";
     } else {
-      const missing = sourceFiles.find(file =>
-        !UUID_PATTERN.test(file.storage_key) ||
-        !existsSync(path.join(storageRoot, resourceId, file.storage_key))
-      );
-      if (missing) failure = `Deployment failed: stored file is missing (${missing.original_name}).`;
+
     }
 
     const numberResult = await client.query(
@@ -857,20 +853,24 @@ router.post("/:resourceId/deployments", async (req, res) => {
     let snapshotManifest: ManifestFile[] = [];
 
     if (!failure) {
-      snapshotDirectory = path.join(storageRoot, resourceId, "deployments", deploymentId);
-      await mkdir(snapshotDirectory, { recursive: true });
       try {
         for (const file of sourceFiles) {
+          const sourceBytes = await websiteObjectStorage.get(file.storage_key, resourceId);
           const snapshotKey = randomUUID();
-          await copyFile(
-            path.join(storageRoot, resourceId, file.storage_key),
-            path.join(snapshotDirectory, snapshotKey)
-          );
-          snapshotManifest.push({ ...file, storage_key: snapshotKey });
+          const storedSnapshotKey = await websiteObjectStorage.put({
+            ownerId: String(res.locals.userId || ""),
+            projectId,
+            resourceId,
+            objectId: snapshotKey,
+          }, sourceBytes, file.mime_type || "application/octet-stream");
+          snapshotObjectKeys.push(storedSnapshotKey);
+          snapshotManifest.push({ ...file, storage_key: storedSnapshotKey });
         }
       } catch (error) {
-        failure = "Deployment failed while creating the immutable file snapshot.";
-        await rm(snapshotDirectory, { recursive: true, force: true });
+        failure = "Deployment failed while creating the immutable object-storage snapshot.";
+        for (const key of snapshotObjectKeys.splice(0)) {
+          await websiteObjectStorage.delete(key, resourceId).catch(() => undefined);
+        }
         snapshotManifest = [];
         console.error("Deployment snapshot copy failed:", error instanceof Error ? error.message : error);
       }
@@ -903,7 +903,7 @@ router.post("/:resourceId/deployments", async (req, res) => {
     });
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
-    if (snapshotDirectory) await rm(snapshotDirectory, { recursive: true, force: true }).catch(() => undefined);
+    for (const key of snapshotObjectKeys) await websiteObjectStorage.delete(key, resourceId).catch(() => undefined);
     console.error("Deployment creation error:", error instanceof Error ? error.message : error);
     return res.status(500).json({ success: false, message: "Could not complete this deployment." });
   } finally {
