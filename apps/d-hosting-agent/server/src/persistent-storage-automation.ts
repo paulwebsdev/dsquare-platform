@@ -67,7 +67,8 @@ export function startPersistentBackupScheduler(input: {
   const timer = setInterval(() => {
     if (running || stopped) return;
     running = true;
-    activeRun = runPersistentBackupCycle(input)
+    activeRun = verifyOffHostBackupMount({ storageRoot, backupRoot })
+      .then(() => runPersistentBackupCycle(input))
       .then((result) => input.onCycle?.(result))
       .catch((error) => console.error("Persistent backup cycle failed:", error instanceof Error ? error.message : "Unknown error"))
       .finally(() => { running = false; activeRun = undefined; });
