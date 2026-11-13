@@ -712,6 +712,7 @@ async function deployNodeWebsite(
         message: "The new Node.js version built and passed readiness, but public ingress could not be switched. The previous version was restored where possible; the new healthy version was retained for a safe retry.",
         deployment: inserted.rows[0],
         runtime: { state: started.state, deploymentId: started.deploymentId },
+        buildOutput: started.buildOutput,
         ingress: { synchronized: false },
       });
     }
@@ -721,6 +722,7 @@ async function deployNodeWebsite(
       message: "Node.js website built in isolation, started, health-checked and activated.",
       deployment: inserted.rows[0],
       runtime: { state: started.state, deploymentId: started.deploymentId },
+      buildOutput: started.buildOutput,
       ingress: { synchronized: true },
     });
   } catch (error) {
