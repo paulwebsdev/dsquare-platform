@@ -136,7 +136,7 @@ export const websiteObjectStorage: WebsiteObjectStorage = {
 
   async delete(storageKey, scope) {
     if (storageKey.startsWith("owners/")) {
-      assertScopedObjectKey(storageKey, scope);
+      assertWebsiteObjectKeyScope(storageKey, scope);
       const s3 = getS3();
       if (!s3) throw new Error("S3-compatible object storage is not configured for this object.");
       await s3.client.send(new DeleteObjectCommand({ Bucket: s3.bucket, Key: storageKey }));
