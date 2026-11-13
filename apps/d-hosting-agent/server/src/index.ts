@@ -75,7 +75,7 @@ export function isRuntimeCreateRequest(value: unknown): value is {
       !Number.isInteger(artifact.fileCount) ||
       (artifact.fileCount as number) < 1 || (artifact.fileCount as number) > 2_000) return false;
 
-  if (runtime.name !== `dsquare-site-${value.resourceId}` ||
+  if (runtime.name !== `dsquare-deploy-${value.deploymentId}` ||
       typeof runtime.image !== "string" ||
       !/^[A-Za-z0-9][A-Za-z0-9._/:@-]{2,255}$/.test(runtime.image) ||
       runtime.workingDirectory !== "/app" ||
@@ -335,13 +335,13 @@ export function createRuntimeAgentApp(input: {
       response.status(503).json({ error: "Website execution is disabled pending Linux isolation acceptance." });
       return;
     }
-    const reserved = await registry.reserve({
+    const reserved = await registry.reserveDeployment({
       resourceId: payload.resourceId,
       deploymentId: payload.deploymentId,
       artifactId: payload.artifact.artifactId,
     });
     if (!reserved) {
-      const existing = await registry.get(payload.resourceId);
+      const existing = await registry.getDeployment(payload.deploymentId);
       if (existing?.deploymentId === payload.deploymentId &&
           existing.state === "running" && existing.containerId) {
         response.status(200).json({
@@ -364,20 +364,20 @@ export function createRuntimeAgentApp(input: {
         runtime: payload.runtime,
       });
     } catch {
-      await registry.delete(payload.resourceId).catch(() => undefined);
+      await registry.deleteDeployment(payload.deploymentId).catch(() => undefined);
       response.status(502).json({ error: "Isolated runtime could not be created; the reservation was released." });
       return;
     }
 
     let persisted = false;
     try {
-      persisted = await registry.complete(payload.resourceId, created.containerId);
+      persisted = await registry.completeDeployment(payload.deploymentId, created.containerId);
     } catch {
       persisted = false;
     }
     if (!persisted) {
       await input.provider.remove(created.containerId, payload.artifact.artifactId).catch(() => false);
-      await registry.delete(payload.resourceId).catch(() => undefined);
+      await registry.deleteDeployment(payload.deploymentId).catch(() => undefined);
       response.status(503).json({ error: "Runtime state could not be finalized; the container rollback was attempted." });
       return;
     }
@@ -393,7 +393,7 @@ export function createRuntimeAgentApp(input: {
       response.status(400).json({ error: "Runtime resource identifier is invalid." });
       return;
     }
-    const record = await registry.get(request.params.resourceId);
+    const record = await registry.getDeployment(request.params.deploymentId);
     if (!record) {
       response.status(404).json({ error: "Runtime was not found." });
       return;
@@ -410,7 +410,7 @@ export function createRuntimeAgentApp(input: {
       const inspected = await input.provider.inspect(record.containerId);
       const state = isRecord(inspected.State) && inspected.State.Status === "running"
         ? "running" : "stopped";
-      await registry.setState(record.resourceId, state);
+      await registry.setDeploymentState(record.deploymentId, state);
       response.status(200).json({
         resourceId: record.resourceId,
         deploymentId: record.deploymentId,
@@ -430,7 +430,7 @@ export function createRuntimeAgentApp(input: {
       response.status(503).json({ error: "Runtime provider is unavailable." });
       return;
     }
-    const record = await registry.get(request.params.resourceId);
+    const record = await registry.getDeployment(request.params.deploymentId);
     if (!record) {
       response.status(404).json({ error: "Runtime was not found." });
       return;
@@ -459,7 +459,7 @@ export function createRuntimeAgentApp(input: {
         response.status(503).json({ error: "Website execution is disabled pending Linux isolation acceptance." });
         return;
       }
-      const record = await registry.get(request.params.resourceId);
+      const record = await registry.getDeployment(request.params.deploymentId);
       if (!record) {
         response.status(404).json({ error: "Runtime was not found." });
         return;
@@ -472,7 +472,7 @@ export function createRuntimeAgentApp(input: {
         if (action === "stop") await input.provider.stop(record.containerId);
         else await input.provider.restart(record.containerId);
         const state = action === "stop" ? "stopped" : "running";
-        await registry.setState(record.resourceId, state);
+        await registry.setDeploymentState(record.deploymentId, state);
         response.status(200).json({ resourceId: record.resourceId, state });
       } catch {
         response.status(502).json({ error: "Runtime lifecycle operation failed." });
@@ -489,19 +489,19 @@ export function createRuntimeAgentApp(input: {
       response.status(503).json({ error: "Website execution is disabled pending Linux isolation acceptance." });
       return;
     }
-    const record = await registry.get(request.params.resourceId);
+    const record = await registry.getDeployment(request.params.deploymentId);
     if (!record) {
       response.status(404).json({ error: "Runtime was not found." });
       return;
     }
     if (!record.containerId) {
-      await registry.delete(record.resourceId);
+      await registry.deleteDeployment(record.deploymentId);
       response.status(200).json({ resourceId: record.resourceId, deleted: true });
       return;
     }
     try {
       await input.provider.remove(record.containerId, record.artifactId);
-      await registry.delete(record.resourceId);
+      await registry.deleteDeployment(record.deploymentId);
       response.status(200).json({ resourceId: record.resourceId, deleted: true });
     } catch {
       response.status(502).json({ error: "Runtime could not be safely removed." });
