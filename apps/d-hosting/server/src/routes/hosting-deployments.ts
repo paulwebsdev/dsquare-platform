@@ -290,15 +290,6 @@ router.post("/:resourceId/deployments/:deploymentId/activate", async (req, res) 
       await client.query("ROLLBACK");
       return res.status(409).json({ success: false, message: "Restore this website before activating a deployment." });
     }
-    if (resource.rows[0].site_type === "node" &&
-        resource.rows[0].active_deployment_id !== deploymentId) {
-      await client.query("ROLLBACK");
-      return res.status(409).json({
-        success: false,
-        message: "Node.js rollback is not available until deployment-specific runtime switching is enabled. The current live runtime was left unchanged.",
-      });
-    }
-
     const deployment = await client.query(
       `SELECT id FROM hosting_deployments
        WHERE id = $1 AND project_id = $2 AND resource_id = $3 AND status = 'succeeded'
@@ -308,6 +299,24 @@ router.post("/:resourceId/deployments/:deploymentId/activate", async (req, res) 
     if (deployment.rowCount !== 1) {
       await client.query("ROLLBACK");
       return res.status(409).json({ success: false, message: "Only a successful deployment belonging to this website can be activated." });
+    }
+
+    if (resource.rows[0].site_type === "node") {
+      const agent = runtimeAgentOptions();
+      if (!agent) {
+        await client.query("ROLLBACK");
+        return res.status(503).json({ success: false, message: "The private runtime agent is not configured; the live deployment was left unchanged." });
+      }
+      try {
+        const targetRuntime = await getRuntimeAgentRuntime(agent, resourceId, deploymentId);
+        if (targetRuntime.state !== "running") {
+          await client.query("ROLLBACK");
+          return res.status(409).json({ success: false, message: "This Node.js deployment is not running; the live deployment was left unchanged." });
+        }
+      } catch {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ success: false, message: "This Node.js deployment is unavailable; the live deployment was left unchanged." });
+      }
     }
 
     const updated = await client.query(
