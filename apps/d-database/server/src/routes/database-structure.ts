@@ -19,8 +19,8 @@ function sendError(error: unknown, res: Response) {
   if (code === "23503") {
     return res.status(409).json({ success: false, message: "The foreign key cannot be added because existing records violate the relationship." });
   }
-  if (code === "23505") {
-    return res.status(409).json({ success: false, message: "The unique constraint cannot be added because duplicate values already exist." });
+  if (code === "23505" || code === "23514") {
+    return res.status(409).json({ success: false, message: "The constraint cannot be added because existing records violate it." });
   }
   if (code === "42830") {
     return res.status(400).json({ success: false, message: "The referenced column must have a primary-key or unique constraint." });
