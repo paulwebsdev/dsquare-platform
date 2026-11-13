@@ -108,7 +108,7 @@ export default function EnvironmentVariables({ resourceUrl, siteType }: Props) {
       </div>
 
       <div className="pm-resource-notice" role="note">
-        Values are encrypted at rest and never shown again after saving. They are not injected into a running website yet; backend runtime integration will follow once isolated Node.js execution is available.
+        Values are encrypted at rest and never shown again after saving. For Node.js websites, saved values are prepared for private runtime injection, but customer code execution remains disabled until the dedicated Linux isolation and operator acceptance gates are completed.
       </div>
 
       {error && <div className="pm-error" role="alert">{error}</div>}
