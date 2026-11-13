@@ -8,7 +8,7 @@ function fakeQueryable(quota: number, used: number) {
     calls,
     query: async (sql: string, values?: unknown[]) => {
       calls.push({ sql, values });
-      if (sql.includes("FROM hosting_resources")) return { rows: [{ file_storage_quota_bytes: quota }], rowCount: 1 };
+      if (sql.includes("FROM hosting_resources")) return { rows: [{ file_storage_quota_bytes: quota, status: "active" }], rowCount: 1 };
       return { rows: [{ used_bytes: used }], rowCount: 1 };
     },
   };
@@ -37,5 +37,15 @@ test("rejects invalid upload sizes and missing websites", async () => {
   await assert.rejects(
     checkWebsiteFileQuota({ queryable: missing, projectId: "project", resourceId: "site", uploadBytes: 1 }),
     /Website resource not found/,
+  );
+});
+
+test("rejects uploads to archived websites", async () => {
+  const archived = { query: async (sql: string) => sql.includes("hosting_resources")
+    ? { rows: [{ file_storage_quota_bytes: 1000, status: "archived" }], rowCount: 1 }
+    : { rows: [{ used_bytes: 0 }], rowCount: 1 } };
+  await assert.rejects(
+    checkWebsiteFileQuota({ queryable: archived, projectId: "project", resourceId: "site", uploadBytes: 1 }),
+    (error: unknown) => (error as { code?: string }).code === "HOSTING_WEBSITE_ARCHIVED",
   );
 });
