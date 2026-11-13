@@ -197,33 +197,37 @@ test("reconciles registered, pending, missing, and orphaned containers safely", 
   const pendingResourceId = "33333333-3333-4333-8333-333333333333";
   const missingResourceId = "44444444-4444-4444-8444-444444444444";
   const orphanResourceId = "55555555-5555-4555-8555-555555555555";
+  const pendingDeploymentId = "66666666-6666-4666-8666-666666666666";
+  const missingDeploymentId = "77777777-7777-4777-8777-777777777777";
+  const orphanDeploymentId = "88888888-8888-4888-8888-888888888888";
   const existingContainerId = "a".repeat(64);
   const pendingContainerId = "b".repeat(64);
   const orphanContainerId = "c".repeat(64);
   const missingContainerId = "d".repeat(64);
   const rows = [
     { Id: existingContainerId, Labels: { "io.dsquare.managed": "true", "io.dsquare.resource-id": resourceId, "io.dsquare.deployment-id": artifactId, "io.dsquare.artifact-id": artifactId } },
-    { Id: pendingContainerId, Labels: { "io.dsquare.managed": "true", "io.dsquare.resource-id": pendingResourceId, "io.dsquare.deployment-id": artifactId, "io.dsquare.artifact-id": artifactId } },
-    { Id: orphanContainerId, Labels: { "io.dsquare.managed": "true", "io.dsquare.resource-id": orphanResourceId, "io.dsquare.deployment-id": artifactId, "io.dsquare.artifact-id": artifactId } },
+    { Id: pendingContainerId, Labels: { "io.dsquare.managed": "true", "io.dsquare.resource-id": pendingResourceId, "io.dsquare.deployment-id": pendingDeploymentId, "io.dsquare.artifact-id": pendingDeploymentId } },
+    { Id: orphanContainerId, Labels: { "io.dsquare.managed": "true", "io.dsquare.resource-id": orphanResourceId, "io.dsquare.deployment-id": orphanDeploymentId, "io.dsquare.artifact-id": orphanDeploymentId } },
   ];
   const records: RuntimeRecord[] = [
     { resourceId, deploymentId: artifactId, artifactId, containerId: existingContainerId, state: "running" },
-    { resourceId: pendingResourceId, deploymentId: artifactId, artifactId, containerId: null, state: "creating" },
-    { resourceId: missingResourceId, deploymentId: artifactId, artifactId, containerId: missingContainerId, state: "running" },
+    { resourceId: pendingResourceId, deploymentId: pendingDeploymentId, artifactId: pendingDeploymentId, containerId: null, state: "creating" },
+    { resourceId: missingResourceId, deploymentId: missingDeploymentId, artifactId: missingDeploymentId, containerId: missingContainerId, state: "running" },
   ];
   const stateChanges: Array<{ resourceId: string; state: string }> = [];
   const registry = {
     getDeployment: async (id: string) => records.find((record) => record.deploymentId === id) ?? null,
-    complete: async (id: string, idValue: string) => {
-      const record = records.find((item) => item.resourceId === id);
+    completeDeployment: async (id: string, idValue: string) => {
+      const record = records.find((item) => item.deploymentId === id);
       if (!record || record.state !== "creating" || record.containerId !== null) return false;
       record.containerId = idValue;
       record.state = "running";
       return true;
     },
-    list: async () => records,
-    setState: async (id: string, state: "unknown") => {
-      stateChanges.push({ resourceId: id, state });
+    listDeployments: async () => records,
+    setDeploymentState: async (id: string, state: "unknown") => {
+      const record = records.find((item) => item.deploymentId === id);
+      stateChanges.push({ resourceId: record?.resourceId ?? id, state });
     },
   };
   const provider = new PodmanRuntimeProvider({
