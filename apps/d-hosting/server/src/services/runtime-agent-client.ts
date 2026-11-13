@@ -241,7 +241,7 @@ export async function syncRuntimeAgentIngress(
   routes: RuntimeAgentIngressRoute[],
   tlsEmail?: string,
 ): Promise<{ applied: true; routeCount: number }> {
-  if (!Array.isArray(routes) || routes.length > 2_000 ||
+  if (!Array.isArray(routes) || routes.length > 4_000 ||
       routes.some((route) =>
         !RUNTIME_UUID.test(route.resourceId) ||
         !RUNTIME_UUID.test(route.deploymentId) ||
