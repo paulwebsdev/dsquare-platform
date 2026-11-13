@@ -25,3 +25,9 @@ Set `PG_RESTORE_PATH` when the `pg_restore` executable is not available on the w
 - Do not mark backups available until upload and integrity verification succeed.
 - Restore is destructive and must be an explicit authenticated action with resource ownership checks and a pre-restore safety backup.
 - Configure the worker scheduler and retention policy before claiming automatic backups are active.
+
+## Multi-instance scheduler coordination
+
+The scheduled backup and retention sweep acquires a PostgreSQL session-level advisory lock before doing any work. Only the process that acquires the lock proceeds; other application instances skip that cycle. The lock is held on the same dedicated database client used for the sweep and is released in a `finally` path, including when backup or retention work fails. This avoids duplicate scheduled sweeps when the API is deployed with multiple instances.
+
+The scheduler still requires `D_DATABASE_BACKUP_SCHEDULER_ENABLED=true` and valid private object-storage configuration. A successful lock acquisition does not by itself mean backups are configured or completed; monitor the returned completed/failed/skipped counts and backup history.
