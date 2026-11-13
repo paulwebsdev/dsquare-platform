@@ -11,7 +11,7 @@ const first = {
 test("derives an API subdomain and CNAME target from a website hostname", () => {
   assert.deepEqual(getApiSubdomainConfig("www.example.com"), {
     domain: "api.example.com",
-    dnsTarget: "example.com",
+    dnsTarget: "www.example.com",
   });
   assert.deepEqual(getApiSubdomainConfig("shop.example.com"), {
     domain: "api.shop.example.com",
