@@ -83,3 +83,18 @@ test("rejects a relative artifact directory", () => {
     resourceId, validation: valid, artifactDirectory: "relative/path", environment: {},
   }), /absolute runtime artifact directory/);
 });
+
+test("allows only the platform-provided bounded D Database pool variables", () => {
+  const spec = buildNodeContainerSpec({
+    resourceId,
+    validation: valid,
+    artifactDirectory,
+    environment: {
+      D_DATABASE_CONNECTION_LIMIT: "5",
+      D_DATABASE_POOL_MAX: "5",
+    },
+    processEnvironment: {},
+  });
+  assert.equal(spec.environment.D_DATABASE_CONNECTION_LIMIT, "5");
+  assert.equal(spec.environment.D_DATABASE_POOL_MAX, "5");
+});
