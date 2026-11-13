@@ -1,4 +1,5 @@
 import path from "node:path";
+import { ensurePersistentStorageDirectory } from "./persistent-storage.js";
 import { PodmanApiClient, type PodmanTransport } from "./podman-client.js";
 import type { RuntimeRegistry } from "./runtime-registry.js";
 import { buildPodmanContainerConfig, type PodmanRuntimeInput } from "./podman-runtime-config.js";
@@ -18,6 +19,7 @@ export type PodmanRuntimeProviderOptions = {
   transport: PodmanTransport;
   storageRoot: string;
   runtimeRoot: string;
+  persistentStorageRoot: string;
   trustedImage: string;
   networkName: string;
   /** Absolute Linux path visible to Podman for the workspace bind mount. */
@@ -52,6 +54,7 @@ export class PodmanRuntimeProvider {
       throw new Error("Podman runtime deployment identity is invalid.");
     }
 
+    const persistentStorageDirectory = await ensurePersistentStorageDirectory(this.options.persistentStorageRoot, request.resourceId);
     const workspacePath = await materializeRuntimeWorkspace(
       this.options.storageRoot,
       request.artifactId,
@@ -72,6 +75,7 @@ export class PodmanRuntimeProvider {
         artifactId: request.artifactId,
         runtime: request.runtime,
         artifactDirectory,
+        persistentStorageDirectory,
         trustedImage: this.options.trustedImage,
         networkName: this.options.networkName,
       });
