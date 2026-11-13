@@ -31,7 +31,7 @@ export function buildPodmanContainerConfig(input: {
 }): Record<string, unknown> {
   const { runtime } = input;
   if (!UUID.test(input.resourceId) || !UUID.test(input.deploymentId) || !UUID.test(input.artifactId) ||
-      input.deploymentId !== input.artifactId || runtime.name !== `dsquare-site-${input.resourceId}`) {
+      input.deploymentId !== input.artifactId || runtime.name !== `dsquare-deploy-${input.deploymentId}`) {
     throw new Error("Podman runtime identity is invalid.");
   }
   if (!input.artifactDirectory.startsWith("/") ||
