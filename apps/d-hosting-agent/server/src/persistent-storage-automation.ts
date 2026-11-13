@@ -59,16 +59,21 @@ export function startPersistentBackupScheduler(input: {
   }
   let running = false;
   let stopped = false;
+  let activeRun: Promise<void> | undefined;
   const timer = setInterval(() => {
     if (running || stopped) return;
     running = true;
-    void runPersistentBackupCycle(input)
+    activeRun = runPersistentBackupCycle(input)
       .then((result) => input.onCycle?.(result))
       .catch((error) => console.error("Persistent backup cycle failed:", error instanceof Error ? error.message : "Unknown error"))
-      .finally(() => { running = false; });
+      .finally(() => { running = false; activeRun = undefined; });
   }, input.intervalMs);
   timer.unref?.();
-  return () => { stopped = true; clearInterval(timer); };
+  return async () => {
+    stopped = true;
+    clearInterval(timer);
+    await activeRun;
+  };
 }
 
 export function resolveBackupDirectory(value: string): string {
