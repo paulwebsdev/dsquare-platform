@@ -141,7 +141,7 @@ test("removes a remotely accepted artifact if runtime creation fails", async () 
     assert.deepEqual(paths, [
       `PUT /v1/artifacts/${deploymentId}`,
       "POST /v1/runtimes",
-      `DELETE /v1/runtimes/${resourceId}`,
+      `DELETE /v1/runtimes/${resourceId}/${deploymentId}`,
       `DELETE /v1/artifacts/${deploymentId}`,
     ]);
     await assert.rejects(stat(path.join(root, resourceId, "runtime-artifacts", deploymentId)));
@@ -238,7 +238,7 @@ test("removes the temporary source artifact when remote build fails", async () =
     assert.equal(paths.length, 5);
     assert.match(paths[0]!, /^PUT \/v1\/artifacts\//);
     assert.equal(paths[1], "POST /v1/builds");
-    assert.equal(paths[2], `GET /v1/runtimes/${resourceId}`);
+    assert.equal(paths[2], `GET /v1/runtimes/${resourceId}/${deploymentId}`);
     assert.equal(paths[3], `DELETE /v1/artifacts/${deploymentId}`);
     assert.match(paths[4]!, /^DELETE \/v1\/artifacts\//);
     await assert.rejects(stat(path.join(root, resourceId, "runtime-artifacts", deploymentId)));
