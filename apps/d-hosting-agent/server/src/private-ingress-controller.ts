@@ -129,8 +129,6 @@ export function renderPrivateIngressJsonConfig(
                       protocol: "http",
                       dial_timeout: "3s",
                       response_header_timeout: "30s",
-                      read_timeout: "5m",
-                      write_timeout: "5m",
                     },
                   },
                 ],
