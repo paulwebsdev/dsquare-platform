@@ -13,15 +13,17 @@ type Deployment = {
 
 type DeploymentHistoryProps = {
   resourceUrl: string;
+  siteType?: "static" | "node";
 };
 
-export default function DeploymentHistory({ resourceUrl }: DeploymentHistoryProps) {
+export default function DeploymentHistory({ resourceUrl, siteType = "static" }: DeploymentHistoryProps) {
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   const [loading, setLoading] = useState(true);
   const [deploying, setDeploying] = useState(false);
   const [activating, setActivating] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [buildOutput, setBuildOutput] = useState("");
 
   const loadDeployments = useCallback(async () => {
     setError("");
@@ -45,16 +47,24 @@ export default function DeploymentHistory({ resourceUrl }: DeploymentHistoryProp
     setDeploying(true);
     setError("");
     setNotice("");
+    setBuildOutput("");
     try {
       const response = await fetch(`${resourceUrl}/deployments`, { method: "POST" });
       const data = await response.json();
       if (data.deployment) {
-        setDeployments(current => [data.deployment, ...current].slice(0, 20));
+        setDeployments(current => [data.deployment, ...current.filter(item => item.id !== data.deployment.id)].slice(0, 20));
       }
+      if (typeof data.buildOutput === "string") setBuildOutput(data.buildOutput);
       if (!response.ok || !data.success) {
         throw new Error(data.message || "Deployment failed.");
       }
-      setNotice(`Deployment #${data.deployment.deployment_number} saved as an immutable version. Activate it to publish.`);
+      if (siteType === "node" && data.runtime?.state === "running" && data.ingress?.synchronized === true) {
+        setNotice(`Deployment #${data.deployment.deployment_number} built, health-checked and activated successfully.`);
+        window.dispatchEvent(new CustomEvent("dsquare:hosting-status-change", { detail: { status: "published" } }));
+        await loadDeployments();
+      } else {
+        setNotice(`Deployment #${data.deployment.deployment_number} saved as an immutable version. Activate it to publish.`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Deployment failed.");
       await loadDeployments();
@@ -100,11 +110,13 @@ export default function DeploymentHistory({ resourceUrl }: DeploymentHistoryProp
 
       <p className="wb-help">
         Each successful deployment stores its own copy of your website files. Later edits or deletions
-        from the upload area will not change an existing deployment. Node.js backend execution remains disabled.
+        from the upload area will not change an existing deployment.
+        {siteType === "node" ? " Node.js deployments are built and started by the isolated runtime when the agent is enabled; a successful deployment is activated automatically after readiness checks." : " Static deployments are saved as immutable versions and can be published below."}
       </p>
 
       {notice && <p role="status">{notice}</p>}
       {error && <div className="pm-error" role="alert">{error}</div>}
+      {buildOutput && <details className="wb-panel"><summary>Node.js build output</summary><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: 320, overflow: "auto" }}>{buildOutput}</pre></details>}
 
       {loading ? (
         <p>Loading deployment history...</p>
