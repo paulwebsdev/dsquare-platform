@@ -40,6 +40,7 @@ async function setup() {
   const root = await mkdtemp(path.join(os.tmpdir(), "dsquare-podman-provider-"));
   const storageRoot = path.join(root, "stored");
   const runtimeRoot = path.join(root, "runtime");
+  const persistentStorageRoot = path.join(root, "persistent");
   const packageBytes = Buffer.from('{"scripts":{"start":"node index.js"}}');
   const file = { path: "package.json", sizeBytes: packageBytes.byteLength, sha256: createHash("sha256").update(packageBytes).digest("hex") };
   const manifest = {
@@ -76,6 +77,7 @@ async function setup() {
     transport,
     storageRoot,
     runtimeRoot,
+    persistentStorageRoot,
     trustedImage: "node:22-bookworm-slim",
     networkName: "dsquare-private",
     containerWorkspacePath: (_workspace, id) => `/var/lib/dsquare/runtime-workspaces/${id}`,
@@ -95,6 +97,7 @@ test("creates and starts an isolated container, then manages its lifecycle", asy
     const config = createCall.body as { HostConfig: { Binds: string[]; PortBindings?: unknown } };
     assert.deepEqual(config.HostConfig.Binds, [
       `/var/lib/dsquare/runtime-workspaces/${artifactId}:/app:ro`,
+      `${persistentStorageRoot}/${resourceId}:/var/lib/dsquare:rw,U,Z`,
     ]);
     assert.equal(config.HostConfig.PortBindings, undefined);
     const probeCall = fixture.calls.find((call) => call.method === "POST" && call.path.endsWith("/exec"));
@@ -110,6 +113,8 @@ test("creates and starts an isolated container, then manages its lifecycle", asy
     assert.equal((await fixture.provider.logs(containerId)).toString(), "runtime logs");
     assert.equal(await fixture.provider.remove(containerId, artifactId), true);
     await assert.rejects(lstat(path.join(fixture.runtimeRoot, artifactId)));
+    assert.equal((await lstat(path.join(persistentStorageRoot, resourceId))).isDirectory(), true,
+      "removing a deployment must retain website persistent storage");
     assert.ok(fixture.calls.some((call) => call.path.endsWith("/stop?t=10")));
     assert.ok(fixture.calls.some((call) => call.path.endsWith("/restart?t=10")));
     assert.ok(fixture.calls.some((call) => call.method === "DELETE"));
@@ -134,6 +139,7 @@ test("rolls back the container and workspace when start fails", async () => {
     },
     storageRoot: path.join(fixture.root, "stored"),
     runtimeRoot: fixture.runtimeRoot,
+    persistentStorageRoot: path.join(fixture.root, "persistent"),
     trustedImage: "node:22-bookworm-slim",
     networkName: "dsquare-private",
     containerWorkspacePath: (_workspace, id) => `/var/lib/dsquare/runtime-workspaces/${id}`,
@@ -164,6 +170,7 @@ test("reports incomplete rollback when Podman refuses container removal", async 
     },
     storageRoot: fixture.storageRoot,
     runtimeRoot: fixture.runtimeRoot,
+    persistentStorageRoot: path.join(fixture.root, "persistent"),
     trustedImage: "node:22-bookworm-slim",
     networkName: "dsquare-private",
     containerWorkspacePath: (_workspace, id) => `/var/lib/dsquare/runtime-workspaces/${id}`,
@@ -239,6 +246,7 @@ test("reconciles registered, pending, missing, and orphaned containers safely", 
     },
     storageRoot: fixture.storageRoot,
     runtimeRoot: fixture.runtimeRoot,
+    persistentStorageRoot: path.join(fixture.root, "persistent"),
     trustedImage: "node:22-bookworm-slim",
     networkName: "dsquare-private",
   });
