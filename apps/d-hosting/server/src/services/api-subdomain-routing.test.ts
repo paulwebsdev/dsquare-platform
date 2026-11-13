@@ -36,7 +36,18 @@ test("adds deterministic API ingress routes to the same immutable deployment", (
   ]);
 });
 
-test("fails closed when an API alias collides with another verified website domain", () => {
+test("deduplicates the shared API alias for apex and www domains on the same deployment", () => {
+  const apex = { ...first, domain: "example.com" };
+  const expanded = expandIngressRoutes([apex, first]);
+  assert.equal(expanded.length, 3);
+  assert.deepEqual(expanded.map((route) => route.domain), [
+    "api.example.com",
+    "example.com",
+    "www.example.com",
+  ]);
+});
+
+test("fails closed when an API alias collides with another website deployment", () => {
   assert.throws(() => expandIngressRoutes([
     first,
     {
