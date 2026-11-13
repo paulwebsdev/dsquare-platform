@@ -80,43 +80,63 @@ export function renderPrivateIngressJsonConfig(
             write_idle_timeout: "2m",
             idle_timeout: "2m",
             max_header_bytes: 16384,
-            routes: normalized.map((route) => ({
-              match: [{ host: [route.domain] }],
-              handle: [
-                {
-                  handler: "request_body",
-                  max_size: 10 * 1024 * 1024,
-                },
-                {
-                  handler: "reverse_proxy",
-                  upstreams: [{
-                    dial: "dsquare-deploy-" + route.deploymentId + ".runtime.dsquare.internal:3000",
-                  }],
+            routes: normalized.flatMap((route) => [
+              {
+                match: [
+                  { host: [route.domain] },
+                  { protocol: ["http"] },
+                ],
+                handle: [{
+                  handler: "static_response",
+                  status_code: 308,
                   headers: {
-                    request: {
-                      set: {
-                        Host: ["{http.request.host}"],
-                        "X-Forwarded-Host": ["{http.request.host}"],
-                        "X-Forwarded-Proto": ["{http.request.scheme}"],
-                        "X-Forwarded-For": ["{http.request.remote.host}"],
+                    Location: ["https://{http.request.host}{http.request.uri}"],
+                    "Cache-Control": ["no-store"],
+                  },
+                }],
+                terminal: true,
+              },
+              {
+                match: [
+                  { host: [route.domain] },
+                  { protocol: ["https"] },
+                ],
+                handle: [
+                  {
+                    handler: "request_body",
+                    max_size: 10 * 1024 * 1024,
+                  },
+                  {
+                    handler: "reverse_proxy",
+                    upstreams: [{
+                      dial: "dsquare-deploy-" + route.deploymentId + ".runtime.dsquare.internal:3000",
+                    }],
+                    headers: {
+                      request: {
+                        set: {
+                          Host: ["{http.request.host}"],
+                          "X-Forwarded-Host": ["{http.request.host}"],
+                          "X-Forwarded-Proto": ["{http.request.scheme}"],
+                          "X-Forwarded-For": ["{http.request.remote.host}"],
+                        },
+                        delete: ["Forwarded", "X-Real-IP"],
                       },
-                      delete: ["Forwarded", "X-Real-IP"],
+                    },
+                    flush_interval: "-1ns",
+                    stream_timeout: "24h",
+                    stream_close_delay: "5m",
+                    transport: {
+                      protocol: "http",
+                      dial_timeout: "3s",
+                      response_header_timeout: "30s",
+                      read_timeout: "5m",
+                      write_timeout: "5m",
                     },
                   },
-                  flush_interval: "-1ns",
-                  stream_timeout: "24h",
-                  stream_close_delay: "5m",
-                  transport: {
-                    protocol: "http",
-                    dial_timeout: "3s",
-                    response_header_timeout: "30s",
-                    read_timeout: "5m",
-                    write_timeout: "5m",
-                  },
-                },
-              ],
-              terminal: true,
-            })),
+                ],
+                terminal: true,
+              },
+            ]),
             errors: {
               routes: [{
                 match: [{
