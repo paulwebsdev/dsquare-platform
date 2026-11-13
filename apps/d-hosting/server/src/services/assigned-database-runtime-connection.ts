@@ -48,6 +48,9 @@ export async function getAssignedDatabaseRuntimeConnection(input: {
     !connection.database_port ||
     !connection.database_name ||
     !connection.database_role ||
+    !Number.isInteger(connection.database_connection_limit) ||
+    connection.database_connection_limit < 1 ||
+    connection.database_connection_limit > 50 ||
     !connection.database_password_ciphertext ||
     !connection.database_password_iv ||
     !connection.database_password_auth_tag
