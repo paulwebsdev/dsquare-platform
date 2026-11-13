@@ -327,6 +327,36 @@ router.post("/:resourceId/deployments/:deploymentId/activate", async (req, res) 
       [resourceId, projectId, deploymentId]
     );
     await client.query("COMMIT");
+
+    if (resource.rows[0].site_type === "node") {
+      try {
+        await syncPublishedNodeIngress();
+      } catch (ingressError) {
+        console.error("Deployment activation ingress sync failed:", ingressError instanceof Error ? ingressError.message : ingressError);
+        // Keep the database's active pointer consistent with the last known
+        // working route. Runtime containers are retained; no live version is
+        // deleted during a failed cutover.
+        try {
+          await client.query("BEGIN");
+          await client.query(
+            `UPDATE hosting_resources
+             SET active_deployment_id = $3, status = $4, updated_at = NOW()
+             WHERE id = $1 AND project_id = $2 AND active_deployment_id = $5`,
+            [resourceId, projectId, resource.rows[0].active_deployment_id, resource.rows[0].status, deploymentId],
+          );
+          await client.query("COMMIT");
+          await syncPublishedNodeIngress();
+        } catch (restoreError) {
+          await client.query("ROLLBACK").catch(() => undefined);
+          console.error("Could not restore previous ingress selection:", restoreError instanceof Error ? restoreError.message : restoreError);
+        }
+        return res.status(502).json({
+          success: false,
+          message: "The deployment could not be safely switched at the ingress layer. The previous runtime was retained and the active pointer was restored where possible.",
+        });
+      }
+    }
+
     return res.json({
       success: true,
       message: "Deployment is now the live website version.",
