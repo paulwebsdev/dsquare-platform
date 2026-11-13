@@ -76,9 +76,9 @@ export function buildPodmanContainerConfig(input: {
     NetworkingConfig: {
       EndpointsConfig: {
         [input.networkName]: {
-          // Matches getBackendRouteTarget() exactly. The proxy must share this
-          // private network; no host port is published for customer containers.
-          Aliases: [`dsquare-site-${input.resourceId}.runtime.dsquare.internal`],
+          // Each immutable deployment has its own alias so old and new versions
+          // can coexist during readiness checks and ingress cutover.
+          Aliases: [`dsquare-deploy-${input.deploymentId}.runtime.dsquare.internal`],
         },
       },
     },
