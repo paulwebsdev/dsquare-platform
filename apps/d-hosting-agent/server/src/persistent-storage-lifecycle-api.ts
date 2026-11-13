@@ -70,6 +70,7 @@ export function registerPersistentStorageLifecycleRoutes(app: Express, input: {
     try {
       const backup = await createPersistentStorageBackup(input.storageRoot, input.backupRoot, resourceId, input.key, input.keyId);
       const remote = await uploadPersistentBackupObject(input.objectStore, backup.path, resourceId, backup.backupId);
+      if (remote.sha256 !== backup.sha256 || remote.sizeBytes !== backup.sizeBytes) throw new Error("Offsite backup integrity check failed.");
       await input.pool.query(
         `INSERT INTO runtime_agent_storage_backups (backup_id, resource_id, backup_path, object_key, key_id, size_bytes, sha256, created_at)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
