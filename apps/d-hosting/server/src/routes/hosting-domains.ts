@@ -5,6 +5,7 @@ import { resolveTxt } from "node:dns/promises";
 import { pool } from "../config/database.js";
 import { requireAuth } from "../middleware/require-auth.js";
 import { syncPublishedNodeIngress } from "../services/private-ingress-sync.js";
+import { getApiSubdomainConfig } from "../services/api-subdomain-routing.js";
 
 const router = Router({ mergeParams: true });
 const UUID_PATTERN =
@@ -62,6 +63,16 @@ function getParams(req: { params: object }) {
   return req.params as Record<string, string>;
 }
 
+function withApiDns<T extends { domain: string }>(record: T) {
+  const api = getApiSubdomainConfig(record.domain);
+  return {
+    ...record,
+    api_domain: api.domain,
+    api_dns_record_type: "CNAME",
+    api_dns_record_value: api.dnsTarget,
+  };
+}
+
 function validIds(projectId: string, resourceId: string) {
   return UUID_PATTERN.test(projectId) && UUID_PATTERN.test(resourceId);
 }
@@ -88,7 +99,7 @@ router.get("/:resourceId/domains", async (req, res) => {
       [projectId, resourceId, res.locals.userId]
     );
 
-    return res.json({ success: true, count: result.rowCount, domains: result.rows });
+    return res.json({ success: true, count: result.rowCount, domains: result.rows.map(withApiDns) });
   } catch (error) {
     return sendError(error, res);
   }
@@ -134,7 +145,7 @@ router.post("/:resourceId/domains", async (req, res) => {
     return res.status(201).json({
       success: true,
       message: "Domain added. Publish the DNS TXT record below, then verify ownership.",
-      domain: result.rows[0],
+      domain: withApiDns(result.rows[0]),
     });
   } catch (error) {
     return sendError(error, res);
@@ -217,14 +228,14 @@ router.post("/:resourceId/domains/:domainId/verify", async (req, res) => {
       return res.status(503).json({
         success: false,
         message: "Domain ownership is verified, but private routing is not ready yet. The domain remains verified and can be synchronized after ingress is configured.",
-        domain: { id: domainId, domain: domainRecord.domain, status: "verified" },
+        domain: withApiDns({ id: domainId, domain: domainRecord.domain, status: "verified" }),
       });
     }
 
     return res.json({
       success: true,
       message: "Domain ownership verified. Published Node websites are synchronized to private HTTPS ingress.",
-      domain: { id: domainId, domain: domainRecord.domain, status: "verified" },
+      domain: withApiDns({ id: domainId, domain: domainRecord.domain, status: "verified" }),
     });
   } catch (error) {
     return sendError(error, res);
