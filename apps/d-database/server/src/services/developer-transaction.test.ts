@@ -26,9 +26,13 @@ test("runs multiple scoped insert, update and delete operations in order", async
   ]);
   assert.deepEqual(results.map((item) => item.type), ["insert", "update", "delete"]);
   assert.equal(client.calls.filter((call) => call.text.includes("information_schema.columns")).length, 3);
-  assert.match(client.calls[1].text, /UPDATE "db_[a-f0-9]{32}"\."customers" SET "name" = \$1 WHERE "id" = \$2/);
-  assert.deepEqual(client.calls[1].values, ["Grace", "1"]);
-  assert.match(client.calls[2].text, /DELETE FROM "db_[a-f0-9]{32}"\."customers" WHERE "id" = \$1/);
+  const updateCall = client.calls.find((call) => call.text.startsWith("UPDATE "));
+  const deleteCall = client.calls.find((call) => call.text.startsWith("DELETE FROM "));
+  assert.ok(updateCall);
+  assert.ok(deleteCall);
+  assert.match(updateCall.text, /UPDATE "db_[a-f0-9]{32}"\."customers" SET "name" = \$1 WHERE "id" = \$2/);
+  assert.deepEqual(updateCall.values, ["Grace", "1"]);
+  assert.match(deleteCall.text, /DELETE FROM "db_[a-f0-9]{32}"\."customers" WHERE "id" = \$1/);
 });
 
 test("rejects invalid schema scope, empty filters, too many operations and unsafe names", async () => {
