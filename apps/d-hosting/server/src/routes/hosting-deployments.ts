@@ -670,12 +670,20 @@ async function deployNodeWebsite(
       // successful deployment that an operator can retry/activate later.
       try {
         await client.query("BEGIN");
-        await client.query(
+        const restoredResource = await client.query(
           `UPDATE hosting_resources
            SET active_deployment_id = $3, status = $4, updated_at = NOW()
-           WHERE id = $1 AND project_id = $2 AND active_deployment_id = $5`,
+           WHERE id = $1 AND project_id = $2 AND active_deployment_id = $5
+           RETURNING id`,
           [resourceId, projectId, previousActiveDeploymentId, currentResource.rows[0].status, deploymentId],
         );
+        if (restoredResource.rowCount !== 1) {
+          await client.query("ROLLBACK");
+          // A newer deployment won the race. Never overwrite its pointer or
+          // runtime metadata with this older deployment's recovery state.
+          await syncPublishedNodeIngress();
+          throw new Error("A newer deployment changed the active version during ingress recovery.");
+        }
         if (UUID_PATTERN.test(String(previousActiveDeploymentId || ""))) {
           await client.query(
             `INSERT INTO hosting_runtime_instances
