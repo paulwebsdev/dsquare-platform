@@ -82,7 +82,7 @@ export function registerPersistentStorageLifecycleRoutes(app: Express, input: {
     if (!validId(resourceId)) { response.status(400).json({ error: "Storage resource identifier is invalid." }); return; }
     try {
       const result = await input.pool.query(
-        "SELECT backup_id AS \"backupId\", size_bytes AS \"sizeBytes\", sha256, created_at AS \"createdAt\" FROM runtime_agent_storage_backups WHERE resource_id=$1 ORDER BY created_at DESC LIMIT 100",
+        "SELECT backup_id AS \"backupId\", resource_id AS \"resourceId\", size_bytes AS \"sizeBytes\", sha256, created_at AS \"createdAt\" FROM runtime_agent_storage_backups WHERE resource_id=$1 ORDER BY created_at DESC LIMIT 100",
         [resourceId],
       );
       response.status(200).json({ resourceId, backups: result.rows });
