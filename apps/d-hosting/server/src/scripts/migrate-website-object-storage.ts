@@ -4,7 +4,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { lstat, readFile, realpath, unlink } from "node:fs/promises";
 import path from "node:path";
 import { pool } from "../config/database.js";
@@ -93,7 +93,7 @@ async function migrateObject(input: {
     throw new Error(`Legacy object size mismatch or limit exceeded: ${input.oldKey}`);
   }
   const sha256 = createHash("sha256").update(bytes).digest("hex");
-  const objectId = crypto.randomUUID();
+  const objectId = randomUUID();
   const newKey = scopedObjectKey(input.ownerId, input.projectId, input.resourceId, objectId);
   if (!APPLY) return { newKey, oldPath, sha256 };
 
