@@ -15,14 +15,14 @@ export function validateMigrationFilenames(fileNames: string[]): string[] {
   for (const fileName of fileNames) {
     const match = MIGRATION_FILENAME.exec(fileName);
     if (!match) {
-      throw new MigrationIntegrityError(\`Invalid migration filename: \${fileName}\`);
+      throw new MigrationIntegrityError("Invalid migration filename: " + fileName);
     }
 
     const version = match[1];
     const existing = versions.get(version);
     if (existing) {
       throw new MigrationIntegrityError(
-        \`Duplicate migration version \${version}: \${existing} and \${fileName}\`,
+        "Duplicate migration version " + version + ": " + existing + " and " + fileName,
       );
     }
     versions.set(version, fileName);
@@ -42,7 +42,7 @@ export function assertMigrationChecksum(
 ): void {
   if (actual !== null && actual !== expected) {
     throw new MigrationIntegrityError(
-      \`Applied migration integrity check failed: \${fileName} has changed since it was recorded.\`,
+      "Applied migration integrity check failed: " + fileName + " has changed since it was recorded.",
     );
   }
 }
