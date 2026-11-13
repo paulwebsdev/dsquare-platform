@@ -135,7 +135,7 @@ router.get("/:resourceId/runtime", async (req, res) => {
     const agent = runtimeAgentOptions();
     if (!agent) return res.status(503).json({ success: false, message: "The private runtime agent is not configured." });
 
-    const runtime = await getRuntimeAgentRuntime(agent, resourceId);
+    const runtime = await getRuntimeAgentRuntime(agent, resourceId, deploymentId);
     await pool.query(
       `INSERT INTO hosting_runtime_instances
          (resource_id, provider, status, deployment_id, started_at, stopped_at, updated_at)
@@ -582,7 +582,7 @@ async function deployNodeWebsite(
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
     if (runtimeStarted) {
-      await deleteRuntimeAgentRuntime(agent, resourceId).catch(() => undefined);
+      await deleteRuntimeAgentRuntime(agent, resourceId, deploymentId).catch(() => undefined);
       await deleteRuntimeAgentArtifact(agent, deploymentId).catch(() => undefined);
     }
     for (const key of snapshotKeys) {
