@@ -40,7 +40,9 @@ export async function syncPublishedNodeIngress(excludeDomainId?: string): Promis
     [excludeDomainId ?? null],
   );
   const reserved = await pool.query<{ domain: string }>(
-    `SELECT domain FROM hosting_custom_domains`,
+    `SELECT domain FROM hosting_custom_domains
+     WHERE ($1::uuid IS NULL OR id <> $1::uuid)`,
+    [excludeDomainId ?? null],
   );
   const baseRoutes: RuntimeAgentIngressRoute[] = result.rows.map((row) => ({
     domain: row.domain,
