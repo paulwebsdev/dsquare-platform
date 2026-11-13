@@ -66,3 +66,17 @@ test("rejects incomplete encrypted credentials instead of launching without them
     /missing required runtime credentials/,
   );
 });
+
+test("rejects assigned connections without a valid enforced pool budget", async () => {
+  for (const limit of [undefined, 0, 51, 2.5]) {
+    const invalid = { ...row, database_connection_limit: limit as number };
+    await assert.rejects(
+      getAssignedDatabaseRuntimeConnection({
+        hostingUserId,
+        resourceId,
+        queryable: fakeQuery([invalid]),
+      }),
+      /missing required runtime credentials/,
+    );
+  }
+});
