@@ -1,5 +1,6 @@
 import { Router, type Response } from "express";
 import { pool } from "../config/database.js";
+import { buildCheckConstraintSql, CheckConstraintValidationError } from "../services/check-constraint.js";
 
 const router = Router({ mergeParams: true });
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -11,6 +12,9 @@ function params(req: { params: object }) {
 }
 
 function sendError(error: unknown, res: Response) {
+  if (error instanceof CheckConstraintValidationError) {
+    return res.status(400).json({ success: false, message: error.message });
+  }
   const code = (error as { code?: string })?.code;
   if (code === "42P07" || code === "42710" || code === "42P16") {
     return res.status(409).json({ success: false, message: "An index or constraint with that name already exists." });
@@ -18,8 +22,8 @@ function sendError(error: unknown, res: Response) {
   if (code === "23503") {
     return res.status(409).json({ success: false, message: "The foreign key cannot be added because existing records violate the relationship." });
   }
-  if (code === "23505") {
-    return res.status(409).json({ success: false, message: "The unique constraint cannot be added because duplicate values already exist." });
+  if (code === "23505" || code === "23514") {
+    return res.status(409).json({ success: false, message: "The constraint cannot be added because existing records violate it." });
   }
   if (code === "42830") {
     return res.status(400).json({ success: false, message: "The referenced column must have a primary-key or unique constraint." });
@@ -219,8 +223,29 @@ router.post("/:resourceId/tables/:tableName/constraints", async (req, res) => {
          REFERENCES ${quote(table.schemaName)}.${quote(referencedTable)} (${quote(referencedColumn)})
          ON DELETE ${onDelete}`
       );
+    } else if (type === "check") {
+      const column = typeof body.column === "string" ? body.column : "";
+      if (!IDENTIFIER_PATTERN.test(column) || !Object.prototype.hasOwnProperty.call(body, "value")) {
+        return res.status(400).json({ success: false, message: "Provide a valid column and scalar CHECK value." });
+      }
+      const existing = await pool.query(
+        `SELECT 1 FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 AND column_name = $3`,
+        [table.schemaName, tableName, column]
+      );
+      if (!existing.rowCount) {
+        return res.status(400).json({ success: false, message: "The CHECK constraint column does not exist in this table." });
+      }
+      const statement = buildCheckConstraintSql({
+        schemaName: table.schemaName,
+        tableName,
+        constraintName: name,
+        column,
+        operator: typeof body.operator === "string" ? body.operator : "",
+        value: body.value,
+      });
+      await pool.query(statement);
     } else {
-      return res.status(400).json({ success: false, message: "Constraint type must be unique or foreign_key." });
+      return res.status(400).json({ success: false, message: "Constraint type must be unique, foreign_key or check." });
     }
 
     return res.status(201).json({ success: true, message: "Constraint created." });
