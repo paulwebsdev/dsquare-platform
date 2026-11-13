@@ -2,7 +2,7 @@ import { createReadStream, createWriteStream } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import { mkdir, lstat, rm, stat } from "node:fs/promises";
 import path from "node:path";
-import { Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
@@ -22,11 +22,22 @@ export function createPersistentBackupObjectStoreFromEnvironment(
   const bucket = env.RUNTIME_AGENT_BACKUP_S3_BUCKET?.trim();
   const region = env.RUNTIME_AGENT_BACKUP_S3_REGION?.trim();
   const endpoint = env.RUNTIME_AGENT_BACKUP_S3_ENDPOINT?.trim();
-  if (!bucket && !region && !endpoint) return undefined;
-  if (!bucket || !region) throw new Error("RUNTIME_AGENT_BACKUP_S3_BUCKET and RUNTIME_AGENT_BACKUP_S3_REGION must be configured together.");
   const accessKeyId = env.RUNTIME_AGENT_BACKUP_S3_ACCESS_KEY_ID?.trim();
   const secretAccessKey = env.RUNTIME_AGENT_BACKUP_S3_SECRET_ACCESS_KEY?.trim();
+  if (!bucket && !region && !endpoint && !accessKeyId && !secretAccessKey) return undefined;
+  if (!bucket || !region) throw new Error("RUNTIME_AGENT_BACKUP_S3_BUCKET and RUNTIME_AGENT_BACKUP_S3_REGION must be configured together.");
   if (Boolean(accessKeyId) !== Boolean(secretAccessKey)) throw new Error("Both S3 access key ID and secret access key must be configured together.");
+  if (endpoint) {
+    let parsed: URL;
+    try { parsed = new URL(endpoint); } catch { throw new Error("RUNTIME_AGENT_BACKUP_S3_ENDPOINT must be a valid HTTPS URL."); }
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.search || parsed.hash) {
+      throw new Error("RUNTIME_AGENT_BACKUP_S3_ENDPOINT must be an HTTPS origin without credentials or query strings.");
+    }
+  }
+  const prefix = (env.RUNTIME_AGENT_BACKUP_S3_PREFIX?.trim() || "dsquare-hosting").replace(/^\\/+|\\/+$/g, "");
+  if (!prefix || prefix.split("/").some((part) => !part || part === "." || part === "..") || !/^[A-Za-z0-9._/-]+$/.test(prefix)) {
+    throw new Error("RUNTIME_AGENT_BACKUP_S3_PREFIX contains an unsafe path.");
+  }
   return {
     client: new S3Client({
       region,
@@ -74,10 +85,22 @@ export async function downloadPersistentBackupObject(
   const temporary = path.join(backupRoot, `.remote-restore-${randomBytes(12).toString("hex")}.dsqbak`);
   try {
     const result = await store.client.send(new GetObjectCommand({ Bucket: store.bucket, Key: objectKey }));
-    if (!result.Body) throw new Error("Persistent backup object is empty.");
+    if (!result.Body || !Number.isSafeInteger(result.ContentLength) ||
+        (result.ContentLength as number) < 36 || (result.ContentLength as number) > MAX_BACKUP_BYTES) {
+      throw new Error("Persistent backup object size is invalid.");
+    }
     const output = createWriteStream(temporary, { flags: "wx", mode: 0o600 });
-    await pipeline(Readable.from(result.Body as AsyncIterable<Uint8Array>), output);
+    let streamedBytes = 0;
+    const limiter = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        streamedBytes += chunk.byteLength;
+        if (streamedBytes > MAX_BACKUP_BYTES) callback(new Error("Persistent backup object exceeded the download limit."));
+        else callback(null, chunk);
+      },
+    });
+    await pipeline(Readable.from(result.Body as AsyncIterable<Uint8Array>), limiter, output);
     const details = await stat(temporary);
+    if (details.size !== result.ContentLength) throw new Error("Persistent backup object length did not match its metadata.");
     if (details.size < 36 || details.size > MAX_BACKUP_BYTES) throw new Error("Downloaded persistent backup size is invalid.");
     const digest = createHash("sha256");
     for await (const chunk of createReadStream(temporary)) digest.update(chunk);
