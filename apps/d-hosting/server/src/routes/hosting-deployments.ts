@@ -37,7 +37,7 @@ function params(req: { params: object }) {
 
 async function ownedResource(projectId: string, resourceId: string, userId: string) {
   return pool.query(
-    `SELECT r.id, r.project_id, r.status, r.site_type, r.active_deployment_id
+    `SELECT r.id, r.project_id, r.status, r.site_type, r.active_deployment_id, p.owner_id
      FROM hosting_resources r
      INNER JOIN projects p ON p.id = r.project_id
      WHERE r.id = $1 AND r.project_id = $2 AND p.owner_id = $3
@@ -518,7 +518,7 @@ async function deployNodeWebsite(
   try {
     await client.query("BEGIN");
     const resource = await client.query(
-      `SELECT r.id, r.status, r.site_type, r.active_deployment_id
+      `SELECT r.id, r.status, r.site_type, r.active_deployment_id, p.owner_id
        FROM hosting_resources r
        INNER JOIN projects p ON p.id = r.project_id
        WHERE r.id = $1 AND r.project_id = $2 AND p.owner_id = $3
@@ -551,8 +551,8 @@ async function deployNodeWebsite(
     const uploadedPaths = sourceFiles.map((file) => file.original_name);
     const packageFile = sourceFiles.find((file) => file.original_name === "package.json");
     let packageJson = "";
-    if (packageFile && UUID_PATTERN.test(packageFile.storage_key)) {
-      packageJson = await readFile(path.join(storageRoot, resourceId, packageFile.storage_key), "utf8");
+    if (packageFile) {
+      packageJson = (await websiteObjectStorage.get(packageFile.storage_key, { ownerId: String(resource.rows[0].owner_id), projectId, resourceId })).toString("utf8");
     }
     const validation = validateNodeProject(packageJson, uploadedPaths);
     if (!validation.valid) {
@@ -836,8 +836,6 @@ router.post("/:resourceId/deployments", async (req, res) => {
 
     if (!homepage) {
       failure = "Deployment failed: upload an index.html homepage at the website root.";
-    } else {
-
     }
 
     const numberResult = await client.query(
