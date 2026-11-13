@@ -217,4 +217,31 @@ Before a file is accepted for use, the backend must enforce configured file-size
 ### 16.6 Restoration Controls
 Restoration must be limited to authorized operators, followed by integrity and application-level verification. Procedures must identify the exact product and environment being restored and prevent accidental overwriting of unrelated databases or environments. Tenant-level restoration, if offered, requires a separately designed and tested process.
 
+## 17. D Database V1 query and transaction safeguards
 
+The developer data API supports bounded, atomic write transactions through
+`POST /api/v1/data/:projectId/:resourceId/transactions`. A request contains
+1–20 insert, update or delete operations. Every operation is restricted to
+the API key's single authorized resource schema, validates table and column
+names against PostgreSQL metadata, uses parameterized row values, and rejects
+unfiltered updates/deletes. The entire request uses one PostgreSQL transaction;
+a failed operation rolls back the complete batch.
+
+For large tables, the developer data API also exposes keyset pagination at
+`GET /api/v1/data/:projectId/:resourceId/tables/:tableName/rows/cursor`.
+It requires exactly one primary-key column, orders by that key, fetches at
+most 101 rows, and returns a continuation cursor. Cursor values are opaque
+base64url-encoded scalar primary-key values; they are always decoded and passed
+as query parameters, never interpolated into SQL. Existing offset pagination
+remains available for compatibility.
+
+Table structure management supports regular/unique indexes, unique constraints,
+same-resource foreign keys and simple CHECK constraints. CHECK expressions
+are deliberately limited to one validated column, a fixed comparison
+operator, and a safely escaped string, finite number or boolean value; arbitrary
+SQL expressions are not accepted.
+
+These endpoints remain subject to the existing developer API key scopes,
+resource ownership checks, per-role PostgreSQL connection limits and query
+timeouts. Production load, concurrency and rollback behavior must still be
+validated during the final Linux acceptance phase.
