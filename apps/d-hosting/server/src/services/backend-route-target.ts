@@ -20,24 +20,24 @@ export function getBackendRouteTarget(
   const domain = internalDomain.toLowerCase().trim();
   if (
     domain.length > 253 ||
-    !/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$/.test(domain) ||
+    !/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(domain) ||
     domain === "localhost" ||
     domain.endsWith(".localhost")
   ) {
     throw new Error("Backend runtime domain must be a valid internal DNS domain.");
   }
-  return `http://dsquare-deploy-${deploymentId.toLowerCase()}.${domain}:3000`;
+  return \`http://dsquare-deploy-\${deploymentId.toLowerCase()}.\${domain}:3000\`;
 }
 
 export function isAllowedBackendPath(path: string): boolean {
-  if (!path.startsWith("/") || path.startsWith("//") || path.includes("\\\\") ||
-      /[\\u0000-\\u001f\\u007f]/.test(path)) return false;
+  if (!path.startsWith("/") || path.startsWith("//") || path.includes("\\") ||
+      /[\u0000-\u001f\u007f]/.test(path)) return false;
   try {
     const decoded = decodeURIComponent(path);
     const pathname = decoded.split(/[?#]/, 1)[0];
     const segments = pathname.split("/");
-    return !decoded.startsWith("//") && !decoded.includes("\\\\") &&
-      !/[\\u0000-\\u001f\\u007f]/.test(decoded) &&
+    return !decoded.startsWith("//") && !decoded.includes("\\") &&
+      !/[\u0000-\u001f\u007f]/.test(decoded) &&
       !segments.some((segment) => segment === "." || segment === "..");
   } catch {
     return false;
