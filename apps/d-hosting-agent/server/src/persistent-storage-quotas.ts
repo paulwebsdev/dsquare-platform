@@ -6,7 +6,7 @@ import path from "node:path";
 const execFileAsync = promisify(execFile);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export type QuotaCommandRunner = (file: string, args: string[]) => Promise<void>;
+export type QuotaCommandRunner = (file: string, args: string[]) => Promise<{ stdout: string }>;
 
 /**
  * XFS project-quota adapter. The backing filesystem MUST be mounted with
@@ -30,14 +30,21 @@ export async function enforceXfsProjectQuota(input: {
     throw new Error("Persistent storage quota paths must be real directories.");
   }
   const run = input.run ?? (async (file, args) => {
-    await execFileAsync(file, args, { timeout: 15_000, maxBuffer: 64 * 1024, windowsHide: true });
+    const result = await execFileAsync(file, args, { timeout: 15_000, maxBuffer: 64 * 1024, windowsHide: true });
+    return { stdout: result.stdout };
   });
-  // Set the project ID recursively and make the directory inherit it.
+  const filesystem = await run("findmnt", ["-n", "-o", "FSTYPE,OPTIONS", "-T", root]);
+  const [filesystemType, mountOptions = ""] = filesystem.stdout.trim().split(/\\s+/, 2);
+  if (filesystemType !== "xfs" || !/(^|,)(prjquota|pquota)(,|$)/.test(mountOptions)) {
+    throw new Error("Persistent storage must reside on XFS mounted with prjquota or pquota.");
+  }
+  const mount = await run("findmnt", ["-n", "-o", "TARGET", "-T", root]);
+  const mountPoint = mount.stdout.trim();
+  if (!mountPoint.startsWith("/") || /[\\r\\n\\0]/.test(mountPoint)) throw new Error("Could not safely resolve the XFS mount point.");
   await run("xfs_io", ["-r", "-c", `chproj -R ${input.projectId}`, target]);
   await run("xfs_io", ["-r", "-c", `chattr +P`, target]);
   const hardBlocks = Math.ceil(input.hardLimitBytes / 1024);
-  // xfs_quota uses project IDs, not user-controlled strings or shell interpolation.
-  await run("xfs_quota", ["-x", "-c", `limit -p bhard=${hardBlocks}k ${input.projectId}`, root]);
+  await run("xfs_quota", ["-x", "-c", `limit -p bhard=${hardBlocks}k ${input.projectId}`, mountPoint]);
 }
 
 /** Deterministic candidate only; caller MUST reserve it under a database UNIQUE constraint. */
