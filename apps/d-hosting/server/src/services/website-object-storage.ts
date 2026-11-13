@@ -25,7 +25,7 @@ export type WebsiteObjectStorage = {
 };
 
 function validIdentity(identity: WebsiteObjectIdentity): void {
-  for ( (const value) of [identity.ownerId, identity.projectId, identity.resourceId, identity.objectId]) {
+  for (const value of [identity.ownerId, identity.projectId, identity.resourceId, identity.objectId]) {
     if (!UUID.test(value)) throw new Error("Website object identity is invalid.");
   }
 }
