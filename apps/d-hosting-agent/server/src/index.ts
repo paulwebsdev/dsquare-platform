@@ -593,6 +593,7 @@ export async function startRuntimeAgent(): Promise<void> {
   const trustedImage = process.env.RUNTIME_AGENT_TRUSTED_IMAGE?.trim();
   const privateNetwork = process.env.RUNTIME_AGENT_PODMAN_NETWORK?.trim();
   const runtimeRootValue = process.env.RUNTIME_AGENT_RUNTIME_ROOT?.trim();
+  const persistentStorageRootValue = process.env.RUNTIME_AGENT_PERSISTENT_STORAGE_ROOT?.trim();
   const containerRuntimeRoot = process.env.RUNTIME_AGENT_CONTAINER_RUNTIME_ROOT?.trim();
   let provider: PodmanRuntimeProvider | undefined;
   let builder: PodmanNodeBuildRunner | undefined;
@@ -603,8 +604,8 @@ export async function startRuntimeAgent(): Promise<void> {
   const containerBuilderWorkspaceRoot = process.env.RUNTIME_AGENT_CONTAINER_BUILDER_WORKSPACE_ROOT?.trim();
   const containerNpmCacheRoot = process.env.RUNTIME_AGENT_CONTAINER_NPM_CACHE_ROOT?.trim();
   const builderSigningKey = process.env.RUNTIME_AGENT_BUILDER_CACHE_SIGNING_KEY;
-  if (podmanSocket && trustedImage && privateNetwork && runtimeRootValue && containerRuntimeRoot) {
-    if (!podmanSocket.startsWith("/") || !runtimeRootValue.startsWith("/") ||
+  if (podmanSocket && trustedImage && privateNetwork && runtimeRootValue && persistentStorageRootValue && containerRuntimeRoot) {
+    if (!podmanSocket.startsWith("/") || !runtimeRootValue.startsWith("/") || !persistentStorageRootValue.startsWith("/") || /[\\r\\n\\0:,]/.test(persistentStorageRootValue) ||
         !path.posix.isAbsolute(containerRuntimeRoot) ||
         /[\r\n\0:]/.test(containerRuntimeRoot)) {
       await pool.end();
@@ -614,6 +615,7 @@ export async function startRuntimeAgent(): Promise<void> {
       transport: createPodmanSocketTransport({ socketPath: podmanSocket }),
       storageRoot,
       runtimeRoot: path.resolve(runtimeRootValue),
+      persistentStorageRoot: path.resolve(persistentStorageRootValue),
       trustedImage,
       networkName: privateNetwork,
       containerWorkspacePath: (_workspacePath, artifactId) =>
