@@ -122,6 +122,29 @@ function runtimeAgentOptions() {
   return { baseUrl, secret };
 }
 
+/** Retain the live deployment and two rollback candidates; retire older containers only after ingress cutover. */
+async function cleanupRetiredNodeRuntimes(resourceId: string, agent: NonNullable<ReturnType<typeof runtimeAgentOptions>>): Promise<void> {
+  const stale = await pool.query<{ id: string }>(
+    `SELECT id
+     FROM hosting_deployments
+     WHERE resource_id = $1 AND status = 'succeeded'
+     ORDER BY deployment_number DESC
+     OFFSET 3`,
+    [resourceId],
+  );
+  for (const row of stale.rows) {
+    if (!UUID_PATTERN.test(row.id)) continue;
+    try {
+      const removed = await deleteRuntimeAgentRuntime(agent, resourceId, row.id);
+      if (removed.deleted) await deleteRuntimeAgentArtifact(agent, row.id);
+    } catch (error) {
+      // Cleanup is best-effort. A retained artifact is safer than deleting one
+      // while its runtime may still be serving traffic.
+      console.error("Retired Node runtime cleanup failed:", error instanceof Error ? error.message : error);
+    }
+  }
+}
+
 // Read the actual isolated runtime state for an owned Node.js website.
 router.get("/:resourceId/runtime", async (req, res) => {
   const { projectId = "", resourceId = "" } = params(req);
@@ -636,6 +659,7 @@ async function deployNodeWebsite(
       ingressSynced = false;
       console.error("Node deployment ingress synchronization failed:", ingressError instanceof Error ? ingressError.message : ingressError);
     }
+    if (ingressSynced) await cleanupRetiredNodeRuntimes(resourceId, agent);
 
     return response.status(201).json({
       success: true,
