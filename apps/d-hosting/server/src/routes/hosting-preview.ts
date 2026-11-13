@@ -107,7 +107,7 @@ export async function serveResourceFile(
       });
     }
 
-    let filePath = "";
+    let fileBytes: Buffer | null = null;
     let mimeType = "";
     if (publishedOnly) {
       const activeDeploymentId = resourceResult.rows[0].active_deployment_id;
