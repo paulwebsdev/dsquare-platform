@@ -10,7 +10,7 @@ const resourceId = "123e4567-e89b-42d3-a456-426614174000";
 const deploymentId = "123e4567-e89b-42d3-a456-426614174001";
 const storageKey = "123e4567-e89b-42d3-a456-426614174002";
 const key = Buffer.alloc(32, 9).toString("base64");
-const processEnvironment = { HOSTING_SECRETS_KEY: key };
+const processEnvironment = { HOSTING_SECRETS_KEY: key, D_HOSTING_PERSISTENT_STORAGE_QUOTA_BYTES: String(1024 * 1024 * 1024) };
 const hostingUserId = "11111111-1111-4111-8111-111111111111";
 const databaseResourceId = "33333333-3333-4333-8333-333333333333";
 const databasePassword = "database-runtime-password";
@@ -67,8 +67,16 @@ function deploymentInput(storageRoot: string, fetchImpl: typeof fetch) {
 function fakeFetch(
   handler: (url: URL, init: RequestInit) => Response | Promise<Response>,
 ): typeof fetch {
-  return (async (input: RequestInfo | URL, init?: RequestInit) =>
-    handler(new URL(input instanceof Request ? input.url : input.toString()), init ?? {})) as typeof fetch;
+  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : input.toString());
+    const request = init ?? {};
+    if (url.pathname === `/v1/storage/${resourceId}/quota`) {
+      assert.equal(request.method, "POST");
+      assert.deepEqual(JSON.parse(String(request.body)), { hardLimitBytes: 1024 * 1024 * 1024 });
+      return Response.json({ resourceId, hardLimitBytes: 1024 * 1024 * 1024, enforcement: "xfs-project-hard-quota", applied: true });
+    }
+    return handler(url, request);
+  }) as typeof fetch;
 }
 
 test("uploads the verified bundle before requesting remote runtime startup", async () => {
