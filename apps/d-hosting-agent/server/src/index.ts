@@ -181,7 +181,7 @@ export function createRuntimeAgentApp(input: {
     }
   });
 
-  if (input.persistentBackupRoot) {\n    registerPersistentStorageLifecycleRoutes(app, { pool: input.pool, storageRoot: process.env.RUNTIME_AGENT_PERSISTENT_STORAGE_ROOT ?? "", backupRoot: input.persistentBackupRoot, key: input.persistentBackupKey });\n  }\n\n  app.get("/v1/health", (_request, response) => {
+  if (input.persistentBackupRoot) {\n    registerPersistentStorageLifecycleRoutes(app, { pool: input.pool, storageRoot: input.persistentStorageRoot ?? "", backupRoot: input.persistentBackupRoot, key: input.persistentBackupKey });\n  }\n\n  app.get("/v1/health", (_request, response) => {
     response.status(200).json({ status: "ready", providerConfigured: Boolean(input.provider), executionEnabled, builderConfigured: Boolean(input.builder), builderEnabled, ingressConfigured: Boolean(input.ingressAdminUrl) });
   });
 
@@ -688,7 +688,7 @@ export async function startRuntimeAgent(): Promise<void> {
   // Production execution is deliberately hard-disabled until Linux acceptance tests pass.
   const ingressAdminUrl = process.env.RUNTIME_AGENT_CADDY_ADMIN_URL?.trim();
   const app = createRuntimeAgentApp({ pool, secret, storageRoot, provider, builder, builderEnabled, ingressAdminUrl,
-    persistentBackupRoot, persistentBackupKey, executionEnabled: false });
+    persistentBackupRoot, persistentBackupKey, persistentStorageRoot: persistentStorageRootValue ? path.resolve(persistentStorageRootValue) : undefined, executionEnabled: false });
   const stopBackupScheduler = persistentBackupKey && persistentBackupRoot && persistentStorageRootValue
     ? startPersistentBackupScheduler({
         storageRoot: path.resolve(persistentStorageRootValue),
