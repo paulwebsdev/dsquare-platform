@@ -711,6 +711,24 @@ export async function startRuntimeAgent(): Promise<void> {
     throw error;
   }
 
+  const backupKeyValue = process.env.RUNTIME_AGENT_BACKUP_KEY?.trim();
+  const backupRootValue = process.env.RUNTIME_AGENT_BACKUP_ROOT?.trim();
+  let persistentBackupKey: Buffer | undefined;
+  let persistentBackupRoot: string | undefined;
+  if (backupKeyValue || backupRootValue) {
+    if (!backupKeyValue || !backupRootValue) {
+      await pool.end();
+      throw new Error("RUNTIME_AGENT_BACKUP_KEY and RUNTIME_AGENT_BACKUP_ROOT must be configured together.");
+    }
+    try {
+      persistentBackupKey = decodePersistentBackupKey(backupKeyValue);
+      persistentBackupRoot = resolveBackupDirectory(backupRootValue);
+    } catch (error) {
+      await pool.end();
+      throw error;
+    }
+  }
+
   // Production execution is deliberately hard-disabled until Linux acceptance tests pass.
   const ingressAdminUrl = process.env.RUNTIME_AGENT_CADDY_ADMIN_URL?.trim();
   const app = createRuntimeAgentApp({ pool, secret, storageRoot, provider, builder, builderEnabled, ingressAdminUrl,
