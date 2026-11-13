@@ -17,6 +17,7 @@ on:
     paths:
       - "apps/d-hosting/**"
       - "apps/d-hosting-agent/**"
+      - "apps/d-database/**"
       - "packages/**"
       - "package.json"
       - "package-lock.json"
