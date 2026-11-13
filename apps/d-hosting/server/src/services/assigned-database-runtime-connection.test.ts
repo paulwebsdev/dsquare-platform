@@ -14,6 +14,7 @@ const row = {
   database_port: 5432,
   database_name: "d_database",
   database_role: "dsq_app_33333333333343338333333333333333",
+  database_connection_limit: 5,
   database_password_ciphertext: "encrypted-password",
   database_password_iv: "encrypted-iv",
   database_password_auth_tag: "encrypted-auth-tag",
@@ -40,6 +41,7 @@ test("loads only the active connection assigned to the requested website and own
   assert.deepEqual(result, row);
   assert.deepEqual(queryable.calls[0].values, [resourceId, hostingUserId]);
   assert.match(queryable.calls[0].sql, /c\.status = 'active'/);
+  assert.match(queryable.calls[0].sql, /c\.database_connection_limit/);
   assert.match(queryable.calls[0].sql, /assignment\.hosting_user_id = \$2/);
   assert.match(queryable.calls[0].sql, /c\.hosting_user_id = \$2/);
 });
@@ -63,4 +65,18 @@ test("rejects incomplete encrypted credentials instead of launching without them
     }),
     /missing required runtime credentials/,
   );
+});
+
+test("rejects assigned connections without a valid enforced pool budget", async () => {
+  for (const limit of [undefined, 0, 51, 2.5]) {
+    const invalid = { ...row, database_connection_limit: limit as number };
+    await assert.rejects(
+      getAssignedDatabaseRuntimeConnection({
+        hostingUserId,
+        resourceId,
+        queryable: fakeQuery([invalid]),
+      }),
+      /missing required runtime credentials/,
+    );
+  }
 });

@@ -1,6 +1,7 @@
 import { Pool } from "pg";
 import { pool } from "../config/database.js";
 import { createResourceAccessPlan } from "./resource-access-policy.js";
+import { getResourceAccessLimits } from "./resource-access-limits.js";
 
 const provisionerUrl = process.env.DB_PROVISIONER_URL?.trim();
 export const resourceProvisionerPool = provisionerUrl
@@ -17,6 +18,7 @@ export const resourceProvisionerPool = provisionerUrl
 export type ProvisionedResourceAccess = {
   roleName: string;
   password: string;
+  connectionLimit: number;
 };
 
 export async function provisionResourceAccess(
@@ -53,11 +55,13 @@ export async function provisionResourceAccess(
     "SELECT current_database() AS database_name",
   );
   const databaseName = String(databaseResult.rows[0]?.database_name || "");
+  const limits = getResourceAccessLimits(process.env);
   const plan = createResourceAccessPlan({
     resourceId,
     schemaName,
     databaseName,
     schemaOwner,
+    limits,
   });
 
   const client = await resourceProvisionerPool.connect();
@@ -116,6 +120,11 @@ export async function provisionResourceAccess(
     for (const statement of plan.grantStatements) {
       await client.query(statement);
     }
+    // Reapply settings for both newly-created and previously-revoked roles.
+    // PostgreSQL enforces these limits regardless of the website's own pg Pool.
+    for (const statement of plan.configureStatements) {
+      await client.query(statement);
+    }
     await client.query("SET ROLE d_database_app");
     await client.query(
       `INSERT INTO resource_access_grants (resource_id, role_name, status)
@@ -127,7 +136,7 @@ export async function provisionResourceAccess(
     );
     await client.query("RESET ROLE");
     await client.query("COMMIT");
-    return { roleName: plan.roleName, password: plan.password };
+    return { roleName: plan.roleName, password: plan.password, connectionLimit: limits.connectionLimit };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
     throw error;

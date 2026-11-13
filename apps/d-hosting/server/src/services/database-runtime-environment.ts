@@ -35,7 +35,9 @@ export function buildDatabaseRuntimeEnvironment(input: {
       /[\s\u0000-\u001f\u007f\\/?#@]/.test(connection.database_host) ||
       !Number.isInteger(connection.database_port) || connection.database_port < 1 ||
       connection.database_port > 65535 ||
-      !/^[A-Za-z0-9_]{1,63}$/.test(connection.database_name)) {
+      !/^[A-Za-z0-9_]{1,63}$/.test(connection.database_name) ||
+      !Number.isInteger(connection.database_connection_limit) ||
+      connection.database_connection_limit < 1 || connection.database_connection_limit > 50) {
     throw new Error("D Database connection is not valid for this Hosting account.");
   }
 
@@ -58,5 +60,9 @@ export function buildDatabaseRuntimeEnvironment(input: {
     D_DATABASE_SCHEMA: connection.schema_name,
     D_DATABASE_PROJECT_ID: connection.project_id,
     D_DATABASE_RESOURCE_ID: connection.resource_id,
+    // Advisory pool ceiling for application libraries; PostgreSQL independently
+    // enforces the same per-role connection limit server-side.
+    D_DATABASE_CONNECTION_LIMIT: String(connection.database_connection_limit),
+    D_DATABASE_POOL_MAX: String(connection.database_connection_limit),
   };
 }

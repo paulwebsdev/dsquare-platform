@@ -82,3 +82,10 @@ testRunner("resource provisioning serializes grant metadata and rolls back faile
   assert.match(provisionerSource, /ON CONFLICT \(resource_id\) DO UPDATE/);
   assert.match(provisionerSource, /catch \(error\)[\s\S]*?ROLLBACK/);
 });
+
+testRunner("applies all resource-role connection and query settings before activating the grant", () => {
+  assert.match(provisionerSource, /for \(const statement of plan\.configureStatements\)/);
+  assert.match(provisionerSource, /for \(const statement of plan\.configureStatements\)[\s\S]*?await client\.query\(statement\)/);
+  assert.match(provisionerSource, /getResourceAccessLimits\(process\.env\)/);
+  assert.match(provisionerSource, /connectionLimit: limits\.connectionLimit/);
+});

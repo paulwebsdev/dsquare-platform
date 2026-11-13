@@ -13,6 +13,7 @@ const valid = {
   database_name: "d_database",
   database_role: "dsq_app_33333333333343338333333333333333",
   database_password: "A".repeat(43),
+  database_connection_limit: 5,
 };
 
 test("accepts a complete scoped database credential response", () => {
@@ -37,4 +38,11 @@ test("rejects missing names and malformed passwords", () => {
   assert.equal(isValidDatabaseConnectionCredentials({ ...valid, resource_name: "  " }), false);
   assert.equal(isValidDatabaseConnectionCredentials({ ...valid, database_password: "short" }), false);
   assert.equal(isValidDatabaseConnectionCredentials(null), false);
+});
+
+test("requires a bounded server-enforced database connection limit", () => {
+  assert.equal(isValidDatabaseConnectionCredentials({ ...valid, database_connection_limit: 0 }), false);
+  assert.equal(isValidDatabaseConnectionCredentials({ ...valid, database_connection_limit: 51 }), false);
+  assert.equal(isValidDatabaseConnectionCredentials({ ...valid, database_connection_limit: "5" }), false);
+  assert.equal(isValidDatabaseConnectionCredentials({ ...valid, database_connection_limit: undefined }), false);
 });

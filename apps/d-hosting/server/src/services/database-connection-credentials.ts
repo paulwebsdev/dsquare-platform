@@ -9,6 +9,7 @@ export type DatabaseConnectionCredentials = {
   database_name: string;
   database_role: string;
   database_password: string;
+  database_connection_limit: number;
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -38,6 +39,8 @@ export function isValidDatabaseConnectionCredentials(
     Number(item.database_port) >= 1 && Number(item.database_port) <= 65535 &&
     typeof item.database_name === "string" && DATABASE.test(item.database_name) &&
     typeof item.database_role === "string" && ROLE.test(item.database_role) &&
-    typeof item.database_password === "string" && PASSWORD.test(item.database_password)
+    typeof item.database_password === "string" && PASSWORD.test(item.database_password) &&
+    Number.isInteger(item.database_connection_limit) &&
+    Number(item.database_connection_limit) >= 1 && Number(item.database_connection_limit) <= 50
   );
 }

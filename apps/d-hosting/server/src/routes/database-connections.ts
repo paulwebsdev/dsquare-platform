@@ -172,8 +172,8 @@ router.post("/complete", requireSameOrigin, limitConnectionComplete, async (req,
        (hosting_user_id, database_user_id, database_project_id, database_resource_id,
         resource_name, database_schema_name, database_host, database_port, database_name,
         database_role_name, database_password_ciphertext, database_password_iv,
-        database_password_auth_tag)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        database_password_auth_tag, database_connection_limit)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        ON CONFLICT (hosting_user_id, database_resource_id) WHERE status = 'active'
        DO NOTHING
        RETURNING id, resource_name, status, connected_at`,
@@ -182,6 +182,7 @@ router.post("/complete", requireSameOrigin, limitConnectionComplete, async (req,
         item.resource_name.slice(0, 80), item.schema_name, item.database_host,
         item.database_port, item.database_name, item.database_role,
         encryptedPassword.ciphertext, encryptedPassword.iv, encryptedPassword.authTag,
+        item.database_connection_limit,
       ],
     );
     if (saved.rowCount !== 1) {

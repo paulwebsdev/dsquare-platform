@@ -16,6 +16,7 @@ const connection = {
   database_name: "d_database",
   database_role: "dsq_app_33333333333343338333333333333333",
   database_password: "secret-password-with-special-@-chars",
+  database_connection_limit: 5,
 };
 
 function encryptedConnection() {
@@ -41,6 +42,8 @@ test("creates backend-only D Database variables and an encoded connection URL", 
   assert.equal(result.D_DATABASE_HOST, "database.internal");
   assert.equal(result.D_DATABASE_SCHEMA, connection.schema_name);
   assert.equal(result.D_DATABASE_PASSWORD, connection.database_password);
+  assert.equal(result.D_DATABASE_CONNECTION_LIMIT, "5");
+  assert.equal(result.D_DATABASE_POOL_MAX, "5");
   assert.match(result.D_DATABASE_URL, /%40/);
   assert.ok(!Object.values(result).includes(processEnvironment.HOSTING_SECRETS_KEY));
 });
@@ -82,4 +85,14 @@ test("rejects ciphertext copied from a different resource", () => {
     },
     processEnvironment,
   }), /authenticate|Unsupported state/i);
+});
+
+test("rejects an absent or excessive database connection budget", () => {
+  for (const limit of [undefined, 0, 51, 1.5]) {
+    assert.throws(() => buildDatabaseRuntimeEnvironment({
+      hostingUserId,
+      connection: { ...encryptedConnection(), database_connection_limit: limit as number },
+      processEnvironment,
+    }), /not valid/);
+  }
 });
