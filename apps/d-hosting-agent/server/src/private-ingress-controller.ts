@@ -71,7 +71,7 @@ export function renderPrivateIngressJsonConfig(
         servers: {
           dsquare: {
             listen: [":80", ":443"],
-            // Caddy v2.10+ is required for the built-in request_body handler.
+            // Caddy v2.11.8+ is required for request-body and idle-timeout controls.
             // read_timeout bounds the whole upload; read_idle_timeout blocks stalled uploads.
             read_timeout: "5m",
             read_header_timeout: "10s",
