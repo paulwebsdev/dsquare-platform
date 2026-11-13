@@ -447,7 +447,7 @@ router.post("/:resourceId/validate-node", async (req, res) => {
 
     if (packageFile) {
       try {
-        packageJson = (await websiteObjectStorage.get(packageFile.storage_key, resourceId)).toString("utf8");
+        packageJson = (await websiteObjectStorage.get(packageFile.storage_key, { ownerId: String(resource.rows[0].owner_id), projectId, resourceId })).toString("utf8");
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
@@ -570,7 +570,7 @@ async function deployNodeWebsite(
       if (!Number.isSafeInteger(expectedSize) || expectedSize < 1 || expectedSize > 10 * 1024 * 1024) {
         throw new Error("A stored website file has invalid deployment metadata.");
       }
-      const bytes = await websiteObjectStorage.get(file.storage_key, resourceId);
+      const bytes = await websiteObjectStorage.get(file.storage_key, { ownerId: String(resource.rows[0].owner_id), projectId, resourceId });
       const snapshotKey = randomUUID();
       snapshotKeys.push(snapshotKey);
       snapshotBytes += await writeNodeSnapshotFile(bytes, path.join(storageRoot, resourceId, snapshotKey), expectedSize);
@@ -801,7 +801,7 @@ router.post("/:resourceId/deployments", async (req, res) => {
     await client.query("BEGIN");
 
     const resource = await client.query(
-      `SELECT r.id, r.project_id, r.status, r.site_type
+      `SELECT r.id, r.project_id, r.status, r.site_type, p.owner_id
        FROM hosting_resources r
        INNER JOIN projects p ON p.id = r.project_id
        WHERE r.id = $1 AND r.project_id = $2 AND p.owner_id = $3
@@ -853,7 +853,7 @@ router.post("/:resourceId/deployments", async (req, res) => {
     if (!failure) {
       try {
         for (const file of sourceFiles) {
-          const sourceBytes = await websiteObjectStorage.get(file.storage_key, resourceId);
+          const sourceBytes = await websiteObjectStorage.get(file.storage_key, { ownerId: String(resource.rows[0].owner_id), projectId, resourceId });
           const snapshotKey = randomUUID();
           const storedSnapshotKey = await websiteObjectStorage.put({
             ownerId: String(res.locals.userId || ""),
@@ -867,7 +867,7 @@ router.post("/:resourceId/deployments", async (req, res) => {
       } catch (error) {
         failure = "Deployment failed while creating the immutable object-storage snapshot.";
         for (const key of snapshotObjectKeys.splice(0)) {
-          await websiteObjectStorage.delete(key, resourceId).catch(() => undefined);
+          await websiteObjectStorage.delete(key, { ownerId: String(res.locals.userId || ""), projectId, resourceId }).catch(() => undefined);
         }
         snapshotManifest = [];
         console.error("Deployment snapshot copy failed:", error instanceof Error ? error.message : error);
