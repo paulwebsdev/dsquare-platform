@@ -663,17 +663,57 @@ async function deployNodeWebsite(
     } catch (ingressError) {
       ingressSynced = false;
       console.error("Node deployment ingress synchronization failed:", ingressError instanceof Error ? ingressError.message : ingressError);
+
+      // The deployment is built and healthy, but it must not be reported as
+      // live when the public route did not switch. Restore the previous active
+      // pointer before returning, while retaining this healthy version as a
+      // successful deployment that an operator can retry/activate later.
+      try {
+        await client.query("BEGIN");
+        await client.query(
+          `UPDATE hosting_resources
+           SET active_deployment_id = $3, status = $4, updated_at = NOW()
+           WHERE id = $1 AND project_id = $2 AND active_deployment_id = $5`,
+          [resourceId, projectId, previousActiveDeploymentId, currentResource.rows[0].status, deploymentId],
+        );
+        if (UUID_PATTERN.test(String(previousActiveDeploymentId || ""))) {
+          await client.query(
+            `INSERT INTO hosting_runtime_instances
+               (resource_id, provider, status, deployment_id, started_at, stopped_at, updated_at)
+             VALUES ($1, 'podman', 'running', $2, NOW(), NULL, NOW())
+             ON CONFLICT (resource_id) DO UPDATE
+             SET provider = 'podman', status = 'running', deployment_id = EXCLUDED.deployment_id,
+                 started_at = NOW(), stopped_at = NULL, updated_at = NOW()`,
+            [resourceId, previousActiveDeploymentId],
+          );
+        } else {
+          await client.query("DELETE FROM hosting_runtime_instances WHERE resource_id = $1", [resourceId]);
+        }
+        await client.query("COMMIT");
+        await syncPublishedNodeIngress();
+      } catch (restoreError) {
+        await client.query("ROLLBACK").catch(() => undefined);
+        console.error("Node deployment could not restore the previous ingress selection:", restoreError instanceof Error ? restoreError.message : restoreError);
+      }
     }
     if (ingressSynced) await cleanupRetiredNodeRuntimes(resourceId, agent);
 
+    if (!ingressSynced) {
+      return response.status(502).json({
+        success: false,
+        message: "The new Node.js version built and passed readiness, but public ingress could not be switched. The previous version was restored where possible; the new healthy version was retained for a safe retry.",
+        deployment: inserted.rows[0],
+        runtime: { state: started.state, deploymentId: started.deploymentId },
+        ingress: { synchronized: false },
+      });
+    }
+
     return response.status(201).json({
       success: true,
-      message: ingressSynced
-        ? "Node.js website built in isolation, started, health-checked and activated."
-        : "Node.js deployment is active, but custom-domain ingress synchronization needs attention.",
+      message: "Node.js website built in isolation, started, health-checked and activated.",
       deployment: inserted.rows[0],
       runtime: { state: started.state, deploymentId: started.deploymentId },
-      ingress: { synchronized: ingressSynced },
+      ingress: { synchronized: true },
     });
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
