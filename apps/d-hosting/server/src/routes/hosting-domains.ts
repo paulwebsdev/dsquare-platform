@@ -63,10 +63,14 @@ function getParams(req: { params: object }) {
   return req.params as Record<string, string>;
 }
 
-function withApiDns<T extends { domain: string }>(record: T) {
+function withApiDns<T extends { domain: string }>(record: T, siteType: string) {
+  if (siteType !== "node") {
+    return { ...record, api_enabled: false, api_domain: null, api_dns_record_type: null, api_dns_record_value: null };
+  }
   const api = getApiSubdomainConfig(record.domain);
   return {
     ...record,
+    api_enabled: true,
     api_domain: api.domain,
     api_dns_record_type: "CNAME",
     api_dns_record_value: api.dnsTarget,
@@ -88,18 +92,19 @@ router.get("/:resourceId/domains", async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT d.id, d.domain, d.status, d.verified_at, d.created_at,
+      `SELECT d.id, d.domain, d.status, d.verified_at, d.created_at, r.site_type,
               '_dsquare-verification.' || d.domain AS dns_record_name,
               'TXT' AS dns_record_type,
               'dsquare-domain-verification=' || d.verification_token AS dns_record_value
        FROM hosting_custom_domains d
        INNER JOIN projects p ON p.id = d.project_id
+       INNER JOIN hosting_resources r ON r.id = d.resource_id AND r.project_id = d.project_id
        WHERE d.project_id = $1 AND d.resource_id = $2 AND p.owner_id = $3
        ORDER BY d.created_at DESC`,
       [projectId, resourceId, res.locals.userId]
     );
 
-    return res.json({ success: true, count: result.rowCount, domains: result.rows.map(withApiDns) });
+    return res.json({ success: true, count: result.rowCount, domains: result.rows.map((row) => withApiDns(row, String(row.site_type))) });
   } catch (error) {
     return sendError(error, res);
   }
@@ -145,7 +150,7 @@ router.post("/:resourceId/domains", async (req, res) => {
     return res.status(201).json({
       success: true,
       message: "Domain added. Publish the DNS TXT record below, then verify ownership.",
-      domain: withApiDns(result.rows[0]),
+      domain: withApiDns(result.rows[0], String((await pool.query("SELECT site_type FROM hosting_resources WHERE id = $1 AND project_id = $2", [resourceId, projectId])).rows[0]?.site_type || "static")),
     });
   } catch (error) {
     return sendError(error, res);
@@ -164,9 +169,10 @@ router.post("/:resourceId/domains/:domainId/verify", async (req, res) => {
 
   try {
     const found = await pool.query(
-      `SELECT d.id, d.domain, d.verification_token, d.status
+      `SELECT d.id, d.domain, d.verification_token, d.status, r.site_type
        FROM hosting_custom_domains d
        INNER JOIN projects p ON p.id = d.project_id
+       INNER JOIN hosting_resources r ON r.id = d.resource_id AND r.project_id = d.project_id
        WHERE d.id = $1 AND d.project_id = $2
          AND d.resource_id = $3 AND p.owner_id = $4
        LIMIT 1`,
@@ -182,6 +188,7 @@ router.post("/:resourceId/domains/:domainId/verify", async (req, res) => {
       domain: string;
       verification_token: string;
       status: string;
+      site_type: string;
     };
 
     if (domainRecord.status === "verified") {
@@ -228,7 +235,7 @@ router.post("/:resourceId/domains/:domainId/verify", async (req, res) => {
       return res.status(503).json({
         success: false,
         message: "Domain ownership is verified, but private routing is not ready yet. The domain remains verified and can be synchronized after ingress is configured.",
-        domain: withApiDns({ id: domainId, domain: domainRecord.domain, status: "verified" }),
+        domain: withApiDns({ id: domainId, domain: domainRecord.domain, status: "verified" }, domainRecord.site_type),
       });
     }
 
