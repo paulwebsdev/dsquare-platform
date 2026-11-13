@@ -61,3 +61,26 @@ Do not mark V1 complete, enable customer Node execution, or start production Lin
 ## Remaining storage-accounting limitation
 
 The uploaded-file quota currently accounts for the original rows in `hosting_files`. Immutable deployment snapshots can duplicate bytes in object storage, and runtime persistent volumes are separately metered. Before offering a single combined storage quota or customer-facing total-storage figure, add reference-aware object accounting or eliminate duplicate snapshots and reconcile it against provider inventory. Do not describe the current uploaded-file quota as the total storage consumed by a website.
+
+
+## Code-level audit updates — 2026-11-13
+
+The current dashboard wiring has been inspected on the final integration branch:
+
+- D Hosting navigation exposes Database Connections. The website Resource Workbench wires deployment history, custom domains, environment variables, Node runtime status, runtime logs, and persistent runtime storage. Uploaded-file usage is labelled separately from total object/runtime storage.
+- D Database navigation exposes API Keys. The database Resource Workbench wires the schema/table workbench and backup history/restore controls.
+- D Database API-key list SQL selects only public metadata fields (it does not select the token hash or raw token); creation returns the raw key once with `Cache-Control: no-store`; revoke is owner/resource scoped. Both API-key and backup routes are mounted behind authentication and project-ownership middleware.
+- D Database backup history returns metadata only. Restore calls the verified restore service, which creates a safety backup before applying the selected backup.
+- D Hosting database-connection revocation now uses a separately tested transaction helper: assignment rows are deleted and the local connection status is changed atomically after D Database confirms remote credential revocation.
+- Added tests that prove a failed/revoked assigned-database lookup prevents any artifact upload or runtime-start request, and that failed Node runtime readiness triggers cleanup of the built artifact and temporary source bundle.
+
+These are source-level wiring and automated-test checks. They do not replace browser acceptance against a running stack, real provider validation, or a real Node-to-D Database read/write test.
+
+## External acceptance blockers (not safely executable from repository CI)
+
+- A real S3-compatible provider and private bucket must be selected and configured by the operator. No provider credentials are stored in this repository or chat. CI uses deterministic SDK mocks; it does not prove a particular provider's SSE, lifecycle, versioning, retention, or disaster-recovery behavior.
+- The documented legacy migration must be dry-run, backed up, and applied during a maintenance window against the actual deployment's filesystem and database.
+- A real deployed Node website must perform read/write operations against its assigned D Database on the dedicated Linux host, including restart and backup/restore verification.
+- Dedicated-host Linux isolation, XFS quota enforcement, private ingress, agent health, and operator approval flags must pass before customer Node execution can be enabled.
+
+Until these are demonstrated, Batches 9–11 remain in acceptance and D Hosting + D Database V1 must not be called production-ready.
