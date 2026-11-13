@@ -8,7 +8,7 @@ const deploymentId = "123e4567-e89b-42d3-a456-426614174001";
 test("builds the exact deployment-specific alias used by the runtime ingress", () => {
   assert.equal(
     getBackendRouteTarget(resourceId, deploymentId),
-    \`http://dsquare-deploy-\${deploymentId}.runtime.dsquare.internal:3000\`,
+    `http://dsquare-deploy-${deploymentId}.runtime.dsquare.internal:3000`,
   );
   assert.throws(() => getBackendRouteTarget("not-a-uuid", deploymentId), /Invalid website resource ID/);
   assert.throws(() => getBackendRouteTarget(resourceId, "not-a-deployment"), /Invalid deployment ID/);
