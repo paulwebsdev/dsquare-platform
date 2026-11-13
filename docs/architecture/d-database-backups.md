@@ -25,3 +25,26 @@ Set `PG_RESTORE_PATH` when the `pg_restore` executable is not available on the w
 - Do not mark backups available until upload and integrity verification succeed.
 - Restore is destructive and must be an explicit authenticated action with resource ownership checks and a pre-restore safety backup.
 - Configure the worker scheduler and retention policy before claiming automatic backups are active.
+
+## Scheduled backup reliability
+
+When `D_DATABASE_BACKUP_SCHEDULER_ENABLED=true`, the worker runs an immediate
+backup/retention cycle and repeats it at `D_DATABASE_BACKUP_INTERVAL_MS`
+(default 24 hours; minimum 1 hour). Every cycle takes a PostgreSQL
+session-level advisory lock on a dedicated pooled connection. This makes the
+scheduler safe across multiple API replicas: only one replica can run the
+scheduled backup sweep at a time. The lock is held for the full backup and
+retention cycle and is released when the connection is returned.
+
+A cycle also marks `running` backup records older than
+`D_DATABASE_BACKUP_STALE_HOURS` (default 24 hours, bounded to 6–168) as
+failed with `BACKUP_INTERRUPTED`, so a process crash does not leave stale
+records appearing active forever. The sweep remains sequential across active
+resources, verifies uploaded objects by downloading and hashing them, and
+retains the configured expiry policy.
+
+This is application-level scheduling, not proof that a production worker is
+configured. Production must provide the private S3-compatible credentials,
+matching PostgreSQL client tools, a persistent always-on worker deployment,
+and alerting for failed or skipped sweeps. If the scheduler is disabled or
+object storage is not configured, no automatic backups are taken.
