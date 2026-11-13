@@ -36,14 +36,14 @@ test("accepts only a separate remote NFS or SMB backup mount", async () => {
     backupRoot: "/mnt/remote/dsquare-backups",
     run: async (_file, args) => {
       commands.push(args);
-      return { stdout: args[args.length - 1] === "/srv/dsquare/persistent-sites" ? "xfs /dev/vdb1\\n" : "nfs4 backup01:/exports/dsquare\\n" };
+      return { stdout: args[args.length - 1] === "/srv/dsquare/persistent-sites" ? "xfs /dev/vdb1\n" : "nfs4 backup01:/exports/dsquare\n" };
     },
   });
   assert.equal(commands.length, 2);
   await assert.rejects(verifyOffHostBackupMount({
     storageRoot: "/srv/dsquare/persistent-sites",
     backupRoot: "/mnt/local/dsquare-backups",
-    run: async (_file, args) => ({ stdout: args[args.length - 1] === "/srv/dsquare/persistent-sites" ? "xfs /dev/vdb1\\n" : "ext4 /dev/vdb1\\n" }),
+    run: async (_file, args) => ({ stdout: args[args.length - 1] === "/srv/dsquare/persistent-sites" ? "xfs /dev/vdb1\n" : "ext4 /dev/vdb1\n" }),
   }), /separate remote NFS or SMB/);
   await assert.rejects(verifyOffHostBackupMount({
     storageRoot: "/srv/dsquare/persistent-sites",
