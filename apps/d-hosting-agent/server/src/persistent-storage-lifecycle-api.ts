@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from "express";
 import type { Pool } from "pg";
-import { lstat, unlink } from "node:fs/promises";
+import { lstat, realpath, unlink } from "node:fs/promises";
 import path from "node:path";
 import { enforceXfsProjectQuota, persistentStorageProjectId } from "./persistent-storage-quotas.js";
 import { ensurePersistentStorageDirectory } from "./persistent-storage.js";
@@ -117,10 +117,15 @@ export function registerPersistentStorageLifecycleRoutes(app: Express, input: {
       const projectId = Number(quota.rows[0].project_id);
       const hardLimitBytes = Number(quota.rows[0].hard_limit_bytes);
       if (!Number.isSafeInteger(projectId) || !Number.isSafeInteger(hardLimitBytes)) throw new Error("Stored quota configuration is invalid.");
+      const backupRoot = path.resolve(input.backupRoot);
+      const canonicalBackupRoot = await realpath(backupRoot);
+      if (canonicalBackupRoot !== backupRoot) throw new Error("Backup root must not traverse symbolic links.");
       const backupFile = path.resolve(result.rows[0].backup_path);
-      if (path.dirname(backupFile) !== path.resolve(input.backupRoot)) throw new Error("Backup path escaped its private root.");
+      if (path.dirname(backupFile) !== backupRoot) throw new Error("Backup path escaped its private root.");
       const backupStat = await lstat(backupFile);
-      if (!backupStat.isFile() || backupStat.isSymbolicLink()) throw new Error("Backup entry is unsafe.");
+      if (!backupStat.isFile() || backupStat.isSymbolicLink() ||
+          await realpath(backupFile) !== backupFile ||
+          path.dirname(await realpath(backupFile)) !== canonicalBackupRoot) throw new Error("Backup entry is unsafe.");
       const restored = await restorePersistentStorageBackup(input.storageRoot, backupFile, resourceId, input.key, async () => {
         await enforceXfsProjectQuota({ storageRoot: input.storageRoot, resourceId, projectId, hardLimitBytes });
         await input.pool.query("UPDATE runtime_agent_storage_projects SET quota_applied_at=NOW() WHERE resource_id=$1", [resourceId]);
@@ -139,10 +144,15 @@ export function registerPersistentStorageLifecycleRoutes(app: Express, input: {
     try {
       const result = await input.pool.query("SELECT backup_path FROM runtime_agent_storage_backups WHERE backup_id=$1 AND resource_id=$2", [backupId, resourceId]);
       if (!result.rowCount) { response.status(404).json({ error: "Backup was not found." }); return; }
+      const backupRoot = path.resolve(input.backupRoot);
+      const canonicalBackupRoot = await realpath(backupRoot);
+      if (canonicalBackupRoot !== backupRoot) throw new Error("Backup root must not traverse symbolic links.");
       const file = path.resolve(result.rows[0].backup_path);
-      if (path.dirname(file) !== path.resolve(input.backupRoot)) throw new Error("Backup path escaped its private root.");
+      if (path.dirname(file) !== backupRoot) throw new Error("Backup path escaped its private root.");
       const details = await lstat(file);
-      if (!details.isFile() || details.isSymbolicLink()) throw new Error("Backup entry is unsafe.");
+      if (!details.isFile() || details.isSymbolicLink() ||
+          await realpath(file) !== file ||
+          path.dirname(await realpath(file)) !== canonicalBackupRoot) throw new Error("Backup entry is unsafe.");
       await unlink(file);
       await input.pool.query("DELETE FROM runtime_agent_storage_backups WHERE backup_id=$1 AND resource_id=$2", [backupId, resourceId]);
       await input.pool.query("INSERT INTO runtime_agent_storage_audit (resource_id, action, actor, metadata) VALUES ($1,'backup.delete',$2,$3)", [resourceId, actor, JSON.stringify({ backupId })]);
