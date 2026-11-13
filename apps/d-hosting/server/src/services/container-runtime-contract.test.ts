@@ -18,7 +18,7 @@ test("builds a least-privilege Node runtime specification with a read-only artif
     processEnvironment: {},
   });
 
-  assert.equal(spec.name, `dsquare-site-${resourceId}`);
+  assert.equal(spec.name, `dsquare-deploy-${resourceId}`);
   assert.equal(spec.image, "node:22-bookworm-slim");
   assert.deepEqual(spec.command, ["npm", "start"]);
   assert.deepEqual(spec.mounts, [{ source: artifactDirectory, target: "/app", readOnly: true }]);
