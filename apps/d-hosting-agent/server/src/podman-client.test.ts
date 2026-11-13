@@ -22,6 +22,8 @@ test("Podman client creates a named container through the versioned API", async 
   assert.equal(id, "a".repeat(64));
   assert.equal(calls[0]?.method, "POST");
   assert.match(calls[0]?.path ?? "", /^\/v1\.40\/containers\/create\?name=/);
+  const deploymentId = await client.createContainer({}, "dsquare-deploy-22222222-2222-4222-8222-222222222222");
+  assert.equal(deploymentId, "a".repeat(64));
   const builderId = await client.createContainer({}, "dsquare-builder-11111111-1111-4111-8111-111111111111");
   assert.equal(builderId, "a".repeat(64));
   await assert.rejects(() => client.createContainer({}, "untrusted-name"), /container name is invalid/);
