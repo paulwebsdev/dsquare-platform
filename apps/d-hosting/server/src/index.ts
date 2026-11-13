@@ -13,6 +13,7 @@ import hostingResourcesRouter from "./routes/hosting-resources.js";
 import hostingResourceDatabaseConnectionRouter from "./routes/hosting-resource-database-connection.js";
 import hostingEnvironmentRouter from "./routes/hosting-environment.js";
 import hostingFilesRouter from "./routes/hosting-files.js";
+import hostingStorageRouter from "./routes/hosting-storage.js";
 import hostingDeploymentsRouter from "./routes/hosting-deployments.js";
 import hostingPreviewRouter from "./routes/hosting-preview.js";
 import hostingDomainsRouter from "./routes/hosting-domains.js";
@@ -92,6 +93,7 @@ app.use("/api/v1/projects/:projectId/resources", hostingResourcesRouter);
 app.use("/api/v1/projects/:projectId/resources", hostingResourceDatabaseConnectionRouter);
 app.use("/api/v1/projects/:projectId/resources", hostingEnvironmentRouter);
 app.use("/api/v1/projects/:projectId/resources", hostingFilesRouter);
+app.use("/api/v1/projects/:projectId/resources", hostingStorageRouter);
 app.use("/api/v1/projects/:projectId/resources", hostingDeploymentsRouter);
 
 // Project routes have global authentication and must follow the public website routes.
