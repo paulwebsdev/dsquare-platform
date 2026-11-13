@@ -38,7 +38,7 @@ export function renderPrivateIngressJsonConfig(
   routes: PrivateIngressJsonRoute[],
   tlsEmail?: string,
 ): Record<string, unknown> {
-  if (!Array.isArray(routes) || routes.length > 2_000) {
+  if (!Array.isArray(routes) || routes.length > 4_000) {
     throw new Error("Ingress route list exceeds its permitted size.");
   }
   const normalized = routes.map((route) => {

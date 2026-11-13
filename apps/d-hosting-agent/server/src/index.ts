@@ -242,7 +242,7 @@ export function createRuntimeAgentApp(input: {
       response.status(400).json({ error: "Ingress route update must contain valid JSON." });
       return;
     }
-    if (!isRecord(payload) || !Array.isArray(payload.routes) || payload.routes.length > 2_000 ||
+    if (!isRecord(payload) || !Array.isArray(payload.routes) || payload.routes.length > 4_000 ||
         (payload.tlsEmail !== undefined && typeof payload.tlsEmail !== "string")) {
       response.status(400).json({ error: "Ingress route update payload is invalid." });
       return;
