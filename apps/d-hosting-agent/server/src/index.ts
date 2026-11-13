@@ -2,6 +2,7 @@ import "dotenv/config";
 import express, { type Request, type Response, type NextFunction } from "express";
 import { Pool } from "pg";
 import path from "node:path";
+import { stat } from "node:fs/promises";
 import { isIP } from "node:net";
 import { verifyRuntimeAgentRequest, type RuntimeAgentAuthHeaders, type RuntimeAgentNonceStore } from "../../../d-hosting/server/src/services/runtime-agent-verifier.js";
 import { deleteStoredArtifact, readStoredArtifact, storeRuntimeArtifact } from "./artifact-store.js";
@@ -706,6 +707,23 @@ export async function startRuntimeAgent(): Promise<void> {
         retentionDays: Number(process.env.RUNTIME_AGENT_BACKUP_RETENTION_DAYS || 30),
         intervalMs: Number(process.env.RUNTIME_AGENT_BACKUP_INTERVAL_MS || 86_400_000),
         onError: (resourceId, error) => console.error("Persistent backup failed for resource", resourceId, error instanceof Error ? error.message : "Unknown error"),
+        onBackup: async (backup) => {
+          await pool.query("INSERT INTO runtime_agent_storage_backups (backup_id, resource_id, backup_path, size_bytes, sha256, created_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (backup_id) DO NOTHING",
+            [backup.backupId, backup.resourceId, backup.path, backup.sizeBytes, backup.sha256, backup.createdAt]);
+          await pool.query("INSERT INTO runtime_agent_storage_audit (resource_id, action, actor, metadata) VALUES ($1,'backup.create','scheduled-agent',$2)",
+            [backup.resourceId, JSON.stringify({ backupId: backup.backupId, sizeBytes: backup.sizeBytes })]);
+        },
+        onResourceComplete: async (resourceId) => {
+          const records = await pool.query("SELECT backup_id, backup_path FROM runtime_agent_storage_backups WHERE resource_id=$1", [resourceId]);
+          for (const record of records.rows) {
+            try { await stat(record.backup_path); }
+            catch (error) {
+              if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+                await pool.query("DELETE FROM runtime_agent_storage_backups WHERE backup_id=$1", [record.backup_id]);
+              } else { throw error; }
+            }
+          }
+        },
         onCycle: (result) => console.log("Persistent backup cycle:", JSON.stringify(result)),
       })
     : undefined;
