@@ -4,6 +4,7 @@ import { lstat, realpath, unlink } from "node:fs/promises";
 import path from "node:path";
 import { enforceXfsProjectQuota, persistentStorageProjectId } from "./persistent-storage-quotas.js";
 import { ensurePersistentStorageDirectory } from "./persistent-storage.js";
+import { verifyOffHostBackupMount } from "./persistent-storage-automation.js";
 import {
   createPersistentStorageBackup, measurePersistentStorageUsage,
   restorePersistentStorageBackup, tombstonePersistentStorage,
@@ -75,6 +76,7 @@ export function registerPersistentStorageLifecycleRoutes(app: Express, input: {
     }
     if (!input.key) { unavailable(response); return; }
     try {
+      await verifyOffHostBackupMount({ storageRoot: input.storageRoot, backupRoot: input.backupRoot });
       const backup = await createPersistentStorageBackup(input.storageRoot, input.backupRoot, resourceId, input.key);
       await input.pool.query(
         `INSERT INTO runtime_agent_storage_backups (backup_id, resource_id, backup_path, size_bytes, sha256, created_at, created_by)
@@ -108,6 +110,7 @@ export function registerPersistentStorageLifecycleRoutes(app: Express, input: {
     }
     if (!input.key) { unavailable(response); return; }
     try {
+      await verifyOffHostBackupMount({ storageRoot: input.storageRoot, backupRoot: input.backupRoot });
       const result = await input.pool.query("SELECT backup_path FROM runtime_agent_storage_backups WHERE backup_id=$1 AND resource_id=$2", [backupId, resourceId]);
       if (!result.rowCount) { response.status(404).json({ error: "Backup was not found." }); return; }
       const activeRuntime = await input.pool.query("SELECT 1 FROM runtime_agent_deployments WHERE resource_id=$1 AND state IN ('creating','running','unknown') LIMIT 1", [resourceId]);
@@ -142,6 +145,7 @@ export function registerPersistentStorageLifecycleRoutes(app: Express, input: {
       response.status(400).json({ error: "Backup deletion request is invalid." }); return;
     }
     try {
+      await verifyOffHostBackupMount({ storageRoot: input.storageRoot, backupRoot: input.backupRoot });
       const result = await input.pool.query("SELECT backup_path FROM runtime_agent_storage_backups WHERE backup_id=$1 AND resource_id=$2", [backupId, resourceId]);
       if (!result.rowCount) { response.status(404).json({ error: "Backup was not found." }); return; }
       const backupRoot = path.resolve(input.backupRoot);
