@@ -1,6 +1,7 @@
 import { Pool } from "pg";
 import { pool } from "../config/database.js";
 import { createResourceAccessPlan } from "./resource-access-policy.js";
+import { getResourceAccessLimits } from "./resource-access-limits.js";
 
 const provisionerUrl = process.env.DB_PROVISIONER_URL?.trim();
 export const resourceProvisionerPool = provisionerUrl
@@ -58,6 +59,7 @@ export async function provisionResourceAccess(
     schemaName,
     databaseName,
     schemaOwner,
+    limits: getResourceAccessLimits(process.env),
   });
 
   const client = await resourceProvisionerPool.connect();
@@ -114,6 +116,11 @@ export async function provisionResourceAccess(
       await client.query(plan.createRole);
     }
     for (const statement of plan.grantStatements) {
+      await client.query(statement);
+    }
+    // Reapply settings for both newly-created and previously-revoked roles.
+    // PostgreSQL enforces these limits regardless of the website's own pg Pool.
+    for (const statement of plan.configureStatements) {
       await client.query(statement);
     }
     await client.query("SET ROLE d_database_app");
