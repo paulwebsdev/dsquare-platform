@@ -12,7 +12,7 @@ import { RuntimeRegistry } from "./runtime-registry.js";
 import { PodmanNodeBuildRunner, type NodeBuildRequest } from "./node-build-runner.js";
 import { redactRuntimeLogMessage } from "../../../d-hosting/server/src/services/runtime-logs.js";
 import { applyPrivateIngressConfig, renderPrivateIngressJsonConfig, type PrivateIngressJsonRoute } from "./private-ingress-controller.js";
-import { decodePersistentBackupKey, resolveBackupDirectory, startPersistentBackupScheduler } from "./persistent-storage-automation.js";
+import { decodePersistentBackupKey, resolveBackupDirectory, startPersistentBackupScheduler, verifyOffHostBackupMount } from "./persistent-storage-automation.js";
 import { initializePersistentStorageLifecycle, registerPersistentStorageLifecycleRoutes } from "./persistent-storage-lifecycle-api.js";
 import { enforceXfsProjectQuota } from "./persistent-storage-quotas.js";
 
@@ -723,6 +723,10 @@ export async function startRuntimeAgent(): Promise<void> {
     try {
       persistentBackupKey = decodePersistentBackupKey(backupKeyValue);
       persistentBackupRoot = resolveBackupDirectory(backupRootValue);
+      await verifyOffHostBackupMount({
+        storageRoot: path.resolve(persistentStorageRootValue!),
+        backupRoot: persistentBackupRoot,
+      });
     } catch (error) {
       await pool.end();
       throw error;
