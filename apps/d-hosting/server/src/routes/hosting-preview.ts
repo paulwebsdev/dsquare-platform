@@ -64,7 +64,8 @@ export async function serveResourceFile(
   try {
     const resourceResult = publishedOnly
       ? await pool.query(
-          `SELECT id, status, active_deployment_id
+          `SELECT id, status, active_deployment_id,
+                  (SELECT owner_id FROM projects WHERE id = hosting_resources.project_id) AS owner_id
            FROM hosting_resources
            WHERE id = $1 AND project_id = $2
            LIMIT 1`,
@@ -145,7 +146,7 @@ export async function serveResourceFile(
       }
       mimeType = selected.mime_type || "";
       try {
-        fileBytes = await websiteObjectStorage.get(selected.storage_key, resourceId);
+        fileBytes = await websiteObjectStorage.get(selected.storage_key, { ownerId: String(resourceResult.rows[0].owner_id), projectId, resourceId });
       } catch (error) {
         if (UUID_PATTERN.test(selected.storage_key) && (error as NodeJS.ErrnoException).code === "ENOENT") {
           const legacyPath = path.join(storageRoot, resourceId, "deployments", activeDeploymentId, selected.storage_key);
@@ -193,7 +194,7 @@ export async function serveResourceFile(
       if (typeof stored.storage_key !== "string" || !stored.storage_key) {
         return res.status(400).json({ success: false, message: "Invalid stored file reference." });
       }
-      fileBytes = await websiteObjectStorage.get(stored.storage_key, resourceId);
+      fileBytes = await websiteObjectStorage.get(stored.storage_key, { ownerId: String(resourceResult.rows[0].owner_id), projectId, resourceId });
       mimeType = stored.mime_type || "";
     }
 
