@@ -84,7 +84,7 @@ function sendError(error: unknown, res: Response) {
 
 async function getWebsite(projectId: string, resourceId: string, userId: string) {
   return pool.query(
-    `SELECT r.id, r.project_id, r.status
+    `SELECT r.id, r.project_id, r.status, r.file_storage_quota_bytes
      FROM hosting_resources r
      INNER JOIN projects p ON p.id = r.project_id
      WHERE r.id = $1 AND r.project_id = $2 AND p.owner_id = $3
@@ -122,6 +122,10 @@ router.get("/:resourceId/files", async (req, res) => {
       success: true,
       count: result.rowCount,
       files: result.rows,
+      storage: {
+        usedBytes: result.rows.reduce((total, file) => total + Number(file.size_bytes || 0), 0),
+        quotaBytes: Number(website.rows[0].file_storage_quota_bytes),
+      },
     });
   } catch (error) {
     return sendError(error, res);
