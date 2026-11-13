@@ -32,7 +32,8 @@ export async function initializePersistentStorageLifecycle(pool: Pool): Promise<
       created_by TEXT NOT NULL DEFAULT 'trusted-hosting-api'
     )
   `);
-  await pool.query("ALTER TABLE runtime_agent_storage_backups ADD COLUMN IF NOT EXISTS object_key TEXT");\n  await pool.query("CREATE INDEX IF NOT EXISTS runtime_agent_storage_backups_resource_created_idx ON runtime_agent_storage_backups (resource_id, created_at DESC)");
+  await pool.query("ALTER TABLE runtime_agent_storage_backups ADD COLUMN IF NOT EXISTS object_key TEXT");
+  await pool.query("CREATE INDEX IF NOT EXISTS runtime_agent_storage_backups_resource_created_idx ON runtime_agent_storage_backups (resource_id, created_at DESC)");
   await pool.query(`
     CREATE TABLE IF NOT EXISTS runtime_agent_storage_projects (
       resource_id UUID PRIMARY KEY,
@@ -64,12 +65,14 @@ export function registerPersistentStorageLifecycleRoutes(app: Express, input: {
       response.status(400).json({ error: "Storage backup request is invalid." }); return;
     }
     if (!input.key) { unavailable(response); return; }
+    if (!input.objectStore) { response.status(503).json({ error: "Offsite backup storage is not configured." }); return; }
     try {
       const backup = await createPersistentStorageBackup(input.storageRoot, input.backupRoot, resourceId, input.key);
+      const remote = await uploadPersistentBackupObject(input.objectStore, backup.path, resourceId, backup.backupId);
       await input.pool.query(
-        `INSERT INTO runtime_agent_storage_backups (backup_id, resource_id, backup_path, size_bytes, sha256, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6)`,
-        [backup.backupId, resourceId, backup.path, backup.sizeBytes, backup.sha256, backup.createdAt],
+        `INSERT INTO runtime_agent_storage_backups (backup_id, resource_id, backup_path, object_key, size_bytes, sha256, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [backup.backupId, resourceId, backup.path, remote.objectKey, backup.sizeBytes, backup.sha256, backup.createdAt],
       );
       await input.pool.query("INSERT INTO runtime_agent_storage_audit (resource_id, action, actor, metadata) VALUES ($1,'backup.create','trusted-hosting-api',$2)", [resourceId, JSON.stringify({ backupId: backup.backupId, sizeBytes: backup.sizeBytes })]);
       response.status(201).json({ backupId: backup.backupId, resourceId, sizeBytes: backup.sizeBytes, sha256: backup.sha256, createdAt: backup.createdAt, offsiteStored: true });
@@ -83,7 +86,7 @@ export function registerPersistentStorageLifecycleRoutes(app: Express, input: {
     if (!validId(resourceId)) { response.status(400).json({ error: "Storage resource identifier is invalid." }); return; }
     try {
       const result = await input.pool.query(
-        "SELECT backup_id AS \"backupId\", resource_id AS \"resourceId\", size_bytes AS \"sizeBytes\", sha256, created_at AS \"createdAt\" FROM runtime_agent_storage_backups WHERE resource_id=$1 ORDER BY created_at DESC LIMIT 100",
+        "SELECT backup_id AS \"backupId\", resource_id AS \"resourceId\", size_bytes AS \"sizeBytes\", sha256, created_at AS \"createdAt\", (object_key IS NOT NULL) AS \"offsiteStored\" FROM runtime_agent_storage_backups WHERE resource_id=$1 ORDER BY created_at DESC LIMIT 100",
         [resourceId],
       );
       response.status(200).json({ resourceId, backups: result.rows });
