@@ -18,7 +18,13 @@ const spec = buildNodeContainerSpec({
   deploymentId,
   validation,
   artifactDirectory: "/runtime/artifact",
-  environment: { NODE_ENV: "production", D_DATABASE_PASSWORD: "secret", D_DATABASE_RESOURCE_ID: "resource" },
+  environment: {
+    NODE_ENV: "production",
+    D_DATABASE_PASSWORD: "secret",
+    D_DATABASE_RESOURCE_ID: "resource",
+    D_DATABASE_CONNECTION_LIMIT: "5",
+    D_DATABASE_POOL_MAX: "5",
+  },
   processEnvironment: {},
 });
 
@@ -27,6 +33,8 @@ test("creates a transport-safe request without local host paths or network names
   assert.equal(request.runtime.name, `dsquare-deploy-${deploymentId}`);
   assert.equal(request.runtime.environment.PORT, "3000");
   assert.equal(request.runtime.environment.D_DATABASE_PASSWORD, "secret");
+  assert.equal(request.runtime.environment.D_DATABASE_CONNECTION_LIMIT, "5");
+  assert.equal(request.runtime.environment.D_DATABASE_POOL_MAX, "5");
   assert.equal("mounts" in request.runtime, false);
   assert.equal(JSON.stringify(request).includes("C:\\\\runtime"), false);
   assert.equal(JSON.stringify(request).includes("dsquare-hosting-internal"), false);
