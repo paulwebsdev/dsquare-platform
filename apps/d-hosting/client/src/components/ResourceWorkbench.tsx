@@ -37,6 +37,8 @@ type DbColumn = {
 
 type DbRow = Record<string, unknown>;
 
+type FileStorageUsage = { usedBytes: number; quotaBytes: number };
+
 type StoredFile = {
   id: string;
   original_name: string;
@@ -141,6 +143,7 @@ export default function ResourceWorkbench({
 
   // D Hosting state
   const [files, setFiles] = useState<StoredFile[]>([]);
+  const [fileStorage, setFileStorage] = useState<FileStorageUsage>({ usedBytes: 0, quotaBytes: 104857600 });
   const [uploading, setUploading] = useState(false);
   const [validatingNode, setValidatingNode] = useState(false);
   const [nodeValidation, setNodeValidation] = useState<NodeValidationResponse | null>(null);
@@ -285,6 +288,9 @@ export default function ResourceWorkbench({
       }
 
       setFiles(data.files || []);
+      if (data.storage && Number.isSafeInteger(Number(data.storage.usedBytes)) && Number.isSafeInteger(Number(data.storage.quotaBytes))) {
+        setFileStorage({ usedBytes: Number(data.storage.usedBytes), quotaBytes: Number(data.storage.quotaBytes) });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load files.");
     } finally {
@@ -1341,7 +1347,7 @@ export default function ResourceWorkbench({
             <div>
               <h2>Website files</h2>
               <p>
-                Upload individual files or a complete folder structure. Maximum 10 MB per file and 100 MB total per website.
+                Upload individual files or a complete folder structure. Maximum 10 MB per file. Website storage quota: {formatSize(fileStorage.quotaBytes)}.
               </p>
             </div>
             <div className="wb-upload-actions">
@@ -1385,7 +1391,7 @@ export default function ResourceWorkbench({
               <div className="panel-heading">
                 <div>
                   <h2>Stored files</h2>
-                  <p>Private files belonging to this website resource · {formatSize(files.reduce((total, file) => total + Number(file.size_bytes || 0), 0))} of 100 MB used</p>
+                  <p>Private files belonging to this website resource · {formatSize(fileStorage.usedBytes)} of {formatSize(fileStorage.quotaBytes)} used</p>
                 </div>
                 <span className="wb-count">{files.length} files</span>
               </div>
