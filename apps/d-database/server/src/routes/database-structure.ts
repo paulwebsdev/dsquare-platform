@@ -1,5 +1,6 @@
 import { Router, type Response } from "express";
 import { pool } from "../config/database.js";
+import { buildCheckConstraintSql, TableConstraintValidationError } from "../services/table-check-constraint.js";
 
 const router = Router({ mergeParams: true });
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -219,8 +220,27 @@ router.post("/:resourceId/tables/:tableName/constraints", async (req, res) => {
          REFERENCES ${quote(table.schemaName)}.${quote(referencedTable)} (${quote(referencedColumn)})
          ON DELETE ${onDelete}`
       );
+    } else if (type === "check") {
+      const column = typeof body.column === "string" ? body.column : "";
+      const operator = typeof body.operator === "string" ? body.operator : "";
+      const existing = await pool.query(
+        `SELECT 1 FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 AND column_name = $3`,
+        [table.schemaName, tableName, column]
+      );
+      if (!existing.rowCount) {
+        return res.status(400).json({ success: false, message: "The selected check-constraint column does not exist." });
+      }
+      const sql = buildCheckConstraintSql({
+        schemaName: table.schemaName,
+        tableName,
+        constraintName: name,
+        columnName: column,
+        operator,
+        value: body.value,
+      });
+      await pool.query(sql);
     } else {
-      return res.status(400).json({ success: false, message: "Constraint type must be unique or foreign_key." });
+      return res.status(400).json({ success: false, message: "Constraint type must be unique, foreign_key or check." });
     }
 
     return res.status(201).json({ success: true, message: "Constraint created." });

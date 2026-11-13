@@ -2,6 +2,7 @@ import { Router } from "express";
 import { pool } from "../config/database.js";
 import { requireDeveloperScope } from "../middleware/require-developer-key.js";
 import { buildDeveloperDeleteQuery, buildDeveloperUpdateQuery } from "../services/developer-query.js";
+import { DeveloperTransactionValidationError, executeDeveloperTransaction } from "../services/developer-transaction.js";
 
 const router = Router({ mergeParams: true });
 const IDENTIFIER_PATTERN = /^[a-z][a-z0-9_]{0,62}$/;
@@ -177,6 +178,41 @@ router.delete("/tables/:tableName/rows", requireDeveloperScope("write"), async (
     }
     console.error("Developer row delete failed:", error instanceof Error ? error.message : error);
     return res.status(500).json({ success: false, message: "Could not delete database rows." });
+  }
+});
+
+
+// Execute a bounded group of writes as one all-or-nothing PostgreSQL transaction.
+router.post("/transactions", requireDeveloperScope("write"), async (req, res) => {
+  const key = res.locals.developerKey as { schema_name: string };
+  const client = await pool.connect();
+  let transactionStarted = false;
+  try {
+    await client.query("BEGIN");
+    transactionStarted = true;
+    const results = await executeDeveloperTransaction(client, key.schema_name, req.body?.operations);
+    await client.query("COMMIT");
+    transactionStarted = false;
+    return res.json({
+      success: true,
+      committed: true,
+      operationCount: results.length,
+      results,
+    });
+  } catch (error) {
+    if (transactionStarted) await client.query("ROLLBACK").catch(() => undefined);
+    if (error instanceof DeveloperTransactionValidationError ||
+        (error instanceof Error && /invalid columns/i.test(error.message))) {
+      return res.status(400).json({ success: false, committed: false, message: error.message });
+    }
+    const code = (error as { code?: string })?.code;
+    if (["23505", "23503", "23502", "23514", "23514"].includes(String(code))) {
+      return res.status(409).json({ success: false, committed: false, message: "The transaction conflicts with a database constraint; no operations were committed." });
+    }
+    console.error("Developer transaction failed:", error instanceof Error ? error.message : error);
+    return res.status(500).json({ success: false, committed: false, message: "The database transaction failed; no operations were committed." });
+  } finally {
+    client.release();
   }
 });
 
