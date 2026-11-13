@@ -183,8 +183,8 @@ export async function runDatabaseBackupScheduledSweep(
       return { completed: 0, failed: 0, skipped: true, expired: 0 };
     }
 
-    const backup = await runDatabaseBackupSweep(pool);
-    const expired = await runDatabaseBackupRetentionSweep(pool);
+    const backup = await runDatabaseBackupSweep(lockClient);
+    const expired = await runDatabaseBackupRetentionSweep(lockClient);
     return { ...backup, expired };
   } finally {
     try {
@@ -210,9 +210,8 @@ export function startDatabaseBackupScheduler(pool: Pool): void {
     if (running) return;
     running = true;
     try {
-      const result = await runDatabaseBackupSweep(pool);
-      const expired = await runDatabaseBackupRetentionSweep(pool);
-      console.log("D Database backup sweep finished:", { ...result, expired });
+      const result = await runDatabaseBackupScheduledSweep(pool);
+      console.log("D Database backup sweep finished:", result);
     } catch (error) {
       console.error("D Database backup scheduler failed:", error instanceof Error ? error.message : "Unknown error");
     } finally {
