@@ -14,6 +14,7 @@ import { redactRuntimeLogMessage } from "../../../d-hosting/server/src/services/
 import { applyPrivateIngressConfig, renderPrivateIngressJsonConfig, type PrivateIngressJsonRoute } from "./private-ingress-controller.js";
 import { decodePersistentBackupKey, resolveBackupDirectory, startPersistentBackupScheduler } from "./persistent-storage-automation.js";
 import { initializePersistentStorageLifecycle, registerPersistentStorageLifecycleRoutes } from "./persistent-storage-lifecycle-api.js";
+import { enforceXfsProjectQuota } from "./persistent-storage-quotas.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_BODY_BYTES = 100 * 1024 * 1024;
@@ -347,9 +348,17 @@ export function createRuntimeAgentApp(input: {
       return;
     }
     if (input.persistentStorageRoot) {
-      const quota = await input.pool.query("SELECT quota_applied_at FROM runtime_agent_storage_projects WHERE resource_id=$1", [payload.resourceId]);
-      if (!quota.rowCount || !quota.rows[0].quota_applied_at) {
-        response.status(503).json({ error: "Website persistent storage hard quota has not been successfully applied." });
+      const quota = await input.pool.query("SELECT project_id, hard_limit_bytes FROM runtime_agent_storage_projects WHERE resource_id=$1", [payload.resourceId]);
+      if (!quota.rowCount) {
+        response.status(503).json({ error: "Website persistent storage hard quota has not been provisioned." });
+        return;
+      }
+      try {
+        await enforceXfsProjectQuota({ storageRoot: input.persistentStorageRoot, resourceId: payload.resourceId,
+          projectId: Number(quota.rows[0].project_id), hardLimitBytes: Number(quota.rows[0].hard_limit_bytes) });
+        await input.pool.query("UPDATE runtime_agent_storage_projects SET quota_applied_at=NOW() WHERE resource_id=$1", [payload.resourceId]);
+      } catch {
+        response.status(503).json({ error: "Website persistent storage hard quota could not be verified; runtime startup is blocked." });
         return;
       }
     }
