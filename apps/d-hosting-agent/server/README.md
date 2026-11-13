@@ -60,3 +60,16 @@ npm.cmd run typecheck
 ``
 
 Do not expose this service publicly. For remote connectivity, bind the agent only to a private interface behind HTTPS and firewall rules allowing only the D Hosting API.
+
+
+## Website API subdomains and frontend connectivity
+
+Every verified Node website hostname receives a matching API hostname in private Caddy ingress. A domain such as `example.com` receives `api.example.com`; `www.example.com` also receives `api.example.com`; other subdomains receive `api.<website-hostname>`. The API hostname is routed to the same immutable deployment and private application port as the website, so frontend and backend code can share the same runtime and deployment lifecycle.
+
+The D Hosting custom-domain API returns the required API DNS record alongside each domain: create a CNAME for the returned `api_domain` pointing to `api_dns_record_value`. Keep the website hostname's existing A/AAAA records pointed at the public ingress. Caddy provisions HTTPS for both hostnames. Do not point API DNS records directly at a container or publish Podman ports.
+
+API aliases are expanded from verified, published Node domains only. Before applying the full ingress table, D Hosting checks every registered custom domain—including pending and static-site domains—for alias collisions. A collision blocks the synchronization rather than allowing one website's API hostname to take over another customer's domain. If an owner already uses the generated API hostname, choose a different website hostname or remove the conflicting custom-domain assignment.
+
+The V1 runtime listens on the platform-controlled `PORT=3000`; this port is private and is not published on the host. Requests to either the website hostname or its API hostname reach the same Node application. Frontend code may also call same-origin paths such as `/api/*` without a cross-origin request. If it calls the separate `api.` hostname from a browser, the application must return an appropriate CORS policy for the exact frontend origin; the platform does not inject permissive wildcard CORS headers.
+
+API subdomain routing is configuration and CI-test coverage only until the dedicated Linux host passes the deferred DNS, HTTPS certificate, Caddy reload, cross-origin, and live backend acceptance checks. Runtime execution remains disabled.
