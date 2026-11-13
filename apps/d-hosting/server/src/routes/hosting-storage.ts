@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import { pool } from "../config/database.js";
 import { requireAuth } from "../middleware/require-auth.js";
 import {
@@ -27,7 +27,7 @@ async function ownedResource(projectId: string, resourceId: string, userId: stri
     [resourceId, projectId, userId],
   );
 }
-async function authorize(req: any, res: any) {
+async function authorize(req: Request, res: Response) {
   const projectId = String(req.params.projectId || "");
   const resourceId = String(req.params.resourceId || "");
   if (!UUID.test(projectId) || !UUID.test(resourceId)) {
