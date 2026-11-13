@@ -15,6 +15,7 @@ import { applyPrivateIngressConfig, renderPrivateIngressJsonConfig, type Private
 import { decodePersistentBackupKey, resolveBackupDirectory, startPersistentBackupScheduler } from "./persistent-storage-automation.js";
 import { initializePersistentStorageLifecycle, registerPersistentStorageLifecycleRoutes } from "./persistent-storage-lifecycle-api.js";
 import { enforceXfsProjectQuota } from "./persistent-storage-quotas.js";
+import { evaluateRuntimeExecutionGate } from "./runtime-execution-gate.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_BODY_BYTES = 100 * 1024 * 1024;
@@ -729,10 +730,21 @@ export async function startRuntimeAgent(): Promise<void> {
     }
   }
 
-  // Production execution is deliberately hard-disabled until Linux acceptance tests pass.
   const ingressAdminUrl = process.env.RUNTIME_AGENT_CADDY_ADMIN_URL?.trim();
+  const executionGate = evaluateRuntimeExecutionGate({
+    executionRequested: process.env.RUNTIME_AGENT_EXECUTION_ENABLED === "true",
+    linuxAcceptanceApproved: process.env.RUNTIME_AGENT_LINUX_ACCEPTANCE_APPROVED === "true",
+    providerConfigured: Boolean(provider),
+    builderConfigured: builderEnabled,
+    persistentStorageConfigured: Boolean(persistentStorageRootValue),
+    backupConfigured: Boolean(persistentBackupKey && persistentBackupRoot),
+    ingressConfigured: Boolean(ingressAdminUrl),
+    trustedImageConfigured: Boolean(trustedImage),
+    privateNetworkConfigured: Boolean(privateNetwork),
+  });
   const app = createRuntimeAgentApp({ pool, secret, storageRoot, provider, builder, builderEnabled, ingressAdminUrl,
-    persistentBackupRoot, persistentBackupKey, persistentStorageRoot: persistentStorageRootValue ? path.resolve(persistentStorageRootValue) : undefined, executionEnabled: false });
+    persistentBackupRoot, persistentBackupKey, persistentStorageRoot: persistentStorageRootValue ? path.resolve(persistentStorageRootValue) : undefined,
+    executionEnabled: executionGate.enabled });
   const stopBackupScheduler = persistentBackupKey && persistentBackupRoot && persistentStorageRootValue
     ? startPersistentBackupScheduler({
         storageRoot: path.resolve(persistentStorageRootValue),
@@ -768,7 +780,10 @@ export async function startRuntimeAgent(): Promise<void> {
   }
   const server = app.listen(port, host, () => {
     console.log(`D Hosting Runtime Agent listening on port ${port}`);
-    console.log("Runtime provider: disabled (customer runtime execution is blocked).");
+    console.log(`Runtime provider: ${executionGate.enabled ? "enabled after explicit Linux acceptance" : "disabled (fail-closed gate)"}.`);
+    if (!executionGate.enabled) {
+      for (const reason of executionGate.reasons) console.log(`Runtime execution gate: ${reason}`);
+    }
     console.log(`Isolated builder: ${builderEnabled ? "enabled" : "disabled"}.`);
     console.log(`Private ingress controller: ${ingressAdminUrl ? "configured" : "disabled"}.`);
   });
