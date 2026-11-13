@@ -25,7 +25,7 @@ function requestActor(request: Request, fallback: string): string | null {
   if (!payload) return null;
   if (payload.actor === undefined) return fallback;
   return typeof payload.actor === "string" && payload.actor.trim().length > 0 &&
-    payload.actor.length <= 200 && !/[\\u0000-\\u001f\\u007f]/.test(payload.actor)
+    payload.actor.length <= 200 && ![...payload.actor].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
     ? payload.actor : null;
 }
 
