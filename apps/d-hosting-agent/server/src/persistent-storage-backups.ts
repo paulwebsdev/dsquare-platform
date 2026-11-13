@@ -197,7 +197,7 @@ export async function restorePersistentStorageBackup(
         if (movedOld) await rename(previous, destination).catch(() => undefined);
         throw error;
       }
-      if (movedOld) await rm(previous, { recursive: true, force: true });
+      if (movedOld) await rm(previous, { recursive: true, force: true }).catch(() => undefined);
     } catch (error) {
       if (movedOld) {
         const previousStillExists = await lstat(previous).then(() => true).catch(() => false);
