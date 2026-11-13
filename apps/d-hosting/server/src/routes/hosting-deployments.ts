@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { existsSync } from "node:fs";
-import { copyFile, lstat, mkdir, open, readFile, rm } from "node:fs/promises";
+import { copyFile, mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -9,6 +9,7 @@ import { requireAuth } from "../middleware/require-auth.js";
 import { getWebsiteFileCandidates } from "../services/website-file-resolution.js";
 import { validateNodeProject } from "../services/node-project-validation.js";
 import { startBuiltRemoteNodeRuntime } from "../services/remote-node-runtime.js";
+import { websiteObjectStorage } from "../services/website-object-storage.js";
 import { syncPublishedNodeIngress } from "../services/private-ingress-sync.js";
 import {
   checkRuntimeAgentHealth,
@@ -298,7 +299,7 @@ router.post("/:resourceId/deployments/:deploymentId/activate", async (req, res) 
   try {
     await client.query("BEGIN");
     const resource = await client.query(
-      `SELECT r.id, r.status, r.site_type, r.active_deployment_id
+      `SELECT r.id, r.status, r.site_type, r.active_deployment_id, p.owner_id
        FROM hosting_resources r
        INNER JOIN projects p ON p.id = r.project_id
        WHERE r.id = $1 AND r.project_id = $2 AND p.owner_id = $3
@@ -448,7 +449,7 @@ router.post("/:resourceId/validate-node", async (req, res) => {
 
     if (packageFile && UUID_PATTERN.test(packageFile.storage_key)) {
       try {
-        packageJson = await readFile(path.join(storageRoot, resourceId, packageFile.storage_key), "utf8");
+        packageJson = (await websiteObjectStorage.get(packageFile.storage_key, resourceId)).toString("utf8");
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
@@ -477,27 +478,17 @@ router.post("/:resourceId/validate-node", async (req, res) => {
 
 
 
-async function copyNodeSnapshotFile(source: string, destination: string): Promise<number> {
-  const metadata = await lstat(source);
-  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size > 10 * 1024 * 1024) {
+async function writeNodeSnapshotFile(bytes: Buffer, destination: string, expectedSize: number): Promise<number> {
+  if (!Buffer.isBuffer(bytes) || bytes.byteLength !== expectedSize || bytes.byteLength > 10 * 1024 * 1024) {
     throw new Error("A Node deployment source is not a permitted regular file.");
   }
-  const sourceHandle = await open(source, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-  const destinationHandle = await open(destination, "wx", 0o600);
+  const handle = await open(destination, "wx", 0o600);
   try {
-    const opened = await sourceHandle.stat();
-    if (!opened.isFile() || opened.dev !== metadata.dev || opened.ino !== metadata.ino ||
-        opened.size !== metadata.size) {
-      throw new Error("A Node deployment source changed while its snapshot was being created.");
-    }
-    const bytes = await sourceHandle.readFile();
-    if (bytes.byteLength !== metadata.size) throw new Error("A Node deployment source changed while being copied.");
-    await destinationHandle.writeFile(bytes);
-    await destinationHandle.sync();
+    await handle.writeFile(bytes);
+    await handle.sync();
     return bytes.byteLength;
   } finally {
-    await sourceHandle.close();
-    await destinationHandle.close();
+    await handle.close();
   }
 }
 
@@ -576,12 +567,14 @@ async function deployNodeWebsite(
     }
 
     for (const file of sourceFiles) {
-      if (!UUID_PATTERN.test(file.storage_key)) throw new Error("A stored website file has an invalid storage key.");
-      const source = path.join(storageRoot, resourceId, file.storage_key);
-      if (!existsSync(source)) throw new Error("A stored website file is missing.");
+      const expectedSize = Number(file.size_bytes);
+      if (!Number.isSafeInteger(expectedSize) || expectedSize < 1 || expectedSize > 10 * 1024 * 1024) {
+        throw new Error("A stored website file has invalid deployment metadata.");
+      }
+      const bytes = await websiteObjectStorage.get(file.storage_key, resourceId);
       const snapshotKey = randomUUID();
       snapshotKeys.push(snapshotKey);
-      snapshotBytes += await copyNodeSnapshotFile(source, path.join(storageRoot, resourceId, snapshotKey));
+      snapshotBytes += await writeNodeSnapshotFile(bytes, path.join(storageRoot, resourceId, snapshotKey), expectedSize);
       if (snapshotBytes > 100 * 1024 * 1024) throw new Error("Node deployment exceeds the 100 MB snapshot limit.");
       snapshotManifest.push({ ...file, storage_key: snapshotKey });
     }
