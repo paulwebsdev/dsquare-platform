@@ -32,6 +32,14 @@ export async function initializePersistentStorageLifecycle(pool: Pool): Promise<
   `);
   await pool.query("CREATE INDEX IF NOT EXISTS runtime_agent_storage_backups_resource_created_idx ON runtime_agent_storage_backups (resource_id, created_at DESC)");
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS runtime_agent_storage_projects (
+      resource_id UUID PRIMARY KEY,
+      project_id BIGINT NOT NULL UNIQUE CHECK (project_id > 0),
+      hard_limit_bytes BIGINT NOT NULL CHECK (hard_limit_bytes >= 16777216),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS runtime_agent_storage_audit (
       id BIGSERIAL PRIMARY KEY,
       resource_id UUID NOT NULL,
@@ -113,7 +121,33 @@ export function registerPersistentStorageLifecycleRoutes(app: Express, input: {
     } catch { response.status(409).json({ error: "Backup could not be safely deleted." }); }
   });
 
-  app.get("/v1/storage/:resourceId/usage", async (request, response) => {
+
+  app.post("/v1/storage/:resourceId/quota", async (request, response) => {
+    const resourceId = request.params.resourceId;
+    const payload = body(request);
+    const hardLimitBytes = payload?.hardLimitBytes;
+    if (!validId(resourceId) || !Number.isSafeInteger(hardLimitBytes) || (hardLimitBytes as number) < 16 * 1024 * 1024) {
+      response.status(400).json({ error: "Quota request requires a valid resource and hardLimitBytes of at least 16 MiB." }); return;
+    }
+    try {
+      const projectId = persistentStorageProjectId(resourceId);
+      const reserved = await input.pool.query(
+        `INSERT INTO runtime_agent_storage_projects (resource_id, project_id, hard_limit_bytes)
+         VALUES ($1,$2,$3)
+         ON CONFLICT (resource_id) DO UPDATE SET hard_limit_bytes=EXCLUDED.hard_limit_bytes, updated_at=NOW()
+         RETURNING project_id`,
+        [resourceId, projectId, hardLimitBytes],
+      );
+      const collision = await input.pool.query("SELECT resource_id FROM runtime_agent_storage_projects WHERE project_id=$1 AND resource_id<>$2", [projectId, resourceId]);
+      if (collision.rowCount) { response.status(409).json({ error: "Quota project ID collision; operator allocation is required." }); return; }
+      await enforceXfsProjectQuota({ storageRoot: input.storageRoot, resourceId, projectId: Number(reserved.rows[0].project_id), hardLimitBytes: hardLimitBytes as number });
+      response.status(200).json({ resourceId, hardLimitBytes, enforcement: "xfs-project-hard-quota", applied: true });
+    } catch (error) {
+      console.error("Persistent storage quota application failed:", error instanceof Error ? error.message : "Unknown error");
+      response.status(503).json({ error: "Filesystem quota could not be applied. Website execution must remain disabled." });
+    }
+  });
+\n  app.get("/v1/storage/:resourceId/usage", async (request, response) => {
     const resourceId = request.params.resourceId;
     if (!validId(resourceId)) { response.status(400).json({ error: "Storage resource identifier is invalid." }); return; }
     try {
