@@ -30,7 +30,7 @@ function validIdentity(identity: WebsiteObjectIdentity): void {
   }
 }
 
-function objectKey(identity: WebsiteObjectIdentity): string {
+export function buildWebsiteObjectKey(identity: WebsiteObjectIdentity): string {
   validIdentity(identity);
   return `owners/${identity.ownerId}/projects/${identity.projectId}/websites/${identity.resourceId}/${identity.objectId}`;
 }
@@ -90,7 +90,7 @@ async function bodyToBuffer(body: unknown): Promise<Buffer> {
 export const websiteObjectStorage: WebsiteObjectStorage = {
   async put(identity, body, contentType) {
     if (body.byteLength < 1 || body.byteLength > MAX_FILE_BYTES) throw new Error("Website object size is invalid.");
-    const key = objectKey(identity);
+    const key = buildWebsiteObjectKey(identity);
     const s3 = getS3();
     if (s3) {
       await s3.client.send(new PutObjectCommand({
