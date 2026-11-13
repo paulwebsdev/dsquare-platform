@@ -197,6 +197,8 @@ for (const action of ["stop", "restart"] as const) {
     try {
       const owned = await ownedResource(projectId, resourceId, String(res.locals.userId || ""));
       if (owned.rowCount !== 1) return res.status(404).json({ success: false, message: "Website resource not found." });
+      const deploymentId = String(owned.rows[0].active_deployment_id || "");
+      if (!UUID_PATTERN.test(deploymentId)) return res.status(404).json({ success: false, message: "No active Node.js deployment was found." });
       if (owned.rows[0].site_type !== "node") return res.status(409).json({ success: false, message: "Runtime controls are only available for Node.js websites." });
       if (owned.rows[0].status === "archived") return res.status(409).json({ success: false, message: "Restore this website before changing its runtime." });
       const agent = runtimeAgentOptions();
