@@ -61,7 +61,7 @@ export function buildRemoteRuntimeCreateRequest(input: {
       input.artifact.fileCount < 1 || input.artifact.fileCount > MAX_ARTIFACT_FILES) {
     throw new Error("Runtime artifact metadata is invalid or exceeds permitted limits.");
   }
-  if (input.spec.name !== `dsquare-site-${input.resourceId}` ||
+  if (input.spec.name !== `dsquare-deploy-${input.deploymentId}` ||
       input.spec.workingDirectory !== "/app" ||
       input.spec.command[0] !== "npm" || input.spec.command[1] !== "start" ||
       input.spec.mounts.length !== 1 || input.spec.mounts[0].target !== "/app" ||
