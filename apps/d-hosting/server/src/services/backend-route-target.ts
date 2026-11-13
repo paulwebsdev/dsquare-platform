@@ -26,7 +26,7 @@ export function getBackendRouteTarget(
   ) {
     throw new Error("Backend runtime domain must be a valid internal DNS domain.");
   }
-  return \`http://dsquare-deploy-\${deploymentId.toLowerCase()}.\${domain}:3000\`;
+  return `http://dsquare-deploy-${deploymentId.toLowerCase()}.${domain}:3000`;
 }
 
 export function isAllowedBackendPath(path: string): boolean {
