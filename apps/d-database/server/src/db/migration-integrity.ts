@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-const MIGRATION_FILENAME = /^(\\d{3})_[a-z0-9]+(?:_[a-z0-9]+)*\\.sql$/;
+const MIGRATION_FILENAME = /^(\d{3})_[a-z0-9]+(?:_[a-z0-9]+)*\.sql$/;
 
 export class MigrationIntegrityError extends Error {
   constructor(message: string) {
@@ -15,14 +15,14 @@ export function validateMigrationFilenames(fileNames: string[]): string[] {
   for (const fileName of fileNames) {
     const match = MIGRATION_FILENAME.exec(fileName);
     if (!match) {
-      throw new MigrationIntegrityError(`Invalid migration filename: ${fileName}`);
+      throw new MigrationIntegrityError(\`Invalid migration filename: \${fileName}\`);
     }
 
     const version = match[1];
     const existing = versions.get(version);
     if (existing) {
       throw new MigrationIntegrityError(
-        `Duplicate migration version ${version}: ${existing} and ${fileName}`,
+        \`Duplicate migration version \${version}: \${existing} and \${fileName}\`,
       );
     }
     versions.set(version, fileName);
@@ -32,7 +32,7 @@ export function validateMigrationFilenames(fileNames: string[]): string[] {
 }
 
 export function getMigrationChecksum(sql: string): string {
-  return createHash("sha256").update(sql.replace(/^\\uFEFF/, ""), "utf8").digest("hex");
+  return createHash("sha256").update(sql.replace(/^\uFEFF/, ""), "utf8").digest("hex");
 }
 
 export function assertMigrationChecksum(
@@ -42,7 +42,7 @@ export function assertMigrationChecksum(
 ): void {
   if (actual !== null && actual !== expected) {
     throw new MigrationIntegrityError(
-      `Applied migration integrity check failed: ${fileName} has changed since it was recorded.`,
+      \`Applied migration integrity check failed: \${fileName} has changed since it was recorded.\`,
     );
   }
 }
