@@ -388,8 +388,8 @@ export function createRuntimeAgentApp(input: {
     });
   });
 
-  app.get("/v1/runtimes/:resourceId", async (request, response) => {
-    if (!UUID.test(request.params.resourceId)) {
+  app.get("/v1/runtimes/:resourceId/:deploymentId", async (request, response) => {
+    if (!UUID.test(request.params.resourceId) || !UUID.test(request.params.deploymentId)) {
       response.status(400).json({ error: "Runtime resource identifier is invalid." });
       return;
     }
@@ -421,8 +421,8 @@ export function createRuntimeAgentApp(input: {
     }
   });
 
-  app.get("/v1/runtimes/:resourceId/logs", async (request, response) => {
-    if (!UUID.test(request.params.resourceId)) {
+  app.get("/v1/runtimes/:resourceId/:deploymentId/logs", async (request, response) => {
+    if (!UUID.test(request.params.resourceId) || !UUID.test(request.params.deploymentId)) {
       response.status(400).json({ error: "Runtime resource identifier is invalid." });
       return;
     }
@@ -450,8 +450,8 @@ export function createRuntimeAgentApp(input: {
   });
 
   for (const action of ["stop", "restart"] as const) {
-    app.post(`/v1/runtimes/:resourceId/${action}`, async (request, response) => {
-      if (getRawBody(request).byteLength !== 0 || !UUID.test(request.params.resourceId)) {
+    app.post(`/v1/runtimes/:resourceId/:deploymentId/${action}`, async (request, response) => {
+      if (getRawBody(request).byteLength !== 0 || !UUID.test(request.params.resourceId) || !UUID.test(request.params.deploymentId)) {
         response.status(400).json({ error: "Runtime lifecycle request is invalid." });
         return;
       }
@@ -480,8 +480,8 @@ export function createRuntimeAgentApp(input: {
     });
   }
 
-  app.delete("/v1/runtimes/:resourceId", async (request, response) => {
-    if (getRawBody(request).byteLength !== 0 || !UUID.test(request.params.resourceId)) {
+  app.delete("/v1/runtimes/:resourceId/:deploymentId", async (request, response) => {
+    if (getRawBody(request).byteLength !== 0 || !UUID.test(request.params.resourceId) || !UUID.test(request.params.deploymentId)) {
       response.status(400).json({ error: "Runtime deletion request is invalid." });
       return;
     }
