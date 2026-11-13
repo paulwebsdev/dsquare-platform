@@ -99,26 +99,31 @@ async function migrateObject(input: {
   if (!APPLY) return { newKey, oldPath, sha256 };
 
   const storage = getStorage();
-  await storage.client.send(new PutObjectCommand({
-    Bucket: storage.bucket,
-    Key: newKey,
-    Body: bytes,
-    ContentLength: bytes.byteLength,
-    ContentType: input.contentType || "application/octet-stream",
-    Metadata: {
-      owner: input.ownerId,
-      project: input.projectId,
-      website: input.resourceId,
-      sha256,
-      migrated: "true",
-    },
-    ServerSideEncryption: "AES256",
-  }));
-  const verified = await storage.client.send(new HeadObjectCommand({ Bucket: storage.bucket, Key: newKey }));
-  if (Number(verified.ContentLength) !== bytes.byteLength || verified.Metadata?.sha256 !== sha256) {
-    throw new Error(`Uploaded object verification failed: ${newKey}`);
+  try {
+    await storage.client.send(new PutObjectCommand({
+      Bucket: storage.bucket,
+      Key: newKey,
+      Body: bytes,
+      ContentLength: bytes.byteLength,
+      ContentType: input.contentType || "application/octet-stream",
+      Metadata: {
+        owner: input.ownerId,
+        project: input.projectId,
+        website: input.resourceId,
+        sha256,
+        migrated: "true",
+      },
+      ServerSideEncryption: "AES256",
+    }));
+    const verified = await storage.client.send(new HeadObjectCommand({ Bucket: storage.bucket, Key: newKey }));
+    if (Number(verified.ContentLength) !== bytes.byteLength || verified.Metadata?.sha256 !== sha256) {
+      throw new Error(`Uploaded object verification failed: ${newKey}`);
+    }
+    return { newKey, oldPath, sha256 };
+  } catch (error) {
+    await storage.client.send(new DeleteObjectCommand({ Bucket: storage.bucket, Key: newKey })).catch(() => undefined);
+    throw error;
   }
-  return { newKey, oldPath, sha256 };
 }
 
 async function main() {
@@ -182,26 +187,34 @@ async function main() {
       const next = [];
       const sourcePaths: string[] = [];
       const uploadedKeys: string[] = [];
-      for (const entry of manifest) {
-        if (!entry || typeof entry !== "object" || typeof entry.storage_key !== "string" || !UUID.test(entry.storage_key)) {
-          next.push(entry);
-          continue;
+      try {
+        for (const entry of manifest) {
+          if (!entry || typeof entry !== "object" || typeof entry.storage_key !== "string" || !UUID.test(entry.storage_key)) {
+            next.push(entry);
+            continue;
+          }
+          const result = await migrateObject({
+            ownerId: String(row.owner_id),
+            projectId: String(row.project_id),
+            resourceId: String(row.resource_id),
+            oldKey: entry.storage_key,
+            expectedSize: Number(entry.size_bytes),
+            contentType: String(entry.mime_type || "application/octet-stream"),
+            deploymentId: String(row.id),
+          });
+          if (!result) { missing++; next.push(entry); continue; }
+          planned++;
+          changed = true;
+          if (APPLY) uploadedKeys.push(result.newKey);
+          sourcePaths.push(result.oldPath);
+          next.push({ ...entry, storage_key: result.newKey });
         }
-        const result = await migrateObject({
-          ownerId: String(row.owner_id),
-          projectId: String(row.project_id),
-          resourceId: String(row.resource_id),
-          oldKey: entry.storage_key,
-          expectedSize: Number(entry.size_bytes),
-          contentType: String(entry.mime_type || "application/octet-stream"),
-          deploymentId: String(row.id),
-        });
-        if (!result) { missing++; next.push(entry); continue; }
-        planned++;
-        changed = true;
-        if (APPLY) uploadedKeys.push(result.newKey);
-        sourcePaths.push(result.oldPath);
-        next.push({ ...entry, storage_key: result.newKey });
+      } catch (error) {
+        if (uploadedKeys.length) {
+          const storage = getStorage();
+          await Promise.all(uploadedKeys.map(Key => storage.client.send(new DeleteObjectCommand({ Bucket: storage.bucket, Key })).catch(() => undefined)));
+        }
+        throw error;
       }
       if (!changed || !APPLY) continue;
       try {
