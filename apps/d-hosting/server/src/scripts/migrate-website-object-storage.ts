@@ -54,10 +54,10 @@ function scopedObjectKey(ownerId: string, projectId: string, resourceId: string,
 async function findLegacyFile(resourceId: string, storageKey: string, deploymentId?: string): Promise<string | null> {
   if (!UUID.test(resourceId) || !UUID.test(storageKey)) return null;
   const candidates = [
-    path.join(ROOT, resourceId, storageKey),
     ...(deploymentId && UUID.test(deploymentId)
       ? [path.join(ROOT, resourceId, "deployments", deploymentId, storageKey)]
       : []),
+    path.join(ROOT, resourceId, storageKey),
   ];
   for (const candidate of candidates) {
     const resolved = path.resolve(candidate);
