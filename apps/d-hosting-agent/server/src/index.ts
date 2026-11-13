@@ -12,7 +12,7 @@ import { RuntimeRegistry } from "./runtime-registry.js";
 import { PodmanNodeBuildRunner, type NodeBuildRequest } from "./node-build-runner.js";
 import { redactRuntimeLogMessage } from "../../../d-hosting/server/src/services/runtime-logs.js";
 import { applyPrivateIngressConfig, renderPrivateIngressJsonConfig, type PrivateIngressJsonRoute } from "./private-ingress-controller.js";
-import { decodePersistentBackupKey, resolveBackupDirectory, startPersistentBackupScheduler } from "./persistent-storage-automation.js";
+import { decodePersistentBackupKeyring, resolvePersistentBackupKey, resolveBackupDirectory, startPersistentBackupScheduler } from "./persistent-storage-automation.js";
 import { initializePersistentStorageLifecycle, registerPersistentStorageLifecycleRoutes } from "./persistent-storage-lifecycle-api.js";
 import { enforceXfsProjectQuota } from "./persistent-storage-quotas.js";
 import { createPersistentBackupObjectStoreFromEnvironment, deletePersistentBackupObject, uploadPersistentBackupObject, type PersistentBackupObjectStore } from "./persistent-storage-object-store.js";
@@ -150,6 +150,8 @@ export function createRuntimeAgentApp(input: {
   executionEnabled?: boolean;
   persistentBackupRoot?: string;
   persistentBackupKey?: Uint8Array;
+  persistentBackupKeyId?: string;
+  persistentBackupKeyResolver?: (keyId: string) => Uint8Array;
   persistentStorageRoot?: string;
   persistentBackupObjectStore?: PersistentBackupObjectStore;
 }) {
@@ -190,7 +192,7 @@ export function createRuntimeAgentApp(input: {
 
   if (input.persistentStorageRoot) {
     registerPersistentStorageLifecycleRoutes(app, { pool: input.pool, storageRoot: input.persistentStorageRoot,
-      backupRoot: input.persistentBackupRoot ?? path.join(input.persistentStorageRoot, ".backups"), key: input.persistentBackupKey, objectStore: input.persistentBackupObjectStore });
+      backupRoot: input.persistentBackupRoot ?? path.join(input.persistentStorageRoot, ".backups"), key: input.persistentBackupKey, keyId: input.persistentBackupKeyId, keyResolver: input.persistentBackupKeyResolver, objectStore: input.persistentBackupObjectStore });
   }
 
   app.get("/v1/health", (_request, response) => {
@@ -714,16 +716,24 @@ export async function startRuntimeAgent(): Promise<void> {
   }
 
   const backupKeyValue = process.env.RUNTIME_AGENT_BACKUP_KEY?.trim();
+  const backupKeysJson = process.env.RUNTIME_AGENT_BACKUP_KEYS_JSON?.trim();
+  const backupActiveKeyId = process.env.RUNTIME_AGENT_BACKUP_ACTIVE_KEY_ID?.trim();
   const backupRootValue = process.env.RUNTIME_AGENT_BACKUP_ROOT?.trim();
   let persistentBackupKey: Buffer | undefined;
+  let persistentBackupKeyId: string | undefined;
+  let persistentBackupKeyResolver: ((keyId: string) => Buffer) | undefined;
   let persistentBackupRoot: string | undefined;
-  if (backupKeyValue || backupRootValue) {
-    if (!backupKeyValue || !backupRootValue) {
+  if (backupKeyValue || backupKeysJson || backupActiveKeyId || backupRootValue) {
+    if (!backupRootValue) {
       await pool.end();
-      throw new Error("RUNTIME_AGENT_BACKUP_KEY and RUNTIME_AGENT_BACKUP_ROOT must be configured together.");
+      throw new Error("RUNTIME_AGENT_BACKUP_ROOT must be configured with the backup keyring.");
     }
     try {
-      persistentBackupKey = decodePersistentBackupKey(backupKeyValue);
+      const keyring = decodePersistentBackupKeyring(backupKeysJson, backupActiveKeyId, backupKeyValue);
+      if (!keyring) throw new Error("A persistent backup keyring is required when backup automation is enabled.");
+      persistentBackupKeyId = keyring.activeKeyId;
+      persistentBackupKey = resolvePersistentBackupKey(keyring, keyring.activeKeyId);
+      persistentBackupKeyResolver = (keyId) => resolvePersistentBackupKey(keyring, keyId);
       persistentBackupRoot = resolveBackupDirectory(backupRootValue);
     } catch (error) {
       await pool.end();
@@ -749,7 +759,7 @@ export async function startRuntimeAgent(): Promise<void> {
   // Production execution is deliberately hard-disabled until Linux acceptance tests pass.
   const ingressAdminUrl = process.env.RUNTIME_AGENT_CADDY_ADMIN_URL?.trim();
   const app = createRuntimeAgentApp({ pool, secret, storageRoot, provider, builder, builderEnabled, ingressAdminUrl,
-    persistentBackupRoot, persistentBackupKey, persistentStorageRoot: persistentStorageRootValue ? path.resolve(persistentStorageRootValue) : undefined, persistentBackupObjectStore, executionEnabled: false });
+    persistentBackupRoot, persistentBackupKey, persistentBackupKeyId, persistentBackupKeyResolver, persistentStorageRoot: persistentStorageRootValue ? path.resolve(persistentStorageRootValue) : undefined, persistentBackupObjectStore, executionEnabled: false });
   const backupRetentionDays = Number(process.env.RUNTIME_AGENT_BACKUP_RETENTION_DAYS || 30);
   const backupIntervalMs = Number(process.env.RUNTIME_AGENT_BACKUP_INTERVAL_MS || 86_400_000);
   const stopBackupScheduler = persistentBackupKey && persistentBackupRoot && persistentStorageRootValue && persistentBackupObjectStore
@@ -757,13 +767,14 @@ export async function startRuntimeAgent(): Promise<void> {
         storageRoot: path.resolve(persistentStorageRootValue),
         backupRoot: persistentBackupRoot,
         key: persistentBackupKey,
+        keyId: persistentBackupKeyId,
         retentionDays: backupRetentionDays,
         intervalMs: backupIntervalMs,
         onError: (resourceId, error) => console.error("Persistent backup failed for resource", resourceId, error instanceof Error ? error.message : "Unknown error"),
         onBackup: async (backup) => {
           const remote = await uploadPersistentBackupObject(persistentBackupObjectStore!, backup.path, backup.resourceId, backup.backupId);
-          await pool.query("INSERT INTO runtime_agent_storage_backups (backup_id, resource_id, backup_path, object_key, size_bytes, sha256, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (backup_id) DO NOTHING",
-            [backup.backupId, backup.resourceId, backup.path, remote.objectKey, backup.sizeBytes, backup.sha256, backup.createdAt]);
+          await pool.query("INSERT INTO runtime_agent_storage_backups (backup_id, resource_id, backup_path, object_key, key_id, size_bytes, sha256, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (backup_id) DO NOTHING",
+            [backup.backupId, backup.resourceId, backup.path, remote.objectKey, backup.keyId, backup.sizeBytes, backup.sha256, backup.createdAt]);
           await pool.query("INSERT INTO runtime_agent_storage_audit (resource_id, action, actor, metadata) VALUES ($1,'backup.create','scheduled-agent',$2)",
             [backup.resourceId, JSON.stringify({ backupId: backup.backupId, sizeBytes: backup.sizeBytes, offsiteStored: true })]);
         },
