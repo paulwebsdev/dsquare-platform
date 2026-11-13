@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import type { Pool } from "pg";
 import { createHash } from "node:crypto";
-import { lstat, readdir, unlink } from "node:fs/promises";
+import { lstat, unlink } from "node:fs/promises";
 import path from "node:path";
 import {
   createPersistentStorageBackup, measurePersistentStorageUsage,
