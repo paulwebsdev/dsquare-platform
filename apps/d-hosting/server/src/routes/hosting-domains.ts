@@ -150,7 +150,7 @@ router.post("/:resourceId/domains", async (req, res) => {
     return res.status(201).json({
       success: true,
       message: "Domain added. Publish the DNS TXT record below, then verify ownership.",
-      domain: withApiDns(result.rows[0], String((await pool.query("SELECT site_type FROM hosting_resources WHERE id = $1 AND project_id = $2", [resourceId, projectId])).rows[0]?.site_type || "static")),
+      domain: withApiDns(result.rows[0], String((await pool.query<{ site_type: string }>("SELECT site_type FROM hosting_resources WHERE id = $1 AND project_id = $2", [resourceId, projectId])).rows[0]?.site_type || "static")),
     });
   } catch (error) {
     return sendError(error, res);
@@ -242,7 +242,7 @@ router.post("/:resourceId/domains/:domainId/verify", async (req, res) => {
     return res.json({
       success: true,
       message: "Domain ownership verified. Published Node websites are synchronized to private HTTPS ingress.",
-      domain: withApiDns({ id: domainId, domain: domainRecord.domain, status: "verified" }),
+      domain: withApiDns({ id: domainId, domain: domainRecord.domain, status: "verified" }, domainRecord.site_type),
     });
   } catch (error) {
     return sendError(error, res);
