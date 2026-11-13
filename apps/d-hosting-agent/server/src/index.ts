@@ -731,6 +731,10 @@ export async function startRuntimeAgent(): Promise<void> {
     }
   }
 
+  if (persistentBackupKey && !persistentStorageRootValue) {
+    await pool.end();
+    throw new Error("RUNTIME_AGENT_PERSISTENT_STORAGE_ROOT is required when persistent backups are enabled.");
+  }
   let persistentBackupObjectStore: PersistentBackupObjectStore | undefined;
   try {
     persistentBackupObjectStore = createPersistentBackupObjectStoreFromEnvironment();
