@@ -72,7 +72,8 @@ export async function serveResourceFile(
           [resourceId, projectId]
         )
       : await pool.query(
-          `SELECT id, status, active_deployment_id
+          `SELECT id, status, active_deployment_id,
+                  (SELECT owner_id FROM projects WHERE id = hosting_resources.project_id) AS owner_id
            FROM hosting_resources
            WHERE id = $1 AND project_id = $2
              AND EXISTS (
