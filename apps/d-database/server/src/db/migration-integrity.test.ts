@@ -28,7 +28,7 @@ test("rejects duplicate migration version numbers", () => {
 });
 
 test("calculates stable SHA-256 checksums and ignores a UTF-8 BOM", () => {
-  assert.equal(getMigrationChecksum("SELECT 1;"), getMigrationChecksum("\\uFEFFSELECT 1;"));
+  assert.equal(getMigrationChecksum("SELECT 1;"), getMigrationChecksum("\uFEFFSELECT 1;"));
   assert.match(getMigrationChecksum("SELECT 1;"), /^[a-f0-9]{64}$/);
 });
 
