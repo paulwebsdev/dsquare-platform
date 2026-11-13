@@ -26,13 +26,17 @@ export function getApiSubdomainConfig(websiteDomain: string): ApiSubdomainConfig
   return { domain, dnsTarget };
 }
 
-/** Adds API hostnames while refusing collisions with registered custom domains. */
+/**
+ * Adds API hostnames while refusing collisions with registered custom domains.
+ * Apex and www aliases may intentionally share one API hostname when they
+ * resolve to the same website resource and immutable deployment.
+ */
 export function expandIngressRoutes<T extends { domain: string; resourceId: string; deploymentId: string }>(
   routes: T[],
   reservedDomains: string[] = [],
 ): Array<T> {
   const expanded: T[] = [];
-  const seen = new Set<string>();
+  const seen = new Map<string, { resourceId: string; deploymentId: string }>();
   const reserved = new Set(reservedDomains.map((domain) => domain.toLowerCase()));
   for (const route of routes) {
     const base = route.domain.toLowerCase();
@@ -41,10 +45,12 @@ export function expandIngressRoutes<T extends { domain: string; resourceId: stri
       throw new Error("Private ingress API hostname is already reserved by a custom domain.");
     }
     for (const domain of [base, api]) {
-      if (seen.has(domain)) {
+      const previous = seen.get(domain);
+      if (previous) {
+        if (previous.resourceId === route.resourceId && previous.deploymentId === route.deploymentId) continue;
         throw new Error("Private ingress hostname is assigned more than once.");
       }
-      seen.add(domain);
+      seen.set(domain, { resourceId: route.resourceId, deploymentId: route.deploymentId });
       expanded.push({ ...route, domain });
     }
   }
