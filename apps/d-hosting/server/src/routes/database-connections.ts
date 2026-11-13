@@ -257,17 +257,35 @@ router.delete("/:connectionId", requireSameOrigin, async (req, res) => {
       return;
     }
 
-    const result = await pool.query(
-      `UPDATE database_connections SET status = 'revoked', revoked_at = COALESCE(revoked_at, NOW())
-       WHERE id = $1 AND hosting_user_id = $2 AND status = 'active'
-       RETURNING id, status, revoked_at`,
-      [connectionId, res.locals.userId],
-    );
-    if (result.rowCount !== 1) {
-      res.status(404).json({ success: false, message: "Active connection not found." });
-      return;
+    const client = await pool.connect();
+    let revokedConnection;
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `DELETE FROM hosting_resource_database_connections
+         WHERE database_connection_id = $1 AND hosting_user_id = $2`,
+        [connectionId, res.locals.userId],
+      );
+      const result = await client.query(
+        `UPDATE database_connections SET status = 'revoked', revoked_at = COALESCE(revoked_at, NOW())
+         WHERE id = $1 AND hosting_user_id = $2 AND status = 'active'
+         RETURNING id, status, revoked_at`,
+        [connectionId, res.locals.userId],
+      );
+      if (result.rowCount !== 1) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ success: false, message: "Active connection not found." });
+        return;
+      }
+      revokedConnection = result.rows[0];
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
     }
-    res.json({ success: true, connection: result.rows[0] });
+    res.json({ success: true, connection: revokedConnection, assignmentsRemoved: true });
   } catch (error) {
     console.error("Database connection revoke error:", error instanceof Error ? error.message : error);
     res.status(500).json({ success: false, message: "Unable to revoke database connection." });
