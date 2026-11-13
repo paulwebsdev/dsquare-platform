@@ -1,7 +1,4 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
 import { test } from "node:test";
 import { enforceXfsProjectQuota, persistentStorageProjectId } from "./persistent-storage-quotas.js";
 
@@ -14,25 +11,28 @@ test("creates deterministic positive XFS project ID candidates", () => {
   assert.notEqual(first, persistentStorageProjectId("22222222-2222-4222-8222-222222222222"));
 });
 
-test("applies an XFS hard quota using argument-safe commands", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "dsquare-xfs-quota-"));
+test("invokes only the configured privileged quota helper with validated numeric arguments", async () => {
   const commands: Array<{ file: string; args: string[] }> = [];
-  try {
-    await mkdir(path.join(root, resourceId));
-    await enforceXfsProjectQuota({ storageRoot: root, resourceId, projectId: 12345, hardLimitBytes: 64 * 1024 * 1024,
-      run: async (file, args) => {
-        commands.push({ file, args });
-        if (file === "findmnt" && args.includes("FSTYPE,OPTIONS")) return { stdout: "xfs rw,prjquota\n" };
-        if (file === "findmnt") return { stdout: root + "\n" };
-        return { stdout: "" };
-      } });
-    assert.deepEqual(commands.map((item) => item.file), ["findmnt", "findmnt", "xfs_io", "xfs_io", "xfs_quota"]);
-    assert.ok(commands[4].args[2].includes("bhard=65536k"));
-    assert.ok(commands.every((item) => !item.args.some((arg) => arg.includes(";"))));
-  } finally { await rm(root, { recursive: true, force: true }); }
+  await enforceXfsProjectQuota({
+    storageRoot: "/var/lib/dsquare-hosting-agent/persistent-sites",
+    resourceId,
+    projectId: 12345,
+    hardLimitBytes: 64 * 1024 * 1024,
+    helperPath: "/usr/local/sbin/dsquare-xfs-project-quota",
+    run: async (file, args) => { commands.push({ file, args }); return { stdout: "" }; },
+  });
+  assert.deepEqual(commands, [{
+    file: "sudo",
+    args: ["-n", "--", "/usr/local/sbin/dsquare-xfs-project-quota", resourceId, "12345", String(64 * 1024 * 1024)],
+  }]);
 });
 
-test("rejects invalid quota IDs and unsafe paths before invoking commands", async () => {
+test("rejects invalid quota IDs, limits and helper paths before invoking commands", async () => {
+  const run = async () => { assert.fail("must not run"); return { stdout: "" }; };
   await assert.rejects(enforceXfsProjectQuota({ storageRoot: "/tmp", resourceId: "bad", projectId: 1,
-    hardLimitBytes: 64 * 1024 * 1024, run: async () => { assert.fail("must not run"); return { stdout: "" }; } }));
+    hardLimitBytes: 64 * 1024 * 1024, run }));
+  await assert.rejects(enforceXfsProjectQuota({ storageRoot: "/tmp", resourceId, projectId: 1,
+    hardLimitBytes: 1, run }));
+  await assert.rejects(enforceXfsProjectQuota({ storageRoot: "/tmp", resourceId, projectId: 1,
+    hardLimitBytes: 64 * 1024 * 1024, helperPath: "relative-helper", run }));
 });
