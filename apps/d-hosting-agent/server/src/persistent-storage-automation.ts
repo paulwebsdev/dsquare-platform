@@ -110,8 +110,8 @@ export async function verifyOffHostBackupMount(input: {
     run("findmnt", ["-n", "-o", "FSTYPE,SOURCE", "-T", storageRoot]),
     run("findmnt", ["-n", "-o", "FSTYPE,SOURCE", "-T", backupRoot]),
   ]);
-  const [storageType, storageSource] = storage.stdout.trim().split(/\\s+/, 2);
-  const [backupType, backupSource] = backup.stdout.trim().split(/\\s+/, 2);
+  const [storageType, storageSource] = storage.stdout.trim().split(/\s+/, 2);
+  const [backupType, backupSource] = backup.stdout.trim().split(/\s+/, 2);
   const remoteTypes = new Set(["nfs", "nfs4", "cifs", "smb3"]);
   if (!storageType || !storageSource || !backupType || !backupSource ||
       !remoteTypes.has(backupType) || storageSource === backupSource) {
