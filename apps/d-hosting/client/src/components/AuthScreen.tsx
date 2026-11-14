@@ -12,7 +12,7 @@ type Props = {
 type AuthMode = "login" | "register" | "forgot" | "reset";
 
 export default function AuthScreen({ onAuthenticated }: Props) {
-  const resetToken = useState(() => new URLSearchParams(window.location.search).get("passwordResetToken") || "")[0];
+  const resetToken = useState(() => {\n    const token = new URLSearchParams(window.location.search).get("passwordResetToken") || "";\n    if (token) window.history.replaceState({}, "", window.location.pathname);\n    return token;\n  })[0];
   const [mode, setMode] = useState<AuthMode>(resetToken ? "reset" : "login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
