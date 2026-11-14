@@ -118,3 +118,88 @@ export async function deleteUserSession(token: string): Promise<void> {
     [hashSessionToken(token)],
   );
 }
+
+
+export async function changeUserPassword(
+  userId: string,
+  currentPassword: string,
+  newPassword: string,
+): Promise<boolean> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await client.query<{ password_hash: string }>(
+      "SELECT password_hash FROM users WHERE id = $1 FOR UPDATE",
+      [userId],
+    );
+    const user = result.rows[0];
+    if (!user || !(await verifyPassword(currentPassword, user.password_hash))) {
+      await client.query("ROLLBACK");
+      return false;
+    }
+    const passwordHash = await hashPassword(newPassword);
+    await client.query("UPDATE users SET password_hash = $2 WHERE id = $1", [userId, passwordHash]);
+    await client.query("DELETE FROM user_sessions WHERE user_id = $1", [userId]);
+    await client.query("COMMIT");
+    return true;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function createPasswordResetToken(email: string): Promise<string | null> {
+  const userResult = await pool.query<{ id: string }>(
+    "SELECT id FROM users WHERE LOWER(email) = LOWER($1)",
+    [email.trim()],
+  );
+  const user = userResult.rows[0];
+  if (!user) return null;
+
+  const { randomBytes, createHash } = await import("node:crypto");
+  const token = randomBytes(32).toString("base64url");
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  await pool.query("DELETE FROM password_reset_tokens WHERE user_id = $1 OR expires_at <= NOW()", [user.id]);
+  await pool.query(
+    "INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, NOW() + INTERVAL '30 minutes')",
+    [user.id, tokenHash],
+  );
+  return token;
+}
+
+export async function revokePasswordResetToken(token: string): Promise<void> {
+  const { createHash } = await import("node:crypto");
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  await pool.query("DELETE FROM password_reset_tokens WHERE token_hash = $1", [tokenHash]);
+}
+
+export async function resetUserPassword(token: string, newPassword: string): Promise<boolean> {
+  const { createHash } = await import("node:crypto");
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  const passwordHash = await hashPassword(newPassword);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await client.query<{ user_id: string }>(
+      "SELECT user_id FROM password_reset_tokens WHERE token_hash = $1 AND used_at IS NULL AND expires_at > NOW() FOR UPDATE",
+      [tokenHash],
+    );
+    const reset = result.rows[0];
+    if (!reset) {
+      await client.query("ROLLBACK");
+      return false;
+    }
+    await client.query("UPDATE users SET password_hash = $2 WHERE id = $1", [reset.user_id, passwordHash]);
+    await client.query("UPDATE password_reset_tokens SET used_at = NOW() WHERE user_id = $1", [reset.user_id]);
+    await client.query("DELETE FROM user_sessions WHERE user_id = $1", [reset.user_id]);
+    await client.query("COMMIT");
+    return true;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
