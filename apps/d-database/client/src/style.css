@@ -385,6 +385,10 @@ button { font: inherit; cursor: pointer; }
   font-weight: 700; cursor: pointer;
 }
 .auth-submit:disabled { opacity: .6; cursor: wait; }
+.auth-message { margin-top: 14px; color: #16834a; font-size: 13px; }
+:root[data-theme="dark"] .auth-message { color: #78d69e; }
+.pm-success { padding: 11px 13px; border: 1px solid #b8e3c7; border-radius: 8px; background: #effaf2; color: #176b37; font-size: 13px; }
+:root[data-theme="dark"] .pm-success { background: #1d3528; border-color: #38684a; color: #9be0b2; }
 .auth-error { margin-top: 14px; color: #c0392b; font-size: 13px; }
 .auth-switch { margin-top: 22px; text-align: center; font-size: 13px; color: var(--muted, #777); }
 .auth-switch button { border: 0; background: none; color: #6558d3; font-weight: 700; cursor: pointer; }

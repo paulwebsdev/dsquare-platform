@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
 type Theme = "light" | "dark" | "system";
 type User = { email: string };
@@ -81,9 +81,48 @@ export function ResourceDirectory({ onOpenProjects, onOpenResource }: { onOpenPr
 export function WorkspaceSettings({ product, user, theme, onThemeChange, onSignOut }: {
   product: string; user: User; theme: Theme; onThemeChange: (theme: Theme) => void; onSignOut: () => void;
 }) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordMessage, setPasswordMessage] = useState("");
+  const [passwordLoading, setPasswordLoading] = useState(false);
+
+  async function updatePassword(event: FormEvent) {
+    event.preventDefault();
+    setPasswordError("");
+    setPasswordMessage("");
+    if (newPassword !== confirmPassword) {
+      setPasswordError("The new passwords do not match.");
+      return;
+    }
+    if (newPassword.length < 12 || newPassword.length > 256) {
+      setPasswordError("Use a password between 12 and 256 characters.");
+      return;
+    }
+    setPasswordLoading(true);
+    try {
+      const response = await fetch("/api/v1/auth/password/change", {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const data = await response.json() as { success?: boolean; message?: string };
+      if (!response.ok || !data.success) throw new Error(data.message || "Unable to update your password.");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setPasswordMessage(data.message || "Password updated successfully.");
+    } catch (error) {
+      setPasswordError(error instanceof Error ? error.message : "Unable to update your password.");
+    } finally {
+      setPasswordLoading(false);
+    }
+  }
+
   return (
     <section className="pm-page">
-      <div className="pm-heading"><div><div className="welcome-date">WORKSPACE PREFERENCES</div><h1>Settings</h1><p>Manage your account display and workspace preferences.</p></div></div>
+      <div className="pm-heading"><div><div className="welcome-date">WORKSPACE PREFERENCES</div><h1>Settings</h1><p>Manage your account, security, and workspace preferences.</p></div></div>
       <article className="pm-detail panel">
         <div className="pm-form-heading"><div><h2>Appearance</h2><p>Choose how {product} looks on this device. Your choice is saved automatically.</p></div></div>
         <label htmlFor="workspace-theme">Theme</label>
@@ -93,11 +132,25 @@ export function WorkspaceSettings({ product, user, theme, onThemeChange, onSignO
       </article>
       <article className="pm-detail panel">
         <div className="pm-form-heading"><div><h2>Account</h2><p>Signed-in account for this workspace.</p></div></div>
-        <div className="pm-detail-meta"><div><span>Product</span><strong>{product}</strong></div><div><span>Email</span><strong>{user.email}</strong></div><div><span>Session</span><strong>Active</strong></div></div>
+        <div className="pm-detail-meta"><div><span>Product</span><strong>{product}</strong></div><div><span>Email address</span><strong>{user.email}</strong></div><div><span>Session</span><strong>Active</strong></div></div>
         <div className="pm-detail-actions"><button className="pm-archive-button" onClick={onSignOut}>Sign out</button></div>
       </article>
       <article className="pm-detail panel">
-        <div className="pm-form-heading"><div><h2>Workspace security</h2><p>Your account is protected by the current sign-in session. Password and email changes are not exposed here until a secure account-management flow is available.</p></div></div>
+        <div className="pm-form-heading"><div><h2>Change password</h2><p>Confirm your current password before choosing a new one. Changing it signs out other active sessions.</p></div></div>
+        <form className="pm-form" onSubmit={updatePassword}>
+          <label htmlFor="current-password">Current password</label>
+          <input id="current-password" type="password" autoComplete="current-password" required maxLength={256} value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} />
+          <label htmlFor="new-password">New password</label>
+          <input id="new-password" type="password" autoComplete="new-password" required minLength={12} maxLength={256} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} />
+          <label htmlFor="confirm-new-password">Confirm new password</label>
+          <input id="confirm-new-password" type="password" autoComplete="new-password" required minLength={12} maxLength={256} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} />
+          {passwordError && <div className="pm-error" role="alert">{passwordError}</div>}
+          {passwordMessage && <div className="pm-success" role="status">{passwordMessage}</div>}
+          <div className="pm-detail-actions"><button className="primary-button" type="submit" disabled={passwordLoading}>{passwordLoading ? "Updating..." : "Update password"}</button></div>
+        </form>
+      </article>
+      <article className="pm-detail panel">
+        <div className="pm-form-heading"><div><h2>Password recovery</h2><p>If you cannot sign in, use “Forgot password?” on the sign-in screen. A secure recovery link will be sent to your registered email when email delivery is configured.</p></div></div>
       </article>
     </section>
   );
