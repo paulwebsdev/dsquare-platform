@@ -191,7 +191,7 @@ router.post("/password-reset/request", passwordResetRateLimit, async (req, res) 
     return;
   }
   const email = typeof req.body?.email === "string" ? req.body.email.trim() : "";
-  if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) || email.length > 254) {
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
     res.status(400).json({ success: false, message: "Enter a valid email address." });
     return;
   }
