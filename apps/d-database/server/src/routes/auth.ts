@@ -145,7 +145,7 @@ async function sendPasswordResetEmail(email: string, token: string): Promise<boo
   return response.ok;
 }
 
-router.post("/password/change", async (req, res) => {
+router.post("/password/change", passwordResetRateLimit, async (req, res) => {
   try {
     const token = getSessionToken(req);
     if (!token) {
