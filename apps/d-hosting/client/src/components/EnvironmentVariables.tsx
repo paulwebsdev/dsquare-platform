@@ -16,7 +16,7 @@ export default function EnvironmentVariables({ resourceUrl, siteType }: Props) {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [name, setName] = useState("");
-  const [value, setValue] = useState("");
+  const [value, setSecret or setting value] = useState("");
   const [editingName, setEditingName] = useState<string | null>(null);
   const [showValue, setShowValue] = useState(false);
   const [error, setError] = useState("");
@@ -59,7 +59,7 @@ export default function EnvironmentVariables({ resourceUrl, siteType }: Props) {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "Could not save environment variable.");
-      setNotice(editingName ? "Environment variable updated." : "Environment variable saved.");
+      setNotice(editingName ? "Website setting updated." : "Website setting saved.");
       resetForm();
       await loadVariables();
     } catch (err) {
@@ -80,7 +80,7 @@ export default function EnvironmentVariables({ resourceUrl, siteType }: Props) {
       if (!response.ok) throw new Error(data.message || "Could not delete environment variable.");
       setVariables((current) => current.filter((item) => item.name !== variableName));
       if (editingName === variableName) resetForm();
-      setNotice("Environment variable deleted.");
+      setNotice("Website setting deleted.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not delete environment variable.");
     } finally {
@@ -94,34 +94,34 @@ export default function EnvironmentVariables({ resourceUrl, siteType }: Props) {
     setValue("");
     setShowValue(false);
     setError("");
-    setNotice("Enter the new value to replace the saved secret. The existing value cannot be viewed.");
+    setNotice("Enter a new value below. The old private value cannot be viewed.");
   }
 
   return (
     <article className="panel wb-panel" style={{ marginBottom: 20 }}>
       <div className="panel-heading">
         <div>
-          <h2>Environment variables</h2>
-          <p>Store configuration and secrets securely for this website.</p>
+          <h2>Website secrets and settings</h2>
+          <p>Save private passwords, API keys and settings used by this website's backend.</p>
         </div>
         <span className="wb-count">{variables.length} variables</span>
       </div>
 
       <div className="pm-resource-notice" role="note">
-        Values are encrypted at rest and never shown again after saving. For Node.js websites, saved values are prepared for private runtime injection, but customer code execution remains disabled until the dedicated Linux isolation and operator acceptance gates are completed.
+        Your saved values are encrypted. DSquare hides each value after you save it. You can replace or delete a value at any time. Private backend execution is not active yet; it will be enabled only after the production security checks pass.
       </div>
 
       {error && <div className="pm-error" role="alert">{error}</div>}
       {notice && <div className="pm-resource-notice" role="status">{notice}</div>}
 
       <form onSubmit={saveVariable} style={{ display: "grid", gap: 12, margin: "18px 0" }}>
-        <strong>{editingName ? `Update ${editingName}` : "Add a variable"}</strong>
+        <strong>{editingName ? `Update ${editingName}` : "Add a website secret or setting"}</strong>
         <label style={{ display: "grid", gap: 6 }}>
-          <span>Variable name</span>
+          <span>Setting name</span>
           <input
             value={name}
             onChange={(event) => setName(event.target.value)}
-            placeholder="e.g. DATABASE_URL"
+            placeholder="Example: PAYMENT_API_KEY"
             autoComplete="off"
             maxLength={128}
             required
@@ -134,7 +134,7 @@ export default function EnvironmentVariables({ resourceUrl, siteType }: Props) {
             type={showValue ? "text" : "password"}
             value={value}
             onChange={(event) => setValue(event.target.value)}
-            placeholder={editingName ? "Enter replacement value" : "Enter secret or configuration value"}
+            placeholder={editingName ? "Enter replacement value" : "Enter the private value"}
             autoComplete="new-password"
             maxLength={16384}
             required
@@ -143,29 +143,29 @@ export default function EnvironmentVariables({ resourceUrl, siteType }: Props) {
         </label>
         <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <input type="checkbox" checked={showValue} onChange={(event) => setShowValue(event.target.checked)} />
-          Show value while typing
+          Show value while I type
         </label>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
           <button className="primary-button" type="submit" disabled={saving || !name.trim() || !value}>
-            {saving ? "Saving..." : editingName ? "Save changes" : "Add variable"}
+            {saving ? "Saving..." : editingName ? "Save changes" : "Save secret or setting"}
           </button>
           {editingName && <button className="secondary-button" type="button" onClick={resetForm} disabled={saving}>Cancel edit</button>}
         </div>
       </form>
 
       <div style={{ borderTop: "1px solid var(--border-color, #ddd)", paddingTop: 14 }}>
-        <h3>Saved variables</h3>
+        <h3>Saved website secrets and settings</h3>
         {loading ? (
           <p>Loading environment variables...</p>
         ) : variables.length === 0 ? (
-          <p>No environment variables have been added yet.</p>
+          <p>You have not saved any website secrets or settings yet.</p>
         ) : (
           <div className="wb-file-list">
             {variables.map((variable) => (
               <div className="wb-file-row" key={variable.name}>
                 <div className="wb-file-info">
                   <strong>{variable.name}</strong>
-                  <small>Secret value stored securely ·••••••••</small>
+                  <small>Private value is hidden and stored securely</small>
                 </div>
                 <div className="wb-file-actions">
                   <button type="button" onClick={() => beginEdit(variable.name)} disabled={saving || deleting !== null}>Edit</button>
@@ -179,7 +179,7 @@ export default function EnvironmentVariables({ resourceUrl, siteType }: Props) {
         )}
         {!loading && error && <button type="button" className="secondary-button" onClick={() => void loadVariables()}>Retry loading</button>}
       </div>
-      {siteType === "node" && <p style={{ marginTop: 14, fontSize: 13 }}>Node.js backend execution is not enabled yet.</p>}
+      {siteType === "node" && <p style={{ marginTop: 14, fontSize: 13 }}>Your saved backend secrets will be supplied privately when secure Node.js execution is enabled.</p>}
     </article>
   );
 }
