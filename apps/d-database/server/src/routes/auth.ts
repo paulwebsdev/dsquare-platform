@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from "express";
+import { createRateLimiter } from "../middleware/rate-limit.js";
 import {
   authenticateUser,
   changeUserPassword,
@@ -14,6 +15,7 @@ import {
 const router = Router();
 const COOKIE_NAME = "dsquare_database_session";
 const SESSION_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
+const passwordResetRateLimit = createRateLimiter(5, 15 * 60 * 1000);
 
 function getSessionToken(req: Request): string | null {
   const cookies = req.headers.cookie?.split(";") ?? [];
@@ -180,7 +182,7 @@ router.post("/password/change", async (req, res) => {
   }
 });
 
-router.post("/password-reset/request", async (req, res) => {
+router.post("/password-reset/request", passwordResetRateLimit, async (req, res) => {
   const apiKey = process.env.RESEND_API_KEY?.trim();
   const from = process.env.DSQUARE_ACCOUNT_EMAIL_FROM?.trim();
   const origin = process.env.D_DATABASE_APP_ORIGIN?.trim();
@@ -210,7 +212,7 @@ router.post("/password-reset/request", async (req, res) => {
   }
 });
 
-router.post("/password-reset/complete", async (req, res) => {
+router.post("/password-reset/complete", passwordResetRateLimit, async (req, res) => {
   const token = typeof req.body?.token === "string" ? req.body.token : "";
   const newPassword = typeof req.body?.newPassword === "string" ? req.body.newPassword : "";
   if (newPassword.length < 12 || newPassword.length > 256) {
