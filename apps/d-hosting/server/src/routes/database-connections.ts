@@ -8,6 +8,7 @@ import { getDatabaseApiUrl } from "../services/database-api-url.js";
 import { isValidDatabaseConnectionCredentials } from "../services/database-connection-credentials.js";
 import { toPublicDatabaseConnection } from "../services/database-connection-view.js";
 import { requestDatabaseResourceRevocation } from "../services/database-connection-revocation.js";
+import { revokeDatabaseConnectionAssignments } from "../services/database-connection-assignment-revocation.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -257,17 +258,16 @@ router.delete("/:connectionId", requireSameOrigin, async (req, res) => {
       return;
     }
 
-    const result = await pool.query(
-      `UPDATE database_connections SET status = 'revoked', revoked_at = COALESCE(revoked_at, NOW())
-       WHERE id = $1 AND hosting_user_id = $2 AND status = 'active'
-       RETURNING id, status, revoked_at`,
-      [connectionId, res.locals.userId],
-    );
-    if (result.rowCount !== 1) {
+    const revokedConnection = await revokeDatabaseConnectionAssignments({
+      client: await pool.connect(),
+      connectionId,
+      hostingUserId: String(res.locals.userId),
+    });
+    if (!revokedConnection) {
       res.status(404).json({ success: false, message: "Active connection not found." });
       return;
     }
-    res.json({ success: true, connection: result.rows[0] });
+    res.json({ success: true, connection: revokedConnection, assignmentsRemoved: true });
   } catch (error) {
     console.error("Database connection revoke error:", error instanceof Error ? error.message : error);
     res.status(500).json({ success: false, message: "Unable to revoke database connection." });
