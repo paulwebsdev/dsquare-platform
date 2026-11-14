@@ -16,7 +16,7 @@ export default function EnvironmentVariables({ resourceUrl, siteType }: Props) {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [name, setName] = useState("");
-  const [value, setSecret or setting value] = useState("");
+  const [value, setValue] = useState("");
   const [editingName, setEditingName] = useState<string | null>(null);
   const [showValue, setShowValue] = useState(false);
   const [error, setError] = useState("");
@@ -28,10 +28,10 @@ export default function EnvironmentVariables({ resourceUrl, siteType }: Props) {
     try {
       const response = await fetch(`${resourceUrl}/environment`);
       const data = await response.json();
-      if (!response.ok) throw new Error(data.message || "Could not load environment variables.");
+      if (!response.ok) throw new Error(data.message || "Could not load website settings.");
       setVariables(Array.isArray(data.variables) ? data.variables : []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load environment variables.");
+      setError(err instanceof Error ? err.message : "Could not load website settings.");
     } finally {
       setLoading(false);
     }
@@ -58,31 +58,31 @@ export default function EnvironmentVariables({ resourceUrl, siteType }: Props) {
         body: JSON.stringify({ name: name.trim(), value }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.message || "Could not save environment variable.");
+      if (!response.ok) throw new Error(data.message || "Could not save this website setting.");
       setNotice(editingName ? "Website setting updated." : "Website setting saved.");
       resetForm();
       await loadVariables();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save environment variable.");
+      setError(err instanceof Error ? err.message : "Could not save this website setting.");
     } finally {
       setSaving(false);
     }
   }
 
   async function removeVariable(variableName: string) {
-    if (!window.confirm(`Delete the ${variableName} environment variable? This cannot be undone.`)) return;
+    if (!window.confirm(`Delete the "${variableName}" setting? This action cannot be undone.`)) return;
     setDeleting(variableName);
     setError("");
     setNotice("");
     try {
       const response = await fetch(`${resourceUrl}/environment/${encodeURIComponent(variableName)}`, { method: "DELETE" });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.message || "Could not delete environment variable.");
+      if (!response.ok) throw new Error(data.message || "Could not delete this website setting.");
       setVariables((current) => current.filter((item) => item.name !== variableName));
       if (editingName === variableName) resetForm();
       setNotice("Website setting deleted.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not delete environment variable.");
+      setError(err instanceof Error ? err.message : "Could not delete this website setting.");
     } finally {
       setDeleting(null);
     }
@@ -94,7 +94,7 @@ export default function EnvironmentVariables({ resourceUrl, siteType }: Props) {
     setValue("");
     setShowValue(false);
     setError("");
-    setNotice("Enter a new value below. The old private value cannot be viewed.");
+    setNotice("Enter a replacement value below. For security, the existing value cannot be viewed.");
   }
 
   return (
@@ -102,13 +102,13 @@ export default function EnvironmentVariables({ resourceUrl, siteType }: Props) {
       <div className="panel-heading">
         <div>
           <h2>Website secrets and settings</h2>
-          <p>Save private passwords, API keys and settings used by this website's backend.</p>
+          <p>Store private passwords, API keys and configuration values used by this website's backend.</p>
         </div>
-        <span className="wb-count">{variables.length} variables</span>
+        <span className="wb-count">{variables.length} settings</span>
       </div>
 
       <div className="pm-resource-notice" role="note">
-        Your saved values are encrypted. DSquare hides each value after you save it. You can replace or delete a value at any time. Private backend execution is not active yet; it will be enabled only after the production security checks pass.
+        Saved values are encrypted and hidden after you save them. You can replace or delete a value at any time. Backend execution is currently disabled and will be enabled only after the production security checks pass.
       </div>
 
       {error && <div className="pm-error" role="alert">{error}</div>}
@@ -134,7 +134,7 @@ export default function EnvironmentVariables({ resourceUrl, siteType }: Props) {
             type={showValue ? "text" : "password"}
             value={value}
             onChange={(event) => setValue(event.target.value)}
-            placeholder={editingName ? "Enter replacement value" : "Enter the private value"}
+            placeholder={editingName ? "Enter the replacement value" : "Enter the private value"}
             autoComplete="new-password"
             maxLength={16384}
             required
@@ -143,29 +143,29 @@ export default function EnvironmentVariables({ resourceUrl, siteType }: Props) {
         </label>
         <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <input type="checkbox" checked={showValue} onChange={(event) => setShowValue(event.target.checked)} />
-          Show value while I type
+          Show value while typing
         </label>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
           <button className="primary-button" type="submit" disabled={saving || !name.trim() || !value}>
             {saving ? "Saving..." : editingName ? "Save changes" : "Save secret or setting"}
           </button>
-          {editingName && <button className="secondary-button" type="button" onClick={resetForm} disabled={saving}>Cancel edit</button>}
+          {editingName && <button className="secondary-button" type="button" onClick={resetForm} disabled={saving}>Cancel</button>}
         </div>
       </form>
 
       <div style={{ borderTop: "1px solid var(--border-color, #ddd)", paddingTop: 14 }}>
         <h3>Saved website secrets and settings</h3>
         {loading ? (
-          <p>Loading environment variables...</p>
+          <p>Loading website settings...</p>
         ) : variables.length === 0 ? (
-          <p>You have not saved any website secrets or settings yet.</p>
+          <p>No website secrets or settings have been saved yet.</p>
         ) : (
           <div className="wb-file-list">
             {variables.map((variable) => (
               <div className="wb-file-row" key={variable.name}>
                 <div className="wb-file-info">
                   <strong>{variable.name}</strong>
-                  <small>Private value is hidden and stored securely</small>
+                  <small>Value hidden · Stored securely</small>
                 </div>
                 <div className="wb-file-actions">
                   <button type="button" onClick={() => beginEdit(variable.name)} disabled={saving || deleting !== null}>Edit</button>
@@ -177,9 +177,9 @@ export default function EnvironmentVariables({ resourceUrl, siteType }: Props) {
             ))}
           </div>
         )}
-        {!loading && error && <button type="button" className="secondary-button" onClick={() => void loadVariables()}>Retry loading</button>}
+        {!loading && error && <button type="button" className="secondary-button" onClick={() => void loadVariables()}>Retry</button>}
       </div>
-      {siteType === "node" && <p style={{ marginTop: 14, fontSize: 13 }}>Your saved backend secrets will be supplied privately when secure Node.js execution is enabled.</p>}
+      {siteType === "node" && <p style={{ marginTop: 14, fontSize: 13 }}>These secrets will be supplied privately to your Node.js backend when secure runtime execution is enabled.</p>}
     </article>
   );
 }
