@@ -113,13 +113,13 @@ export default function DeveloperApiKeys() {
 
   return (
     <section className="pm-page">
-      <div className="pm-heading"><div><div className="welcome-date">DEVELOPER TOOLS</div><h1>API Keys</h1><p>Create and manage credentials for applications connecting to D Database.</p></div></div>
+      <div className="pm-heading"><div><div className="welcome-date">DEVELOPER TOOLS</div><h1>API Keys</h1><p>Create secure access keys for your website or backend to connect to a D Database. Keep every secret key private.</p></div></div>
       {error && <div className="pm-error" role="alert">{error}</div>}
       {notice && <div className="pm-detail panel" role="status">{notice}</div>}
       {loading ? <div className="pm-empty panel"><div className="pm-spinner" /><strong>Loading projects...</strong></div> : (
         <>
           <article className="pm-detail panel">
-            <div className="pm-form-heading"><div><h2>Choose a database resource</h2><p>Each key is restricted to one resource. It cannot access other projects or databases.</p></div></div>
+            <div className="pm-form-heading"><div><h2>1. Choose your database</h2><p>Every key belongs to this one database only. It cannot open another project or database.</p></div></div>
             <label htmlFor="developer-project">Project</label>
             <select id="developer-project" value={projectId} onChange={(event) => setProjectId(event.target.value)}>
               {projects.length ? projects.map((item) => <option value={item.id} key={item.id}>{item.name}</option>) : <option value="">No projects available</option>}
@@ -131,40 +131,40 @@ export default function DeveloperApiKeys() {
           </article>
           {resourceId ? <>
             <article className="pm-detail panel">
-              <div className="pm-form-heading"><div><h2>Connect your website backend</h2><p>Use the server-side SDK from a trusted Node.js backend. The package is in the DSquare monorepo and is not published to npm yet. Never expose an API key in browser code.</p></div></div>
-              <p className="pm-card-description">Install or link the local <code>packages/d-database-sdk</code> package in your backend, then configure these server environment variables:</p>
+              <div className="pm-form-heading"><div><h2>2. Connect your website or application</h2><p>Use these settings in your website's private backend. Never add a secret key to website pages, browser JavaScript, or public code.</p></div></div>
+              <p className="pm-card-description">Your backend needs these four settings. The values beginning with D_DATABASE_ are setting names; replace the example values with your own details:</p>
               <pre className="pm-code-block"><code>{`D_DATABASE_URL=https://your-d-database-api-origin\nD_DATABASE_PROJECT_ID=${projectId}\nD_DATABASE_RESOURCE_ID=${resourceId}\nD_DATABASE_API_KEY=dsq_live_your_secret`}</code></pre>
-              <p className="pm-card-description">Example backend usage:</p>
+              <p className="pm-card-description">Example: how your backend connects to D Database</p>
               <pre className="pm-code-block"><code>{`import { createDDatabaseClient } from "@dsquare/d-database";\n\nconst db = createDDatabaseClient({\n  baseUrl: process.env.D_DATABASE_URL!,\n  apiKey: process.env.D_DATABASE_API_KEY!,\n  projectId: process.env.D_DATABASE_PROJECT_ID!,\n  resourceId: process.env.D_DATABASE_RESOURCE_ID!,\n});\n\nconst tables = await db.listTables();\nconst rows = await db.select("your_table", { limit: 25, offset: 0 });`}</code></pre>
-              <p className="pm-card-description">The SDK is server-only. A browser-ready public client is not available because row-level public access policies are not enabled.</p>
+              <p className="pm-card-description">Important: connect from your private server only. Do not connect directly from a visitor's browser.</p>
             </article>
             <article className="pm-detail panel">
-              <div className="pm-form-heading"><div><h2>Create an API key</h2><p>Use secret keys only in trusted server-side code. Never put them in browser JavaScript, public repositories, or client-side environment variables.</p></div></div>
+              <div className="pm-form-heading"><div><h2>3. Create a secret API key</h2><p>This key gives your backend permission to use this database. Keep it private. Never share it or place it in browser code.</p></div></div>
               <form className="wb-form" onSubmit={createKey}>
-                <label htmlFor="developer-key-name">Key name</label>
+                <label htmlFor="developer-key-name">Give this key a name</label>
                 <input id="developer-key-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={80} placeholder="e.g. Production website" required />
                 <div className="pm-detail-meta">
-                  <label><input type="checkbox" checked={read} onChange={(event) => setRead(event.target.checked)} /> Read records</label>
-                  <label><input type="checkbox" checked={write} onChange={(event) => setWrite(event.target.checked)} /> Insert records</label>
+                  <label><input type="checkbox" checked={read} onChange={(event) => setRead(event.target.checked)} /> Read database records</label>
+                  <label><input type="checkbox" checked={write} onChange={(event) => setWrite(event.target.checked)} /> Add and change records</label>
                 </div>
-                <label htmlFor="developer-key-expiry">Expires in</label>
+                <label htmlFor="developer-key-expiry">When should this key expire?</label>
                 <select id="developer-key-expiry" value={expiresInDays} onChange={(event) => setExpiresInDays(event.target.value)}>
                   <option value="30">30 days</option><option value="90">90 days</option><option value="180">180 days</option><option value="365">365 days</option><option value="">Never (not recommended)</option>
                 </select>
-                <div className="pm-detail-actions"><button className="primary-button" type="submit" disabled={saving}>{saving ? "Creating..." : "Create API key"}</button></div>
+                <div className="pm-detail-actions"><button className="primary-button" type="submit" disabled={saving}>{saving ? "Creating..." : "Create secret key"}</button></div>
               </form>
             </article>
             {secret && <article className="pm-detail panel">
-              <div className="pm-form-heading"><div><h2>Copy your new secret</h2><p>This is the only time the full secret is displayed. Save it in your backend's environment variables.</p></div></div>
+              <div className="pm-form-heading"><div><h2>Your new secret key</h2><p>Copy and save this key now. For security, DSquare will not show the full key again.</p></div></div>
               <textarea readOnly value={secret} rows={3} aria-label="New API secret" />
-              <div className="pm-detail-actions"><button className="primary-button" type="button" onClick={() => void copySecret()}>Copy secret</button><button className="secondary-button" type="button" onClick={() => setSecret("")}>I have saved it</button></div>
+              <div className="pm-detail-actions"><button className="primary-button" type="button" onClick={() => void copySecret()}>Copy secret key</button><button className="secondary-button" type="button" onClick={() => setSecret("")}>I've saved my key</button></div>
             </article>}
             <article className="pm-detail panel">
-              <div className="pm-form-heading"><div><h2>Existing keys</h2><p>Only key prefixes and metadata are shown. Full secrets are never stored or displayed again.</p></div></div>
+              <div className="pm-form-heading"><div><h2>Your secret keys</h2><p>You can see each key's name, permissions and status here. Full secret values are hidden after creation.</p></div></div>
               {keys.length ? keys.map((key) => <div className="system-row" key={key.id}>
                 <div><strong>{key.name}</strong><div className="pm-card-description">{key.key_prefix}… · {(key.scopes || []).join(", ")} · Created {new Date(key.created_at).toLocaleDateString()}</div><div className="pm-card-description">Last used: {key.last_used_at ? new Date(key.last_used_at).toLocaleString() : "Never"} · Expires: {key.expires_at ? new Date(key.expires_at).toLocaleDateString() : "Never"}</div>{key.revoked_at && <div className="pm-card-description">Revoked {new Date(key.revoked_at).toLocaleString()}</div>}</div>
                 {!key.revoked_at && <button className="pm-archive-button" type="button" onClick={() => void revokeKey(key)}>Revoke</button>}
-              </div>) : <div className="pm-empty"><h3>No API keys yet</h3><p>Create a key for this database resource to connect your backend application.</p></div>}
+              </div>) : <div className="pm-empty"><h3>No secret keys yet</h3><p>Create a secret key above to let your private website backend connect to this database.</p></div>}
             </article>
           </> : <div className="pm-empty panel"><h2>Select an active database resource</h2><p>Create a database resource in Projects before generating an API key.</p></div>}
         </>
