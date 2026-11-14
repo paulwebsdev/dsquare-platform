@@ -201,8 +201,7 @@ router.post("/password-reset/request", passwordResetRateLimit, async (req, res) 
       const sent = await sendPasswordResetEmail(email, resetToken);
       if (!sent) {
         await revokePasswordResetToken(resetToken);
-        res.status(503).json({ success: false, message: "We could not send the reset email. Please try again later." });
-        return;
+        // Keep the response identical to the unknown-account case to avoid email enumeration.
       }
     }
     res.json({ success: true, message: "If an account exists for that email, a password reset link has been sent." });
