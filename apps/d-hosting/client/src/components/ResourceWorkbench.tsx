@@ -397,8 +397,7 @@ export default function ResourceWorkbench({
   }
 
   async function createTable(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError("");
+    event.preventDefault();    setError("");
     setSaving(true);
 
     try {
@@ -740,8 +739,8 @@ export default function ResourceWorkbench({
     <section className="pm-page wb-page">
       <div className="pm-heading wb-heading">
         <div>
-          <button className="pm-back" onClick={onBack}>
-            â† Back to resource
+          <button type="button" className="secondary-button wb-back-button" onClick={onBack}>
+            Back to resources
           </button>
           <div className="welcome-date wb-eyebrow">
             {isDatabase ? "DATABASE TABLES" : "WEBSITE FILES"}
@@ -761,7 +760,7 @@ export default function ResourceWorkbench({
               setShowTableForm(true);
             }}
           >
-            <span>ï¼‹</span> Create table
+            <span>+</span> Create table
           </button>
         )}
       </div>
@@ -770,7 +769,7 @@ export default function ResourceWorkbench({
         <div className="pm-error" role="alert">
           <span>{error}</span>
           <button onClick={() => setError("")} aria-label="Dismiss">
-            Ã—
+            ×
           </button>
         </div>
       )}
@@ -789,7 +788,7 @@ export default function ResourceWorkbench({
                   className="pm-close"
                   onClick={() => setShowTableForm(false)}
                 >
-                  Ã—
+                  ×
                 </button>
               </div>
 
@@ -797,8 +796,7 @@ export default function ResourceWorkbench({
               <input
                 id="wb-table-name"
                 value={tableName}
-                onChange={(event) => setTableName(event.target.value)}
-                placeholder="e.g. orders"
+                onChange={(event) => setTableName(event.target.value)}                placeholder="e.g. orders"
                 pattern="[a-z][a-z0-9_]{0,62}"
                 maxLength={63}
                 required
@@ -811,7 +809,7 @@ export default function ResourceWorkbench({
                   className="text-button"
                   onClick={addColumn}
                 >
-                  ï¼‹ Add column
+                  + Add column
                 </button>
               </div>
 
@@ -882,7 +880,7 @@ export default function ResourceWorkbench({
                       disabled={newColumns.length <= 1}
                       aria-label="Remove column"
                     >
-                      Ã—
+                      ×
                     </button>
                   </div>
                 ))}
@@ -915,7 +913,8 @@ export default function ResourceWorkbench({
             <>
               <div className="wb-toolbar">
                 <button
-                  className="pm-back"
+                  type="button"
+                  className="secondary-button wb-back-button"
                   onClick={() => {
                     setSelectedTable(null);
                     setColumns([]);
@@ -924,7 +923,7 @@ export default function ResourceWorkbench({
                     void loadTables();
                   }}
                 >
-                  â† Back to tables
+                  Back to tables
                 </button>
                 <strong>{selectedTable}</strong>
               </div>
@@ -954,7 +953,7 @@ export default function ResourceWorkbench({
                           <td><strong>{column.column_name}</strong></td>
                           <td><code>{column.data_type}</code></td>
                           <td>{column.is_nullable === "YES" ? "Yes" : "No"}</td>
-                          <td>{column.column_default || "â€”"}</td>
+                          <td>{column.column_default || "—"}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -976,7 +975,7 @@ export default function ResourceWorkbench({
                         onClick={startCreateRecord}
                         disabled={saving}
                       >
-                        ï¼‹ Add record
+                        + Add record
                       </button>
                     )}
                   </div>
@@ -1097,11 +1096,10 @@ export default function ResourceWorkbench({
                     <div className="wb-table-scroll">
                       <table className="wb-table">
                         <thead>
-                          <tr>
-                            {columns.map((column) => (
+                          <tr>                            {columns.map((column) => (
                               <th key={column.column_name}>
                                 {column.column_name}
-                                {column.is_primary_key ? " ðŸ”‘" : ""}
+                                {column.is_primary_key ? " (Primary key)" : ""}
                               </th>
                             ))}
                             {primaryKeyColumn && <th>Actions</th>}
@@ -1148,7 +1146,7 @@ export default function ResourceWorkbench({
 
                     <div className="wb-pagination">
                       <span>
-                        Showing {rowOffset + 1}â€“{rowOffset + rows.length} of {rowTotal}
+                        Showing {rowOffset + 1}–{rowOffset + rows.length} of {rowTotal}
                       </span>
                       <div>
                         <button
@@ -1184,7 +1182,7 @@ export default function ResourceWorkbench({
                         className="primary-button"
                         onClick={startCreateRecord}
                       >
-                        ï¼‹ Add first record
+                        + Add first record
                       </button>
                     )}
                   </div>
@@ -1208,17 +1206,17 @@ export default function ResourceWorkbench({
               {tables.map((table) => (
                 <article className="pm-project-card panel" key={table.table_name}>
                   <div className="pm-card-top">
-                    <div className="pm-project-avatar">â–¦</div>
+                    <div className="pm-project-avatar">DB</div>
                     <span className="pm-status active">table</span>
                   </div>
                   <h3>{table.table_name}</h3>
                   <p className="pm-card-description">
-                    PostgreSQL table Â· {table.column_count} columns
+                    PostgreSQL table · {table.column_count} columns
                   </p>
                   <div className="pm-card-footer">
                     <span>Inside {resource.name}</span>
                     <button onClick={() => void openTable(table.table_name)}>
-                      Open table â†’
+                      Open table →
                     </button>
                   </div>
                 </article>
@@ -1226,14 +1224,14 @@ export default function ResourceWorkbench({
             </div>
           ) : (
             <div className="pm-empty panel">
-              <div className="pm-empty-icon">â–¦</div>
+              <div className="pm-empty-icon">DB</div>
               <h2>No tables yet</h2>
               <p>Create your first table inside this database resource.</p>
               <button
                 className="primary-button"
                 onClick={() => setShowTableForm(true)}
               >
-                <span>ï¼‹</span> Create your first table
+                <span>+</span> Create your first table
               </button>
             </div>
           )}
@@ -1352,7 +1350,7 @@ export default function ResourceWorkbench({
             </div>
             <div className="wb-upload-actions">
               <label className={`primary-button wb-upload-button ${uploading ? "disabled" : ""}`}>
-                {uploading ? "Uploading..." : "ï¼‹ Upload file"}
+                {uploading ? "Uploading..." : "+ Upload file"}
                 <input
                   type="file"
                   accept={ALLOWED_FILE_INPUT}
@@ -1399,11 +1397,11 @@ export default function ResourceWorkbench({
               <div className="wb-file-list">
                 {files.map((file) => (
                   <div className="wb-file-row" key={file.id}>
-                    <div className="wb-file-icon">â–¤</div>
+                    <div className="wb-file-icon">FILE</div>
                     <div className="wb-file-info">
                       <strong>{file.original_name}</strong>
                       <small>
-                        {file.mime_type} Â· {formatSize(file.size_bytes)}
+                        {file.mime_type} · {formatSize(file.size_bytes)}
                       </small>
                     </div>
                     <div className="wb-file-actions">
@@ -1426,7 +1424,7 @@ export default function ResourceWorkbench({
             </article>
           ) : (
             <div className="pm-empty panel">
-              <div className="pm-empty-icon">â–¤</div>
+              <div className="pm-empty-icon">FILE</div>
               <h2>No website files yet</h2>
               <p>
                 Upload your HTML, CSS, JavaScript, images and other supported
