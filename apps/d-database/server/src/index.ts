@@ -19,6 +19,7 @@ import databaseBackupsRouter from "./routes/database-backups.js";
 import developerApiKeysRouter from "./routes/developer-api-keys.js";
 import developerDataRouter from "./routes/developer-data.js";
 import { requireDeveloperKey } from "./middleware/require-developer-key.js";
+import { resourceProvisionerPool } from "./services/resource-access-provisioner.js";
 
 const app = express();
 app.set("trust proxy", 1);
@@ -172,6 +173,53 @@ async function ensureDatabaseAppDatabasePrivileges(grantPool: typeof pool): Prom
   console.log("D Database runtime-role database and table privileges are present.");
 }
 
+async function assertResourceProvisionerReady(): Promise<void> {
+  if (!resourceProvisionerPool) {
+    throw new Error("D Database production requires a dedicated DB_PROVISIONER_URL.");
+  }
+
+  const [applicationDatabase, provisioner] = await Promise.all([
+    pool.query("SELECT current_database() AS database_name"),
+    resourceProvisionerPool.query(`
+      SELECT current_database() AS database_name,
+        current_user AS role_name,
+        role.rolsuper,
+        role.rolcreatedb,
+        role.rolcreaterole,
+        role.rolinherit,
+        pg_has_role(current_user, 'd_database_app', 'MEMBER') AS can_set_app_role,
+        pg_has_role(current_user, 'pg_signal_backend', 'MEMBER') AS can_terminate_sessions,
+        EXISTS (
+          SELECT 1
+          FROM pg_database AS database
+          CROSS JOIN LATERAL aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) AS privilege
+          WHERE database.datname = current_database()
+            AND privilege.grantee = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+            AND privilege.privilege_type = 'CONNECT'
+            AND privilege.is_grantable
+        ) AS can_grant_connect
+      FROM pg_roles AS role
+      WHERE role.rolname = current_user
+    `),
+  ]);
+  const identity = provisioner.rows[0];
+  if (
+    applicationDatabase.rows[0]?.database_name !== identity?.database_name ||
+    identity?.role_name !== "d_database_provisioner" ||
+    identity.rolsuper ||
+    identity.rolcreatedb ||
+    !identity.rolcreaterole ||
+    identity.rolinherit ||
+    !identity.can_set_app_role ||
+    !identity.can_terminate_sessions ||
+    !identity.can_grant_connect
+  ) {
+    throw new Error(
+      "DB_PROVISIONER_URL must use the non-superuser d_database_provisioner role with CREATEROLE, NOINHERIT, CONNECT grant option, SET membership in d_database_app, and pg_signal_backend membership on the D Database database.",
+    );
+  }
+}
+
 async function startServer() {
   try {
     if (process.env.NODE_ENV === "production" && !existsSync(clientIndexPath)) {
@@ -208,6 +256,9 @@ async function startServer() {
 
     await runMigrations(migrationPool);
     await ensureDatabaseAppDatabasePrivileges(migrationPool);
+    if (process.env.NODE_ENV === "production") {
+      await assertResourceProvisionerReady();
+    }
     if (migrationPool !== pool) {
       await migrationPool.end();
       console.log("D Database schema migrations completed with the dedicated migration connection.");
