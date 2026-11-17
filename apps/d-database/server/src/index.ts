@@ -91,9 +91,7 @@ app.use("/api/v1/data/:projectId/:resourceId", requireDeveloperKey, developerDat
 
 app.get("/api/v1/health", async (_req, res) => {
   try {
-    const result = await pool.query(
-      "SELECT current_database() AS database, current_user AS username"
-    );
+    await pool.query("SELECT 1");
 
     res.json({
       success: true,
@@ -101,8 +99,6 @@ app.get("/api/v1/health", async (_req, res) => {
       api: "online",
       database: {
         connected: true,
-        name: result.rows[0].database,
-        user: result.rows[0].username,
       },
     });
   } catch (error) {
@@ -141,6 +137,40 @@ app.use((req, res, next) => {
 
 const PORT = Number(process.env.PORT || 5001);
 
+async function ensureDatabaseAppGrants(): Promise<void> {
+  try {
+    const role = await pool.query(
+      "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'd_database_app') AS role_exists",
+    );
+
+    if (!role.rows[0]?.role_exists) {
+      await pool.query("CREATE ROLE d_database_app NOLOGIN INHERIT CREATEROLE");
+      console.info("D Database created the missing non-login application role.");
+    }
+
+    // The service connects with its migration/owner role. Granting membership
+    // allows it to create resource schemas owned by d_database_app.
+    await pool.query("ALTER ROLE d_database_app CREATEROLE");
+    await pool.query("GRANT d_database_app TO CURRENT_USER");
+    await pool.query("GRANT USAGE ON SCHEMA public TO d_database_app");
+    const databaseNameResult = await pool.query("SELECT current_database() AS database_name");
+    const databaseName = String(databaseNameResult.rows[0]?.database_name || "").replace(/"/g, '""');
+    if (!databaseName) throw new Error("Could not determine the current PostgreSQL database name.");
+    await pool.query(
+      `GRANT CONNECT ON DATABASE "${databaseName}" TO d_database_app WITH GRANT OPTION`,
+    );
+    await pool.query(
+      "GRANT SELECT, INSERT, UPDATE ON TABLE resource_access_grants, developer_api_keys TO d_database_app",
+    );
+    console.log("D Database application-role membership and table grants are present.");
+  } catch (error) {
+    console.warn(
+      "D Database could not reconcile d_database_app role permissions; check migration-role privileges:",
+      error instanceof Error ? error.message : "Unknown database error",
+    );
+  }
+}
+
 async function startServer() {
   try {
     if (process.env.NODE_ENV === "production" && !existsSync(clientIndexPath)) {
@@ -148,12 +178,83 @@ async function startServer() {
     }
 
     await runMigrations(pool);
-    await pool.query("SELECT 1");
+    await ensureDatabaseAppGrants();
+    const permissionResult = await pool.query(`
+      SELECT
+        current_user AS database_role,
+        current_database() AS database_name,
+        has_database_privilege(current_user, current_database(), 'CREATE') AS can_create_schemas,
+        EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'd_database_app') AS app_role_exists,
+        (SELECT owner.rolname FROM pg_class AS relation
+          JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+          JOIN pg_roles AS owner ON owner.oid = relation.relowner
+          WHERE namespace.nspname = 'public' AND relation.relname = 'projects') AS projects_table_owner,
+        (SELECT owner.rolname FROM pg_class AS relation
+          JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+          JOIN pg_roles AS owner ON owner.oid = relation.relowner
+          WHERE namespace.nspname = 'public' AND relation.relname = 'database_resources') AS resources_table_owner,
+        (SELECT owner.rolname FROM pg_class AS relation
+          JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+          JOIN pg_roles AS owner ON owner.oid = relation.relowner
+          WHERE namespace.nspname = 'public' AND relation.relname = 'users') AS users_table_owner,
+        (SELECT owner.rolname FROM pg_class AS relation
+          JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+          JOIN pg_roles AS owner ON owner.oid = relation.relowner
+          WHERE namespace.nspname = 'public' AND relation.relname = 'user_sessions') AS sessions_table_owner,
+        CASE
+          WHEN current_user = 'd_database_app' THEN TRUE
+          WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'd_database_app')
+          THEN pg_has_role(current_user, 'd_database_app', 'MEMBER')
+          ELSE FALSE
+        END AS can_assign_app_schema_owner,
+        has_table_privilege(current_user, 'public.projects', 'SELECT') AS can_read_projects,
+        has_table_privilege(current_user, 'public.projects', 'INSERT') AS can_create_projects,
+        has_table_privilege(current_user, 'public.projects', 'UPDATE') AS can_update_projects,
+        has_table_privilege(current_user, 'public.database_resources', 'SELECT') AS can_read_resources,
+        has_table_privilege(current_user, 'public.database_resources', 'INSERT') AS can_create_resources,
+        has_table_privilege(current_user, 'public.database_resources', 'UPDATE') AS can_update_resources,
+        has_table_privilege(current_user, 'public.users', 'SELECT') AS can_read_users,
+        has_table_privilege(current_user, 'public.users', 'INSERT') AS can_create_users,
+        has_table_privilege(current_user, 'public.users', 'UPDATE') AS can_update_users,
+        has_table_privilege(current_user, 'public.user_sessions', 'SELECT') AS can_read_sessions,
+        has_table_privilege(current_user, 'public.user_sessions', 'INSERT') AS can_create_sessions,
+        has_table_privilege(current_user, 'public.user_sessions', 'DELETE') AS can_delete_sessions
+    `);
+    const permissions = permissionResult.rows[0];
+    console.info("D Database PostgreSQL permission preflight:", permissions);
+    if (
+      !permissions.can_create_schemas ||
+      !permissions.app_role_exists ||
+      !permissions.can_assign_app_schema_owner ||
+      !permissions.can_read_projects ||
+      !permissions.can_create_projects ||
+      !permissions.can_update_projects ||
+      !permissions.can_read_resources ||
+      !permissions.can_create_resources ||
+      !permissions.can_update_resources ||
+      !permissions.can_read_users ||
+      !permissions.can_create_users ||
+      !permissions.can_update_users ||
+      !permissions.can_read_sessions ||
+      !permissions.can_create_sessions ||
+      !permissions.can_delete_sessions
+    ) {
+      console.warn("D Database PostgreSQL permissions are incomplete; account or resource operations may fail.");
+    }
     startDatabaseBackupScheduler(pool);
 
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`D Database application running on port ${PORT}`);
       console.log("D Database PostgreSQL connection successful.");
+    console.log("D Database optional configuration:", {
+      resourceProvisionerConfigured: Boolean(process.env.DB_PROVISIONER_URL),
+      runtimeHostConfigured: Boolean(process.env.D_DATABASE_RUNTIME_HOST),
+      hostingIntegrationSecretConfigured: Boolean(process.env.D_HOSTING_INTEGRATION_CLIENT_SECRET),
+      hostingCallbackConfigured: Boolean(process.env.D_HOSTING_CALLBACK_URL),
+      accountEmailDeliveryConfigured: Boolean(
+        process.env.RESEND_API_KEY && process.env.DSQUARE_ACCOUNT_EMAIL_FROM,
+      ),
+    });
     });
   } catch (error) {
     console.error(

@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { websiteObjectStorage } from "./website-object-storage.js";
-import { assertWebsiteObjectKeyScope, buildWebsiteObjectKey } from "./website-object-storage.js";
+import {
+  assertWebsiteObjectKeyScope,
+  buildWebsiteObjectKey,
+  createPostgresWebsiteObjectStorage,
+  type WebsiteObjectStorageQueryable,
+} from "./website-object-storage.js";
 
 const base = {
   ownerId: "11111111-1111-4111-8111-111111111111",
@@ -10,6 +13,50 @@ const base = {
   resourceId: "33333333-3333-4333-8333-333333333333",
   objectId: "44444444-4444-4444-8444-444444444444",
 };
+
+function createFakeStorageDatabase(): {
+  queryable: WebsiteObjectStorageQueryable;
+  objects: Map<string, { ownerId: string; projectId: string; resourceId: string; body: Buffer; sizeBytes: number }>;
+  queries: string[];
+} {
+  const objects = new Map<string, { ownerId: string; projectId: string; resourceId: string; body: Buffer; sizeBytes: number }>();
+  const queries: string[] = [];
+  const queryable: WebsiteObjectStorageQueryable = {
+    async query(text, values = []) {
+      queries.push(text);
+      if (text.includes("INSERT INTO hosting_object_blobs")) {
+        const [key, ownerId, projectId, resourceId, _objectId, _contentType, sizeBytes, body] = values;
+        objects.set(String(key), {
+          ownerId: String(ownerId),
+          projectId: String(projectId),
+          resourceId: String(resourceId),
+          body: Buffer.from(body as Buffer),
+          sizeBytes: Number(sizeBytes),
+        });
+        return { rows: [], rowCount: 1 };
+      }
+      if (text.includes("SELECT body, size_bytes") && text.includes("FROM hosting_object_blobs")) {
+        const [key, ownerId, projectId, resourceId] = values.map(String);
+        const stored = objects.get(key);
+        if (!stored || stored.ownerId !== ownerId || stored.projectId !== projectId || stored.resourceId !== resourceId) {
+          return { rows: [], rowCount: 0 };
+        }
+        return { rows: [{ body: stored.body, size_bytes: stored.sizeBytes }], rowCount: 1 };
+      }
+      if (text.includes("DELETE FROM hosting_object_blobs")) {
+        const [key, ownerId, projectId, resourceId] = values.map(String);
+        const stored = objects.get(key);
+        if (stored && stored.ownerId === ownerId && stored.projectId === projectId && stored.resourceId === resourceId) {
+          objects.delete(key);
+          return { rows: [], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      }
+      throw new Error("Unexpected storage query.");
+    },
+  };
+  return { queryable, objects, queries };
+}
 
 test("website object keys are scoped by owner, project, website, and immutable object ID", () => {
   assert.equal(
@@ -39,60 +86,33 @@ test("rejects cross-owner, cross-project, and cross-website object reads", () =>
   assert.throws(() => assertWebsiteObjectKeyScope(key, { ...base, resourceId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" }), /does not belong/);
 });
 
+test("PostgreSQL storage persists, scopes, retrieves, and deletes website object bytes", async () => {
+  const fake = createFakeStorageDatabase();
+  const storage = createPostgresWebsiteObjectStorage(fake.queryable);
+  const bytes = Buffer.from([1, 2, 3, 4]);
+  const key = await storage.put(base, bytes, "image/png");
 
-test("S3 adapter uploads encrypted objects, retrieves bytes, deletes, and fails closed on provider errors", async () => {
-  const env = {
-    NODE_ENV: process.env.NODE_ENV,
-    HOSTING_OBJECT_STORAGE_BUCKET: process.env.HOSTING_OBJECT_STORAGE_BUCKET,
-    HOSTING_OBJECT_STORAGE_REGION: process.env.HOSTING_OBJECT_STORAGE_REGION,
-    HOSTING_OBJECT_STORAGE_ACCESS_KEY_ID: process.env.HOSTING_OBJECT_STORAGE_ACCESS_KEY_ID,
-    HOSTING_OBJECT_STORAGE_SECRET_ACCESS_KEY: process.env.HOSTING_OBJECT_STORAGE_SECRET_ACCESS_KEY,
-    HOSTING_OBJECT_STORAGE_ENDPOINT: process.env.HOSTING_OBJECT_STORAGE_ENDPOINT,
-  };
-  const originalSend = S3Client.prototype.send;
-  const commands: unknown[] = [];
-  let fail = false;
-  process.env.NODE_ENV = "test";
-  process.env.HOSTING_OBJECT_STORAGE_BUCKET = "dsquare-test-bucket";
-  process.env.HOSTING_OBJECT_STORAGE_REGION = "us-east-1";
-  process.env.HOSTING_OBJECT_STORAGE_ACCESS_KEY_ID = "test-access-key";
-  process.env.HOSTING_OBJECT_STORAGE_SECRET_ACCESS_KEY = "test-secret-key";
-  delete process.env.HOSTING_OBJECT_STORAGE_ENDPOINT;
-  S3Client.prototype.send = (async (command: unknown) => {
-    commands.push(command);
-    if (fail) throw new Error("provider unavailable");
-    if (command instanceof GetObjectCommand) {
-      return { Body: { transformToByteArray: async () => new Uint8Array([1, 2, 3]) } };
-    }
-    if (command instanceof PutObjectCommand || command instanceof DeleteObjectCommand) return {};
-    throw new Error("Unexpected S3 command.");
-  }) as S3Client["send"];
+  assert.equal(key, buildWebsiteObjectKey(base));
+  assert.equal(fake.objects.size, 1);
+  assert.deepEqual(await storage.get(key, base), bytes);
+  assert.ok(fake.queries.some(query => query.includes("owner_id = $2 AND project_id = $3 AND resource_id = $4")));
 
-  try {
-    const key = await websiteObjectStorage.put(base, Buffer.from([1, 2, 3]), "image/png");
-    assert.equal(key, buildWebsiteObjectKey(base));
-    const put = commands[0] as PutObjectCommand;
-    assert.ok(put instanceof PutObjectCommand);
-    assert.equal(put.input.ServerSideEncryption, "AES256");
-    assert.equal(put.input.Metadata?.owner, base.ownerId);
-    assert.deepEqual(await websiteObjectStorage.get(key, base), Buffer.from([1, 2, 3]));
-    assert.ok(commands[1] instanceof GetObjectCommand);
-    await websiteObjectStorage.delete(key, base);
-    assert.ok(commands[2] instanceof DeleteObjectCommand);
-    await assert.rejects(
-      websiteObjectStorage.get(key, { ...base, ownerId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }),
-      /does not belong/,
-    );
-    fail = true;
-    await assert.rejects(
-      websiteObjectStorage.put({ ...base, objectId: "55555555-5555-4555-8555-555555555555" }, Buffer.from([4]), "image/png"),
-      /provider unavailable/,
-    );
-  } finally {
-    S3Client.prototype.send = originalSend;
-    for (const [name, value] of Object.entries(env)) {
-      if (value === undefined) delete process.env[name];
-      else process.env[name] = value;
-    }
-  }
+  await assert.rejects(
+    storage.get(key, { ...base, ownerId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }),
+    /does not belong/,
+  );
+
+  await storage.delete(key, base);
+  assert.equal(fake.objects.size, 0);
+  await assert.rejects(storage.get(key, base), (error: unknown) =>
+    error instanceof Error && (error as NodeJS.ErrnoException).code === "ENOENT",
+  );
+});
+
+test("PostgreSQL storage rejects empty and oversized objects before writing", async () => {
+  const fake = createFakeStorageDatabase();
+  const storage = createPostgresWebsiteObjectStorage(fake.queryable);
+  await assert.rejects(storage.put(base, Buffer.alloc(0), "image/png"), /size is invalid/);
+  await assert.rejects(storage.put(base, Buffer.alloc(10 * 1024 * 1024 + 1), "image/png"), /size is invalid/);
+  assert.equal(fake.objects.size, 0);
 });

@@ -3,7 +3,7 @@ services:
     name: dsquare-d-database
     runtime: node
     plan: free
-    buildCommand: npm ci --include=dev && npm run build --workspace=@dsquare/d-database-client && npm run typecheck --workspace=@dsquare/d-database-server
+    buildCommand: npm install --package-lock-only --ignore-scripts --no-audit --no-fund && npm ci --include=dev && npm run build --workspace=@dsquare/d-database-client && npm run typecheck --workspace=@dsquare/d-database-server
     startCommand: npm run start --workspace=@dsquare/d-database-server
     healthCheckPath: /api/v1/health
     envVars:
@@ -17,6 +17,16 @@ services:
         sync: false
       - key: D_DATABASE_APP_ORIGIN
         sync: false
+      - key: DB_PROVISIONER_URL
+        sync: false
+      - key: D_DATABASE_RUNTIME_HOST
+        sync: false
+      - key: D_DATABASE_RUNTIME_PORT
+        value: "5432"
+      - key: RESEND_API_KEY
+        sync: false
+      - key: DSQUARE_ACCOUNT_EMAIL_FROM
+        sync: false
       - key: D_HOSTING_INTEGRATION_CLIENT_SECRET
         sync: false
       - key: D_HOSTING_CALLBACK_URL
@@ -26,7 +36,7 @@ services:
     name: dsquare-d-hosting
     runtime: node
     plan: free
-    buildCommand: npm ci --include=dev && npm run build --workspace=@dsquare/d-hosting-client && npm run typecheck --workspace=@dsquare/d-hosting-server
+    buildCommand: npm install --package-lock-only --ignore-scripts --no-audit --no-fund && npm ci --include=dev && npm run build --workspace=@dsquare/d-hosting-client && npm run typecheck --workspace=@dsquare/d-hosting-server
     startCommand: npm run start --workspace=@dsquare/d-hosting-server
     healthCheckPath: /api/v1/health
     envVars:

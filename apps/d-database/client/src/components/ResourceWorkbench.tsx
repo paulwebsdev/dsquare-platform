@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import VisualQueryBuilder from "./VisualQueryBuilder";
 import TableStructureManager from "./TableStructureManager";
 import DatabaseBackups from "./DatabaseBackups";
+import { PRODUCT_KIND, PRODUCT_NAME } from "../product";
 
 type WorkResource = {
   id: string;
@@ -71,8 +72,8 @@ export default function ResourceWorkbench({
   resource,
   onBack,
 }: WorkbenchProps) {
-  const product = import.meta.env.VITE_PRODUCT_NAME || "DSquare";
-  const isDatabase = import.meta.env.VITE_PRODUCT_KIND === "database";
+  const product = PRODUCT_NAME;
+  const isDatabase = PRODUCT_KIND === "database";
 
   const baseUrl =
     `/api/v1/projects/${projectId}/resources/${resource.id}`;

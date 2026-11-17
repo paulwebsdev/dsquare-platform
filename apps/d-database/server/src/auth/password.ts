@@ -21,20 +21,29 @@ export async function hashPassword(password: string): Promise<string> {
   return `${HASH_PREFIX}$${salt}$${derivedKey.toString("hex")}`;
 }
 
+export function isSupportedPasswordHash(storedHash: string): boolean {
+  const [brand, version, salt, key] = storedHash.split("$");
+
+  return (
+    brand === "dsquare-scrypt" &&
+    version === "v1" &&
+    typeof salt === "string" &&
+    /^[a-f0-9]{32}$/i.test(salt) &&
+    typeof key === "string" &&
+    /^[a-f0-9]{128}$/i.test(key)
+  );
+}
+
 export async function verifyPassword(
   password: string,
   storedHash: string,
 ): Promise<boolean> {
-  const [brand, version, salt, key] = storedHash.split("$");
+  if (!isSupportedPasswordHash(storedHash)) {
+    return false;
+  }
 
-  if (
-    brand !== "dsquare-scrypt" ||
-    version !== "v1" ||
-    !salt ||
-    !/^[a-f0-9]{32}$/i.test(salt) ||
-    !key ||
-    !/^[a-f0-9]{128}$/i.test(key)
-  ) {
+  const [, , salt, key] = storedHash.split("$");
+  if (typeof salt !== "string" || typeof key !== "string") {
     return false;
   }
 
