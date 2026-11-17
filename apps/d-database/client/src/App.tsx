@@ -228,6 +228,7 @@ export default function App() {
             <strong>{activePage}</strong>
           </div>
           <div className="topbar-actions">
+            {activePage !== "Overview" && <button className="dashboard-return-button" type="button" onClick={() => setActivePage("Overview")}>← Back to dashboard</button>}
             <div className="connection"><span className="connection-dot"></span> {apiStatus}</div>
             <button className="icon-button" title="Open recent activity" aria-label="Open recent activity" onClick={() => setActivePage("Activity")}>♧</button>
             <div className="theme-control" aria-label="Theme selection">
