@@ -101,7 +101,6 @@ export async function provisionResourceAccess(
       "SELECT role_name, status FROM resource_access_grants WHERE resource_id = $1 FOR UPDATE",
       [resourceId],
     );
-    await client.query("RESET ROLE");
     if (existing.rowCount && existing.rows[0].status === "active") {
       throw new Error("This resource already has an active access grant.");
     }
@@ -125,7 +124,6 @@ export async function provisionResourceAccess(
     for (const statement of plan.configureStatements) {
       await client.query(statement);
     }
-    await client.query("SET ROLE d_database_app");
     await client.query(
       `INSERT INTO resource_access_grants (resource_id, role_name, status)
        VALUES ($1, $2, 'active')
@@ -159,8 +157,8 @@ export async function revokeResourceAccess(resourceId: string): Promise<void> {
        WHERE resource_id = $1 AND status = 'active' FOR UPDATE`,
       [resourceId],
     );
-    await client.query("RESET ROLE");
     if (grant.rowCount === 0) {
+      await client.query("RESET ROLE");
       await client.query("COMMIT");
       return;
     }
@@ -169,11 +167,14 @@ export async function revokeResourceAccess(resourceId: string): Promise<void> {
     if (!/^dsq_app_[0-9a-f]{32}$/.test(roleName)) {
       throw new Error("Stored resource access role is invalid.");
     }
+
     await client.query(`ALTER ROLE "${roleName}" NOLOGIN`);
-    await client.query(
+    await client.query("RESET ROLE");
+    await pool.query(
       "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = $1 AND pid <> pg_backend_pid()",
       [roleName],
     );
+
     await client.query("SET ROLE d_database_app");
     await client.query(
       `UPDATE resource_access_grants
