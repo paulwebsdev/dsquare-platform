@@ -101,7 +101,6 @@ export async function provisionResourceAccess(
       "SELECT role_name, status FROM resource_access_grants WHERE resource_id = $1 FOR UPDATE",
       [resourceId],
     );
-    await client.query("RESET ROLE");
     if (existing.rowCount && existing.rows[0].status === "active") {
       throw new Error("This resource already has an active access grant.");
     }
@@ -125,7 +124,6 @@ export async function provisionResourceAccess(
     for (const statement of plan.configureStatements) {
       await client.query(statement);
     }
-    await client.query("SET ROLE d_database_app");
     await client.query(
       `INSERT INTO resource_access_grants (resource_id, role_name, status)
        VALUES ($1, $2, 'active')
