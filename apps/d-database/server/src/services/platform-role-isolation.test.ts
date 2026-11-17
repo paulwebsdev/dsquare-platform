@@ -30,6 +30,9 @@ testRunner("D Database runtime role is not elevated by startup reconciliation", 
   assert.match(databaseIndex, /GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO d_database_app/);
   assert.match(databaseIndex, /REVOKE ALL ON TABLE dsquare_schema_migrations FROM d_database_app/);
   assert.match(databaseIndex, /runtime_can_create_roles/);
+  assert.match(databaseIndex, /assertResourceProvisionerReady\(\)/);
+  assert.match(databaseIndex, /DB_PROVISIONER_URL/);
+  assert.match(databaseIndex, /can_grant_connect/);
 });
 
 testRunner("both products require a distinct, non-elevated production migration identity", () => {
