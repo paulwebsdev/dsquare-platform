@@ -1,6 +1,6 @@
 import { readdir } from "node:fs/promises";
 import path from "node:path";
-import { createPersistentStorageBackup, prunePersistentBackups, type PersistentBackup } from "./persistent-storage-backups.js";
+import { assertPersistentBackupRootSeparated, createPersistentStorageBackup, prunePersistentBackups, type PersistentBackup } from "./persistent-storage-backups.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -49,11 +49,7 @@ export function startPersistentBackupScheduler(input: {
   if (!Number.isInteger(input.retentionDays) || input.retentionDays < 1 || input.retentionDays > 3650) throw new Error("Persistent backup retention must be between 1 and 3650 days.");
   const storageRoot = path.resolve(input.storageRoot);
   const backupRoot = path.resolve(input.backupRoot);
-  const relativeBackup = path.relative(storageRoot, backupRoot);
-  const relativeStorage = path.relative(backupRoot, storageRoot);
-  if (!relativeBackup || (!relativeBackup.startsWith("..") && !path.isAbsolute(relativeBackup)) || !relativeStorage.startsWith("..")) {
-    throw new Error("Persistent backups must use a separate directory outside the website storage root.");
-  }
+  assertPersistentBackupRootSeparated(storageRoot, backupRoot);
   if (!Number.isInteger(input.intervalMs) || input.intervalMs < 60_000 || input.intervalMs > 7 * 86400_000) {
     throw new Error("Persistent backup interval must be between one minute and seven days.");
   }
