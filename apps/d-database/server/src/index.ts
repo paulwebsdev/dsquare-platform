@@ -164,7 +164,12 @@ async function ensureDatabaseAppDatabasePrivileges(grantPool: typeof pool): Prom
     `GRANT CONNECT, CREATE ON DATABASE "${databaseName}" TO d_database_app`,
   );
   await grantPool.query("GRANT USAGE ON SCHEMA public TO d_database_app");
-  console.log("D Database runtime-role database privileges are present.");
+  await grantPool.query("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO d_database_app");
+  await grantPool.query("REVOKE ALL ON TABLE dsquare_schema_migrations FROM d_database_app");
+  await grantPool.query("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO d_database_app");
+  await grantPool.query("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO d_database_app");
+  await grantPool.query("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO d_database_app");
+  console.log("D Database runtime-role database and table privileges are present.");
 }
 
 async function startServer() {
@@ -177,15 +182,17 @@ async function startServer() {
       const [runtimeIdentity, migrationIdentity] = await Promise.all([
         pool.query("SELECT current_user AS role_name"),
         migrationPool.query(
-          "SELECT current_user AS role_name, rolsuper FROM pg_roles WHERE rolname = current_user",
+          "SELECT current_user AS role_name, rolsuper, rolcreatedb, rolcreaterole FROM pg_roles WHERE rolname = current_user",
         ),
       ]);
       if (
         runtimeIdentity.rows[0]?.role_name === migrationIdentity.rows[0]?.role_name ||
-        migrationIdentity.rows[0]?.rolsuper
+        migrationIdentity.rows[0]?.rolsuper ||
+        migrationIdentity.rows[0]?.rolcreatedb ||
+        migrationIdentity.rows[0]?.rolcreaterole
       ) {
         throw new Error(
-          "Production migrations require a distinct, non-superuser schema-owner identity; the application role must remain separate.",
+          "Production migrations require a distinct, non-elevated schema-owner identity; the application role must remain separate.",
         );
       }
     }
