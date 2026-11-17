@@ -147,6 +147,28 @@ app.use((req, res, next) => {
 
 const PORT = Number(process.env.PORT || 5002);
 
+async function ensureHostingRuntimePrivileges(grantPool: typeof pool): Promise<void> {
+  const role = await grantPool.query(
+    "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'd_hosting_app') AS role_exists",
+  );
+  if (!role.rows[0]?.role_exists) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("D Hosting production requires the d_hosting_app runtime role.");
+    }
+    console.warn("D Hosting runtime role d_hosting_app is missing; a DBA must create it before production use.");
+    return;
+  }
+
+  // Migrations and grants are executed by the dedicated schema-owner identity.
+  // The runtime connection is never used to grant itself additional privileges.
+  await grantPool.query("GRANT USAGE ON SCHEMA public TO d_hosting_app");
+  await grantPool.query("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO d_hosting_app");
+  await grantPool.query("REVOKE ALL ON TABLE dsquare_schema_migrations FROM d_hosting_app");
+  await grantPool.query("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO d_hosting_app");
+  await grantPool.query("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO d_hosting_app");
+  await grantPool.query("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO d_hosting_app");
+}
+
 async function startServer() {
   try {
     if (process.env.NODE_ENV === "production" && !existsSync(clientIndexPath)) {
@@ -174,6 +196,7 @@ async function startServer() {
     }
 
     await runMigrations(migrationPool);
+    await ensureHostingRuntimePrivileges(migrationPool);
     if (migrationPool !== pool) {
       await migrationPool.end();
       console.log("D Hosting schema migrations completed with the dedicated migration connection.");
@@ -188,11 +211,6 @@ async function startServer() {
     ) {
       throw new Error("D Hosting runtime identity must not have SUPERUSER, CREATEDB, or CREATEROLE.");
     }
-    await pool.query("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO d_hosting_app");
-    await pool.query("REVOKE ALL ON TABLE dsquare_schema_migrations FROM d_hosting_app");
-    await pool.query("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO d_hosting_app");
-    await pool.query("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO d_hosting_app");
-    await pool.query("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO d_hosting_app");
     await pool.query("SELECT 1");
     startHostingBackupScheduler(pool);
 
