@@ -203,13 +203,18 @@ async function startServer() {
       await migrationPool.end();
       console.log("D Hosting schema migrations completed with the dedicated migration connection.");
     }
-    const runtimeRole = await pool.query(
-      "SELECT current_user AS role_name, rolsuper, rolcreatedb, rolcreaterole FROM pg_roles WHERE rolname = current_user",
-    );
+    const runtimeRole = await pool.query(`
+      SELECT current_user AS role_name, rolsuper, rolcreatedb, rolcreaterole,
+        pg_has_role(current_user, 'pg_signal_backend', 'MEMBER') AS can_signal_backend,
+        pg_has_role(current_user, 'pg_read_server_files', 'MEMBER') AS can_read_server_files,
+        pg_has_role(current_user, 'pg_write_server_files', 'MEMBER') AS can_write_server_files,
+        pg_has_role(current_user, 'pg_execute_server_program', 'MEMBER') AS can_execute_server_program
+      FROM pg_roles WHERE rolname = current_user
+    `);
     const runtimeIdentity = runtimeRole.rows[0];
     if (
       process.env.NODE_ENV === "production" &&
-      (!runtimeIdentity || runtimeIdentity.role_name !== "d_hosting_app" || runtimeIdentity.rolsuper || runtimeIdentity.rolcreatedb || runtimeIdentity.rolcreaterole)
+      (!runtimeIdentity || runtimeIdentity.role_name !== "d_hosting_app" || runtimeIdentity.rolsuper || runtimeIdentity.rolcreatedb || runtimeIdentity.rolcreaterole || runtimeIdentity.can_signal_backend || runtimeIdentity.can_read_server_files || runtimeIdentity.can_write_server_files || runtimeIdentity.can_execute_server_program)
     ) {
       throw new Error("D Hosting runtime identity must not have SUPERUSER, CREATEDB, or CREATEROLE.");
     }
