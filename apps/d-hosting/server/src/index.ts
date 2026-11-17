@@ -184,7 +184,9 @@ async function startServer() {
         ),
       ]);
       if (
-        runtimeIdentity.rows[0]?.role_name !== "d_hosting_app" ||\n        migrationIdentity.rows[0]?.role_name !== "d_hosting_migrator" ||\n        runtimeIdentity.rows[0]?.role_name === migrationIdentity.rows[0]?.role_name ||
+        runtimeIdentity.rows[0]?.role_name !== "d_hosting_app" ||
+        migrationIdentity.rows[0]?.role_name !== "d_hosting_migrator" ||
+        runtimeIdentity.rows[0]?.role_name === migrationIdentity.rows[0]?.role_name ||
         migrationIdentity.rows[0]?.rolsuper ||
         migrationIdentity.rows[0]?.rolcreatedb ||
         migrationIdentity.rows[0]?.rolcreaterole
