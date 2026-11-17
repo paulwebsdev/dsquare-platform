@@ -20,7 +20,7 @@ const [
   read("../../../../d-hosting/server/src/index.ts"),
   read("../../../../d-hosting/server/src/config/database.ts"),
   read("../../../../d-hosting/server/src/services/platform-backup-worker.ts"),
-  read("../../services/database-backup-worker.ts"),
+  read("database-backup-worker.ts"),
 ]);
 
 testRunner("D Database runtime role is not elevated by startup reconciliation", () => {
