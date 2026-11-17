@@ -27,9 +27,9 @@ export function isSupportedPasswordHash(storedHash: string): boolean {
   return (
     brand === "dsquare-scrypt" &&
     version === "v1" &&
-    Boolean(salt) &&
+    typeof salt === "string" &&
     /^[a-f0-9]{32}$/i.test(salt) &&
-    Boolean(key) &&
+    typeof key === "string" &&
     /^[a-f0-9]{128}$/i.test(key)
   );
 }
