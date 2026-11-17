@@ -144,7 +144,43 @@ async function startServer() {
     }
 
     await runMigrations(pool);
-    await pool.query("SELECT 1");
+    const permissionResult = await pool.query(`
+      SELECT
+        current_user AS database_role,
+        current_database() AS database_name,
+        has_database_privilege(current_user, current_database(), 'CREATE') AS can_create_schemas,
+        EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'd_database_app') AS app_role_exists,
+        CASE
+          WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'd_database_app')
+          THEN pg_has_role(current_user, 'd_database_app', 'MEMBER')
+          ELSE FALSE
+        END AS can_assign_app_schema_owner,
+        has_table_privilege(current_user, 'public.projects', 'SELECT') AS can_read_projects,
+        has_table_privilege(current_user, 'public.projects', 'INSERT') AS can_create_projects,
+        has_table_privilege(current_user, 'public.database_resources', 'SELECT') AS can_read_resources,
+        has_table_privilege(current_user, 'public.database_resources', 'INSERT') AS can_create_resources,
+        has_table_privilege(current_user, 'public.users', 'SELECT') AS can_read_users,
+        has_table_privilege(current_user, 'public.users', 'INSERT') AS can_create_users,
+        has_table_privilege(current_user, 'public.user_sessions', 'SELECT') AS can_read_sessions,
+        has_table_privilege(current_user, 'public.user_sessions', 'INSERT') AS can_create_sessions
+    `);
+    const permissions = permissionResult.rows[0];
+    console.info("D Database PostgreSQL permission preflight:", permissions);
+    if (
+      !permissions.can_create_schemas ||
+      !permissions.app_role_exists ||
+      !permissions.can_assign_app_schema_owner ||
+      !permissions.can_read_projects ||
+      !permissions.can_create_projects ||
+      !permissions.can_read_resources ||
+      !permissions.can_create_resources ||
+      !permissions.can_read_users ||
+      !permissions.can_create_users ||
+      !permissions.can_read_sessions ||
+      !permissions.can_create_sessions
+    ) {
+      console.warn("D Database PostgreSQL permissions are incomplete; account or resource operations may fail.");
+    }
     startDatabaseBackupScheduler(pool);
 
     app.listen(PORT, "0.0.0.0", () => {
