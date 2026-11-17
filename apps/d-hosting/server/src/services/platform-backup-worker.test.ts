@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getHostingBackupConfig } from "./platform-backup-worker.js";
+import { getHostingBackupConfig, runHostingPlatformBackup } from "./platform-backup-worker.js";
 
 test("backup configuration is optional when no backup settings are supplied", () => {
   assert.equal(getHostingBackupConfig({} as NodeJS.ProcessEnv), null);
@@ -178,5 +178,62 @@ test("hosting retention preserves completed metadata when storage deletion fails
       if (previous[index] === undefined) delete process.env[key];
       else process.env[key] = previous[index];
     });
+  }
+});
+
+
+test("hosting worker marks interrupted dump creation failed without uploading an archive", async () => {
+  const statements: string[] = [];
+  let uploads = 0;
+  const pool = { query: async (sql: string) => { statements.push(sql); return { rows: [], rowCount: 1 }; } } as never;
+  const storage = {
+    send: async (command: unknown) => {
+      if (command instanceof (await import("@aws-sdk/client-s3")).PutObjectCommand) uploads++;
+      return {};
+    },
+    destroy: () => undefined,
+  } as never;
+  const keys = ["D_HOSTING_BACKUP_ENDPOINT","D_HOSTING_BACKUP_BUCKET","D_HOSTING_BACKUP_ACCESS_KEY_ID","D_HOSTING_BACKUP_SECRET_ACCESS_KEY"] as const;
+  const previous = keys.map((key) => process.env[key]);
+  process.env.D_HOSTING_BACKUP_ENDPOINT = "https://storage.example.test";
+  process.env.D_HOSTING_BACKUP_BUCKET = "private-bucket";
+  process.env.D_HOSTING_BACKUP_ACCESS_KEY_ID = "access";
+  process.env.D_HOSTING_BACKUP_SECRET_ACCESS_KEY = "secret";
+  try {
+    const result = await runHostingPlatformBackup(pool, { dump: async () => { throw new Error("simulated interrupted pg_dump"); }, storage });
+    assert.deepEqual(result, { completed: false, skipped: false });
+    assert.equal(uploads, 0);
+    assert.ok(statements.some((sql) => sql.includes("status='failed'")));
+  } finally {
+    keys.forEach((key, index) => previous[index] === undefined ? delete process.env[key] : process.env[key] = previous[index]!);
+  }
+});
+
+test("hosting worker marks interrupted storage uploads failed and attempts object cleanup", async () => {
+  const statements: string[] = [];
+  const commands: string[] = [];
+  const pool = { query: async (sql: string) => { statements.push(sql); return { rows: [], rowCount: 1 }; } } as never;
+  const { PutObjectCommand, DeleteObjectCommand } = await import("@aws-sdk/client-s3");
+  const storage = {
+    send: async (command: unknown) => {
+      if (command instanceof PutObjectCommand) throw new Error("simulated interrupted upload");
+      if (command instanceof DeleteObjectCommand) commands.push("delete");
+      return {};
+    },
+    destroy: () => undefined,
+  } as never;
+  const keys = ["D_HOSTING_BACKUP_ENDPOINT","D_HOSTING_BACKUP_BUCKET","D_HOSTING_BACKUP_ACCESS_KEY_ID","D_HOSTING_BACKUP_SECRET_ACCESS_KEY"] as const;
+  const previous = keys.map((key) => process.env[key]);
+  process.env.D_HOSTING_BACKUP_ENDPOINT = "https://storage.example.test";
+  process.env.D_HOSTING_BACKUP_BUCKET = "private-bucket";
+  process.env.D_HOSTING_BACKUP_ACCESS_KEY_ID = "access";
+  process.env.D_HOSTING_BACKUP_SECRET_ACCESS_KEY = "secret";
+  try {
+    const result = await runHostingPlatformBackup(pool, { dump: async () => Buffer.from("partial-or-full-dump"), storage });
+    assert.deepEqual(result, { completed: false, skipped: false });
+    assert.deepEqual(commands, ["delete"]);
+    assert.ok(statements.some((sql) => sql.includes("status='failed'")));
+  } finally {
+    keys.forEach((key, index) => previous[index] === undefined ? delete process.env[key] : process.env[key] = previous[index]!);
   }
 });
