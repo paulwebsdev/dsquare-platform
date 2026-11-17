@@ -184,7 +184,7 @@ async function startServer() {
         ),
       ]);
       if (
-        runtimeIdentity.rows[0]?.role_name === migrationIdentity.rows[0]?.role_name ||
+        runtimeIdentity.rows[0]?.role_name !== "d_hosting_app" ||\n        migrationIdentity.rows[0]?.role_name !== "d_hosting_migrator" ||\n        runtimeIdentity.rows[0]?.role_name === migrationIdentity.rows[0]?.role_name ||
         migrationIdentity.rows[0]?.rolsuper ||
         migrationIdentity.rows[0]?.rolcreatedb ||
         migrationIdentity.rows[0]?.rolcreaterole
@@ -207,7 +207,7 @@ async function startServer() {
     const runtimeIdentity = runtimeRole.rows[0];
     if (
       process.env.NODE_ENV === "production" &&
-      (!runtimeIdentity || runtimeIdentity.rolsuper || runtimeIdentity.rolcreatedb || runtimeIdentity.rolcreaterole)
+      (!runtimeIdentity || runtimeIdentity.role_name !== "d_hosting_app" || runtimeIdentity.rolsuper || runtimeIdentity.rolcreatedb || runtimeIdentity.rolcreaterole)
     ) {
       throw new Error("D Hosting runtime identity must not have SUPERUSER, CREATEDB, or CREATEROLE.");
     }
