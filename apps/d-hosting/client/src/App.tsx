@@ -3,6 +3,7 @@ import "./style.css";
 import ProjectManager from "./components/ProjectManager";
 import AuthScreen, { type AuthUser } from "./components/AuthScreen";
 import DatabaseConnections from "./components/DatabaseConnections";
+import DeveloperApiKeys from "./components/DeveloperApiKeys";
 import { HelpSupport, ResourceDirectory, UsageBilling, WorkspaceActivity, WorkspaceSettings } from "./components/WorkspacePages";
 type Theme = "light" | "dark" | "system";
 
@@ -18,6 +19,7 @@ const navigation = [
   { label: "Overview", icon: "◫" },
   { label: "Projects", icon: "▦" },
   { label: "Resources", icon: "◈" },
+  { label: "API Keys", icon: "⌘" },
   { label: "Database Connections", icon: "⇄" },
   { label: "Usage & Billing", icon: "▤" },
   { label: "Activity", icon: "◷" },
@@ -232,6 +234,8 @@ export default function App() {
             <HelpSupport product={product} onNavigate={setActivePage} />
           ) : activePage === "Settings" ? (
             <WorkspaceSettings product={product} user={user} theme={theme} onThemeChange={setTheme} onSignOut={() => void handleLogout()} />
+          ) : activePage === "API Keys" ? (
+            <DeveloperApiKeys apiStatus={apiStatus} onBackToDashboard={() => setActivePage("Overview")} onOpenConnections={() => setActivePage("Database Connections")} onOpenProjects={() => setActivePage("Projects")} />
           ) : activePage === "Database Connections" ? (
             <DatabaseConnections />
           ) : (
