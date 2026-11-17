@@ -87,3 +87,11 @@ These checks cannot be claimed from repository CI alone:
 - **Production ready:** Only after all operational blockers in section 4 are signed off.
 
 Do not collapse these three decisions into a single complete status. Record the approver, date, commit SHA, CI run IDs, staging evidence location, and any accepted limitations.
+
+
+## 6. Batch 11 repository CI evidence
+
+- Candidate commit: `87fedd7e6f6075a0c4e5c62795dfeb167eb713a7`.
+- GitHub Actions run: `1156` (run ID `44165719308`), completed successfully.
+- Successful jobs: D Database API tests/typecheck; D Database dashboard configuration tests/typecheck/build; D Hosting API tests/typecheck; D Hosting dashboard typecheck/build; runtime-agent tests/typecheck; real PostgreSQL platform backup/restore and corrupt-archive safety test; rootless Podman Linux smoke test with persistent-volume survival.
+- This evidence verifies the automated repository suite on the candidate branch. It does not certify the live staging customer journey or production Linux host operational gates in section 4.
