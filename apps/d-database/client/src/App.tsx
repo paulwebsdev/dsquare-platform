@@ -244,7 +244,7 @@ export default function App() {
           ) : activePage === RESOURCE_LABEL ? (
             <ResourceDirectory onOpenProjects={() => setActivePage("Projects")} onOpenResource={openWorkspaceResource} />
           ) : activePage === "API Keys" ? (
-            <DeveloperApiKeys />
+            <DeveloperApiKeys onBackToDashboard={() => setActivePage("Overview")} onOpenProjects={() => setActivePage("Projects")} />
           ) : activePage === "Activity" ? (
             <WorkspaceActivity onOpenProjects={() => setActivePage("Projects")} />
           ) : activePage === "Usage & Billing" ? (
