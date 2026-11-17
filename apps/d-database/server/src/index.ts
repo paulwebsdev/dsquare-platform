@@ -137,36 +137,34 @@ app.use((req, res, next) => {
 
 const PORT = Number(process.env.PORT || 5001);
 
-async function ensureDatabaseAppGrants(grantPool: typeof pool): Promise<void> {
+async function ensureDatabaseAppDatabasePrivileges(grantPool: typeof pool): Promise<void> {
   const role = await grantPool.query(
     "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'd_database_app') AS role_exists",
   );
   if (!role.rows[0]?.role_exists) {
     console.warn(
-      "D Database role d_database_app is missing. Resource creation and runtime provisioning require a DBA to create this role.",
+      "D Database role d_database_app is missing. A DBA must create the restricted runtime role before resource operations can run.",
     );
     return;
   }
 
-  try {
-    await grantPool.query("ALTER ROLE d_database_app CREATEROLE");
-    const databaseNameResult = await grantPool.query("SELECT current_database() AS database_name");
-    const databaseName = String(databaseNameResult.rows[0]?.database_name || "").replace(/"/g, '""');
-    if (!databaseName) throw new Error("Could not determine the current PostgreSQL database name.");
-    await grantPool.query(
-      `GRANT CONNECT ON DATABASE "${databaseName}" TO d_database_app WITH GRANT OPTION`,
-    );
-    await grantPool.query("GRANT USAGE ON SCHEMA public TO d_database_app");
-    await grantPool.query(
-      "GRANT SELECT, INSERT, UPDATE ON TABLE resource_access_grants, developer_api_keys TO d_database_app",
-    );
-    console.log("D Database application-role permissions are present.");
-  } catch (error) {
-    console.warn(
-      "D Database could not reconcile d_database_app table grants; check migration-role privileges:",
-      error instanceof Error ? error.message : "Unknown database error",
-    );
+  const databaseNameResult = await grantPool.query(
+    "SELECT current_database() AS database_name",
+  );
+  const databaseName = String(databaseNameResult.rows[0]?.database_name || "").replace(/"/g, '""');
+  if (!databaseName) {
+    throw new Error("Could not determine the current PostgreSQL database name.");
   }
+
+  // The migration identity grants only database connection/schema-creation
+  // rights needed by D Database. It never grants CREATEROLE or grant options
+  // to the application identity; role administration stays with the
+  // separately configured resource provisioner.
+  await grantPool.query(
+    `GRANT CONNECT, CREATE ON DATABASE "${databaseName}" TO d_database_app`,
+  );
+  await grantPool.query("GRANT USAGE ON SCHEMA public TO d_database_app");
+  console.log("D Database runtime-role database privileges are present.");
 }
 
 async function startServer() {
@@ -176,7 +174,7 @@ async function startServer() {
     }
 
     await runMigrations(migrationPool);
-    await ensureDatabaseAppGrants(migrationPool);
+    await ensureDatabaseAppDatabasePrivileges(migrationPool);
     if (migrationPool !== pool) {
       await migrationPool.end();
       console.log("D Database schema migrations completed with the dedicated migration connection.");
