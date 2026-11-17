@@ -145,7 +145,7 @@ export async function runHostingBackupRetention(pool: Pool): Promise<number> {
       if (!row.object_key.startsWith(`${config.prefix}/`)) continue;
       try {
         await storage.send(new DeleteObjectCommand({ Bucket: config.bucket, Key: row.object_key }));
-        await pool.query("UPDATE hosting_platform_backups SET status='expired', object_key=NULL, error_code='RETENTION_EXPIRED' WHERE id=$1 AND status='completed'", [row.id]);
+        await pool.query("UPDATE hosting_platform_backups SET status='expired', error_code='RETENTION_EXPIRED' WHERE id=$1 AND status='completed'", [row.id]);
         removed++;
       } catch (error) {
         console.error("D Hosting backup retention cleanup failed:", error instanceof Error ? error.message : "Unknown error");
