@@ -247,7 +247,7 @@ async function runDatabasePlatformBackupRetention(pool: Pool | PoolClient): Prom
       }
       await storage.deleteObject(backup.object_key);
       await pool.query(
-        "UPDATE database_platform_backups SET status='expired', error_code='RETENTION_EXPIRED', object_key=NULL WHERE id=$1 AND status='completed'",
+        "UPDATE database_platform_backups SET status='expired', error_code='RETENTION_EXPIRED' WHERE id=$1 AND status='completed'",
         [backup.id],
       );
       removed++;
