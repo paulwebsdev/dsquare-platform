@@ -153,12 +153,15 @@ async function main(): Promise<void> {
   console.log("Both real platform backup workers produced archives that restored successfully into separate isolated PostgreSQL databases.");
 }
 
-try {
-  await main();
-} finally {
-  globalThis.fetch = originalFetch;
-  for (const key of Object.keys(process.env)) {
-    if (!(key in originalEnv)) delete process.env[key];
-  }
-  await pool.end();
-}
+main()
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    globalThis.fetch = originalFetch;
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) delete process.env[key];
+    }
+    await pool.end();
+  });
