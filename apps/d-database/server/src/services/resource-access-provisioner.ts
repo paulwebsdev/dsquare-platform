@@ -78,7 +78,9 @@ export async function provisionResourceAccess(
     const identity = provisionerIdentity.rows[0];
     if (
       !identity ||
+      identity.role_name !== "d_database_provisioner" ||
       identity.rolsuper ||
+      identity.rolcreatedb ||
       !identity.rolcreaterole ||
       !identity.can_set_app_role ||
       !identity.can_terminate_resource_sessions
@@ -183,7 +185,9 @@ export async function revokeResourceAccess(resourceId: string): Promise<void> {
     const identity = provisionerIdentity.rows[0];
     if (
       !identity ||
+      identity.role_name !== "d_database_provisioner" ||
       identity.rolsuper ||
+      identity.rolcreatedb ||
       !identity.rolcreaterole ||
       !identity.can_set_app_role ||
       !identity.can_terminate_resource_sessions
