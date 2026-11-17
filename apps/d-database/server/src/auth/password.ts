@@ -43,6 +43,10 @@ export async function verifyPassword(
   }
 
   const [, , salt, key] = storedHash.split("$");
+  if (typeof salt !== "string" || typeof key !== "string") {
+    return false;
+  }
+
   const derivedKey = (await scrypt(
     password,
     salt,
