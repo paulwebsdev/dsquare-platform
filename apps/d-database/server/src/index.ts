@@ -150,6 +150,22 @@ async function startServer() {
         current_database() AS database_name,
         has_database_privilege(current_user, current_database(), 'CREATE') AS can_create_schemas,
         EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'd_database_app') AS app_role_exists,
+        (SELECT owner.rolname FROM pg_class AS relation
+          JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+          JOIN pg_roles AS owner ON owner.oid = relation.relowner
+          WHERE namespace.nspname = 'public' AND relation.relname = 'projects') AS projects_table_owner,
+        (SELECT owner.rolname FROM pg_class AS relation
+          JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+          JOIN pg_roles AS owner ON owner.oid = relation.relowner
+          WHERE namespace.nspname = 'public' AND relation.relname = 'database_resources') AS resources_table_owner,
+        (SELECT owner.rolname FROM pg_class AS relation
+          JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+          JOIN pg_roles AS owner ON owner.oid = relation.relowner
+          WHERE namespace.nspname = 'public' AND relation.relname = 'users') AS users_table_owner,
+        (SELECT owner.rolname FROM pg_class AS relation
+          JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+          JOIN pg_roles AS owner ON owner.oid = relation.relowner
+          WHERE namespace.nspname = 'public' AND relation.relname = 'user_sessions') AS sessions_table_owner,
         CASE
           WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'd_database_app')
           THEN pg_has_role(current_user, 'd_database_app', 'MEMBER')
@@ -157,12 +173,16 @@ async function startServer() {
         END AS can_assign_app_schema_owner,
         has_table_privilege(current_user, 'public.projects', 'SELECT') AS can_read_projects,
         has_table_privilege(current_user, 'public.projects', 'INSERT') AS can_create_projects,
+        has_table_privilege(current_user, 'public.projects', 'UPDATE') AS can_update_projects,
         has_table_privilege(current_user, 'public.database_resources', 'SELECT') AS can_read_resources,
         has_table_privilege(current_user, 'public.database_resources', 'INSERT') AS can_create_resources,
+        has_table_privilege(current_user, 'public.database_resources', 'UPDATE') AS can_update_resources,
         has_table_privilege(current_user, 'public.users', 'SELECT') AS can_read_users,
         has_table_privilege(current_user, 'public.users', 'INSERT') AS can_create_users,
+        has_table_privilege(current_user, 'public.users', 'UPDATE') AS can_update_users,
         has_table_privilege(current_user, 'public.user_sessions', 'SELECT') AS can_read_sessions,
-        has_table_privilege(current_user, 'public.user_sessions', 'INSERT') AS can_create_sessions
+        has_table_privilege(current_user, 'public.user_sessions', 'INSERT') AS can_create_sessions,
+        has_table_privilege(current_user, 'public.user_sessions', 'DELETE') AS can_delete_sessions
     `);
     const permissions = permissionResult.rows[0];
     console.info("D Database PostgreSQL permission preflight:", permissions);
@@ -172,12 +192,16 @@ async function startServer() {
       !permissions.can_assign_app_schema_owner ||
       !permissions.can_read_projects ||
       !permissions.can_create_projects ||
+      !permissions.can_update_projects ||
       !permissions.can_read_resources ||
       !permissions.can_create_resources ||
+      !permissions.can_update_resources ||
       !permissions.can_read_users ||
       !permissions.can_create_users ||
+      !permissions.can_update_users ||
       !permissions.can_read_sessions ||
-      !permissions.can_create_sessions
+      !permissions.can_create_sessions ||
+      !permissions.can_delete_sessions
     ) {
       console.warn("D Database PostgreSQL permissions are incomplete; account or resource operations may fail.");
     }
