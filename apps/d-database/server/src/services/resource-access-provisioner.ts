@@ -68,8 +68,26 @@ export async function provisionResourceAccess(
   try {
     await client.query("BEGIN");
 
-    // The provisioner URL is configured separately from the application URL.
-    // Refuse to grant access if it points at a different database.
+    const provisionerIdentity = await client.query(`
+      SELECT current_user AS role_name, role.rolsuper, role.rolcreaterole,
+        pg_has_role(current_user, 'd_database_app', 'MEMBER') AS can_set_app_role,
+        pg_has_role(current_user, 'pg_signal_backend', 'MEMBER') AS can_terminate_resource_sessions
+      FROM pg_roles AS role
+      WHERE role.rolname = current_user
+    `);
+    const identity = provisionerIdentity.rows[0];
+    if (
+      !identity ||
+      identity.rolsuper ||
+      !identity.rolcreaterole ||
+      !identity.can_set_app_role ||
+      !identity.can_terminate_resource_sessions
+    ) {
+      throw new Error(
+        "The dedicated provisioner role must be non-superuser with CREATEROLE, SET membership in d_database_app, and pg_signal_backend membership.",
+      );
+    }
+
     const provisionerDatabaseResult = await client.query(
       "SELECT current_database() AS database_name",
     );
@@ -80,8 +98,6 @@ export async function provisionResourceAccess(
       throw new Error("Provisioner connection points to a different database.");
     }
 
-    // Verify ownership on the provisioner connection itself, not only through
-    // the application pool, so grants cannot target a mismatched schema.
     const provisionerOwnerResult = await client.query(
       `SELECT owner.rolname AS schema_owner
        FROM pg_namespace AS namespace
@@ -96,6 +112,9 @@ export async function provisionResourceAccess(
       throw new Error("Provisioner database resource schema ownership does not match.");
     }
 
+    // The provisioner performs role administration. It must not SET ROLE to
+    // d_database_app for CREATE/ALTER ROLE; the application role stays free
+    // of CREATEROLE. Metadata and schema grants run under the schema owner.
     await client.query("SET ROLE d_database_app");
     const existing = await client.query(
       "SELECT role_name, status FROM resource_access_grants WHERE resource_id = $1 FOR UPDATE",
@@ -104,24 +123,24 @@ export async function provisionResourceAccess(
     if (existing.rowCount && existing.rows[0].status === "active") {
       throw new Error("This resource already has an active access grant.");
     }
+    if (existing.rowCount && String(existing.rows[0].role_name) !== plan.roleName) {
+      throw new Error("Stored resource access role does not match the resource.");
+    }
+    await client.query("RESET ROLE");
 
     if (existing.rowCount) {
-      const storedRole = String(existing.rows[0].role_name);
-      if (storedRole !== plan.roleName) {
-        throw new Error("Stored resource access role does not match the resource.");
-      }
       await client.query(
         `ALTER ROLE "${plan.roleName}" LOGIN PASSWORD '${plan.password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT`,
       );
     } else {
       await client.query(plan.createRole);
     }
-    for (const statement of plan.grantStatements) {
+    for (const statement of plan.configureStatements) {
       await client.query(statement);
     }
-    // Reapply settings for both newly-created and previously-revoked roles.
-    // PostgreSQL enforces these limits regardless of the website's own pg Pool.
-    for (const statement of plan.configureStatements) {
+
+    await client.query("SET ROLE d_database_app");
+    for (const statement of plan.grantStatements) {
       await client.query(statement);
     }
     await client.query(
@@ -151,14 +170,34 @@ export async function revokeResourceAccess(resourceId: string): Promise<void> {
   const client = await resourceProvisionerPool.connect();
   try {
     await client.query("BEGIN");
+    const provisionerIdentity = await client.query(`
+      SELECT current_user AS role_name, role.rolsuper, role.rolcreaterole,
+        pg_has_role(current_user, 'd_database_app', 'MEMBER') AS can_set_app_role,
+        pg_has_role(current_user, 'pg_signal_backend', 'MEMBER') AS can_terminate_resource_sessions
+      FROM pg_roles AS role
+      WHERE role.rolname = current_user
+    `);
+    const identity = provisionerIdentity.rows[0];
+    if (
+      !identity ||
+      identity.rolsuper ||
+      !identity.rolcreaterole ||
+      !identity.can_set_app_role ||
+      !identity.can_terminate_resource_sessions
+    ) {
+      throw new Error(
+        "The dedicated provisioner role must be non-superuser with CREATEROLE, SET membership in d_database_app, and pg_signal_backend membership.",
+      );
+    }
+
     await client.query("SET ROLE d_database_app");
     const grant = await client.query(
       `SELECT role_name FROM resource_access_grants
        WHERE resource_id = $1 AND status = 'active' FOR UPDATE`,
       [resourceId],
     );
+    await client.query("RESET ROLE");
     if (grant.rowCount === 0) {
-      await client.query("RESET ROLE");
       await client.query("COMMIT");
       return;
     }
@@ -168,9 +207,9 @@ export async function revokeResourceAccess(resourceId: string): Promise<void> {
       throw new Error("Stored resource access role is invalid.");
     }
 
+    // Only the dedicated CREATEROLE provisioner can disable customer logins.
     await client.query(`ALTER ROLE "${roleName}" NOLOGIN`);
-    await client.query("RESET ROLE");
-    await pool.query(
+    await client.query(
       "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = $1 AND pid <> pg_backend_pid()",
       [roleName],
     );
