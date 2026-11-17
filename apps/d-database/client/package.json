@@ -7,7 +7,7 @@
     "typecheck": "tsc --noEmit",
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
-    "test": "tsx --test src/product.test.ts"
+    "test": "tsx --test tests/product.test.ts"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",
