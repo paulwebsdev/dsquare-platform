@@ -141,7 +141,7 @@ export async function runDatabaseBackupRetentionSweep(pool: Pool | PoolClient): 
       }
       await storage.deleteObject(backup.object_key);
       await pool.query(
-        "UPDATE database_backups SET status = 'expired', error_code = 'RETENTION_EXPIRED', object_key = NULL WHERE id = $1 AND status = 'completed'",
+        "UPDATE database_backups SET status = 'expired', error_code = 'RETENTION_EXPIRED' WHERE id = $1 AND status = 'completed'",
         [backup.id],
       );
       removed++;
