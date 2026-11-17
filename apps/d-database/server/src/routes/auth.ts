@@ -15,6 +15,7 @@ import {
 const router = Router();
 const COOKIE_NAME = "dsquare_database_session";
 const SESSION_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
+const authRateLimit = createRateLimiter(10, 15 * 60 * 1000);
 const passwordResetRateLimit = createRateLimiter(5, 15 * 60 * 1000);
 
 function getSessionToken(req: Request): string | null {
@@ -45,7 +46,7 @@ function clearSessionCookie(res: Response): void {
   });
 }
 
-router.post("/register", async (req, res) => {
+router.post("/register", authRateLimit, async (req, res) => {
   try {
     const email =
       typeof req.body?.email === "string" ? req.body.email.trim() : "";
@@ -83,7 +84,7 @@ router.post("/register", async (req, res) => {
   }
 });
 
-router.post("/login", async (req, res) => {
+router.post("/login", authRateLimit, async (req, res) => {
   try {
     const email =
       typeof req.body?.email === "string" ? req.body.email.trim() : "";
