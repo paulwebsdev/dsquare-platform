@@ -157,8 +157,8 @@ export async function revokeResourceAccess(resourceId: string): Promise<void> {
        WHERE resource_id = $1 AND status = 'active' FOR UPDATE`,
       [resourceId],
     );
-    await client.query("RESET ROLE");
     if (grant.rowCount === 0) {
+      await client.query("RESET ROLE");
       await client.query("COMMIT");
       return;
     }
@@ -167,11 +167,18 @@ export async function revokeResourceAccess(resourceId: string): Promise<void> {
     if (!/^dsq_app_[0-9a-f]{32}$/.test(roleName)) {
       throw new Error("Stored resource access role is invalid.");
     }
+
+    // Role administration must run as the non-login application owner role.
     await client.query(`ALTER ROLE "${roleName}" NOLOGIN`);
-    await client.query(
+    await client.query("RESET ROLE");
+
+    // The scoped provisioner intentionally does not receive pg_signal_backend.
+    // Use the main owner connection to terminate sessions for this exact role.
+    await pool.query(
       "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = $1 AND pid <> pg_backend_pid()",
       [roleName],
     );
+
     await client.query("SET ROLE d_database_app");
     await client.query(
       `UPDATE resource_access_grants
