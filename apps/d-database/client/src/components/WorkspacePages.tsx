@@ -62,18 +62,18 @@ export function ResourceDirectory({ onOpenProjects, onOpenResource }: { onOpenPr
       </div>
       {error && <div className="pm-error" role="alert">{error}</div>}
       <div className="pm-toolbar">
-        <span className="pm-tabs"><strong>{entries.length} resource{entries.length === 1 ? "" : "s"}</strong></span>
-        <input className="pm-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search resources or projects..." aria-label="Search resources" />
+        <span className="pm-tabs"><strong>{entries.length} database{entries.length === 1 ? "" : "s"}</strong></span>
+        <input className="pm-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search databases or projects..." aria-label="Search databases" />
       </div>
-      {loading ? <div className="pm-empty panel"><div className="pm-spinner" /><strong>Loading resources...</strong></div>
+      {loading ? <div className="pm-empty panel"><div className="pm-spinner" /><strong>Loading databases...</strong></div>
         : visible.length ? <div className="pm-project-grid">{visible.map(({ project, resource }) => (
           <article className="pm-project-card panel" key={resource.id}>
             <div className="pm-card-top"><div className="pm-project-avatar">{resource.name.charAt(0).toUpperCase()}</div><span className={`pm-status ${resource.status}`}>{resource.status}</span></div>
             <h3>{resource.name}</h3>
             <p className="pm-card-description">{project.name} · {resource.engine?.toLowerCase() === "postgresql" ? "PostgreSQL database" : resource.engine || "Database resource"}</p>
-            <div className="pm-card-footer"><span>Updated {resource.updated_at ? new Date(resource.updated_at).toLocaleDateString() : "—"}</span><button onClick={() => onOpenResource(project.id, resource.id)}>Open resource →</button></div>
+            <div className="pm-card-footer"><span>Updated {resource.updated_at ? new Date(resource.updated_at).toLocaleDateString() : "—"}</span><button onClick={() => onOpenResource(project.id, resource.id)}>Open database →</button></div>
           </article>
-        ))}</div> : <div className="pm-empty panel"><div className="pm-empty-icon">◈</div><h2>{search ? "No matching resources" : "No resources yet"}</h2><p>{search ? "Try another search term." : "Create a database inside one of your projects to see it here."}</p><button className="primary-button" onClick={onOpenProjects}>Go to projects</button></div>}
+        ))}</div> : <div className="pm-empty panel"><div className="pm-empty-icon">◈</div><h2>{search ? "No matching databases" : "No databases yet"}</h2><p>{search ? "Try another search term." : "Create a database inside one of your projects to see it here."}</p><button className="primary-button" onClick={onOpenProjects}>Go to projects</button></div>}
     </section>
   );
 }
@@ -200,13 +200,13 @@ export function WorkspaceActivity({ onOpenProjects }: { onOpenProjects: () => vo
 
   return (
     <section className="pm-page">
-      <div className="pm-heading"><div><div className="welcome-date">WORKSPACE HISTORY</div><h1>Activity</h1><p>Recent project and resource creation and last-update timestamps.</p></div><button className="secondary-button" onClick={onOpenProjects}>View projects</button></div>
+      <div className="pm-heading"><div><div className="welcome-date">WORKSPACE HISTORY</div><h1>Activity</h1><p>Recent project and database creation and last-update timestamps.</p></div><button className="secondary-button" onClick={onOpenProjects}>View projects</button></div>
       {error && <div className="pm-error" role="alert">{error}</div>}
       {loading ? <div className="pm-empty panel"><div className="pm-spinner" /><strong>Loading activity...</strong></div>
         : items.length ? <div className="panel">{items.map((item) => (
           <div className="system-row" key={item.id}><div><strong>{item.title}</strong><div className="pm-card-description">{item.detail}</div></div><span>{new Date(item.at).toLocaleString()}</span></div>
         ))}</div>
-        : <div className="pm-empty panel"><div className="pm-empty-icon">◷</div><h2>No activity recorded yet</h2><p>Project and resource creation or updates will appear here.</p><button className="primary-button" onClick={onOpenProjects}>Go to projects</button></div>}
+        : <div className="pm-empty panel"><div className="pm-empty-icon">◷</div><h2>No activity recorded yet</h2><p>Project and database creation or updates will appear here.</p><button className="primary-button" onClick={onOpenProjects}>Go to projects</button></div>}
       <p className="pm-card-description">This view uses saved creation and last-update timestamps. It is not a complete audit log of every action.</p>
     </section>
   );
@@ -266,7 +266,7 @@ export function UsageBilling({ product, onOpenProjects }: { product: string; onO
 export function HelpSupport({ product, onNavigate }: { product: string; onNavigate: (page: string) => void }) {
   const links = [
     { title: "Projects", detail: "Create, rename, archive, and restore workspace projects." },
-    { title: "Resources", detail: "Review the databases inside your projects." },
+    { title: "Databases", detail: "Review the databases inside your projects." },
     { title: "Activity", detail: "Check saved project and resource creation or update timestamps." },
     { title: "Settings", detail: "Change the appearance or sign out of this workspace." }
   ];
