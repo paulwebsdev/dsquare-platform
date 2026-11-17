@@ -68,6 +68,72 @@ async function main(): Promise<void> {
     );
   `);
 
+  const hostingAppPassword = "hosting_ci_runtime_only";
+  const databaseAppPassword = "database_ci_runtime_only";
+  const provisionerPassword = "database_ci_provisioner_only";
+  const rolePasswordSql = (value: string) => "'" + value.replace(/'/g, "''") + "'";
+  const runtimeRoles = [
+    ["d_hosting_app", hostingAppPassword, false],
+    ["d_database_app", databaseAppPassword, false],
+    ["d_database_provisioner", provisionerPassword, true],
+  ] as const;
+  for (const [role, password, canCreateRoles] of runtimeRoles) {
+    const exists = await pool.query("SELECT 1 FROM pg_roles WHERE rolname = $1", [role]);
+    const attributes = `LOGIN NOSUPERUSER NOCREATEDB ${canCreateRoles ? "CREATEROLE" : "NOCREATEROLE"} NOINHERIT PASSWORD ${rolePasswordSql(password)}`;
+    if (exists.rowCount) await pool.query(`ALTER ROLE "${role}" ${attributes}`);
+    else await pool.query(`CREATE ROLE "${role}" ${attributes}`);
+  }
+  await pool.query(`
+    GRANT CONNECT ON DATABASE "${source.replace(/"/g, '""')}" TO d_hosting_app, d_database_app, d_database_provisioner;
+    GRANT CONNECT ON DATABASE "${source.replace(/"/g, '""')}" TO d_database_provisioner WITH GRANT OPTION;
+    GRANT CREATE ON DATABASE "${source.replace(/"/g, '""')}" TO d_database_app;
+    GRANT USAGE ON SCHEMA public TO d_hosting_app, d_database_app;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO d_hosting_app, d_database_app;
+    GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO d_hosting_app, d_database_app;
+    GRANT d_database_app TO d_database_provisioner WITH INHERIT FALSE, SET TRUE;
+    GRANT pg_signal_backend TO d_database_provisioner;
+  `);
+
+  const roleState = await pool.query(
+    "SELECT rolname, rolsuper, rolcreatedb, rolcreaterole, rolinherit FROM pg_roles WHERE rolname = ANY($1::text[])",
+    [["d_hosting_app", "d_database_app", "d_database_provisioner"]],
+  );
+  const rolesByName = new Map(roleState.rows.map((row) => [row.rolname, row]));
+  for (const name of ["d_hosting_app", "d_database_app"]) {
+    const role = rolesByName.get(name);
+    assert.ok(role && !role.rolsuper && !role.rolcreatedb && !role.rolcreaterole);
+  }
+  const provisionerRole = rolesByName.get("d_database_provisioner");
+  assert.ok(provisionerRole && !provisionerRole.rolsuper && !provisionerRole.rolcreatedb && provisionerRole.rolcreaterole && !provisionerRole.rolinherit);
+
+  const hostingAppPool = new Pool({ connectionString: `postgresql://d_hosting_app:${encodeURIComponent(hostingAppPassword)}@${process.env.PGHOST}:${process.env.PGPORT || "5432"}/${source}` });
+  const databaseAppPool = new Pool({ connectionString: `postgresql://d_database_app:${encodeURIComponent(databaseAppPassword)}@${process.env.PGHOST}:${process.env.PGPORT || "5432"}/${source}` });
+  const provisionerPool = new Pool({ connectionString: `postgresql://d_database_provisioner:${encodeURIComponent(provisionerPassword)}@${process.env.PGHOST}:${process.env.PGPORT || "5432"}/${source}` });
+  const probeSchema = "db_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const probeRole = "dsq_app_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  try {
+    await assert.rejects(hostingAppPool.query("CREATE SCHEMA hosting_role_write_probe"), /permission denied/i);
+    await assert.rejects(hostingAppPool.query("CREATE ROLE hosting_role_write_probe"), /permission denied/i);
+    await assert.rejects(hostingAppPool.query("CREATE DATABASE hosting_role_write_probe"), /permission denied/i);
+    await assert.rejects(databaseAppPool.query("CREATE ROLE database_role_write_probe"), /permission denied/i);
+    await assert.rejects(databaseAppPool.query("CREATE DATABASE database_role_write_probe"), /permission denied/i);
+    await databaseAppPool.query(`CREATE SCHEMA "${probeSchema}"`);
+    await assert.rejects(databaseAppPool.query("CREATE ROLE database_role_write_probe_2"), /permission denied/i);
+    const provisionerMembership = await provisionerPool.query(
+      "SELECT pg_has_role(current_user, 'd_database_app', 'MEMBER') AS can_set_app_role, pg_has_role(current_user, 'pg_signal_backend', 'MEMBER') AS can_signal",
+    );
+    assert.deepEqual(provisionerMembership.rows[0], { can_set_app_role: true, can_signal: true });
+    await provisionerPool.query(`CREATE ROLE "${probeRole}" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD 'ci-role-test-password'`);
+    await provisionerPool.query(`GRANT CONNECT ON DATABASE "${source.replace(/"/g, '""')}" TO "${probeRole}"`);
+    await provisionerPool.query("SET ROLE d_database_app");
+    await provisionerPool.query(`GRANT USAGE ON SCHEMA "${probeSchema}" TO "${probeRole}"`);
+    await provisionerPool.query("RESET ROLE");
+    await provisionerPool.query(`ALTER ROLE "${probeRole}" NOLOGIN`);
+    await assert.rejects(provisionerPool.query("CREATE DATABASE provisioner_role_write_probe"), /permission denied/i);
+  } finally {
+    await Promise.all([hostingAppPool.end(), databaseAppPool.end(), provisionerPool.end()]);
+  }
+
   const hostingBackupPassword = process.env.BACKUP_TEST_HOSTING_PASSWORD || "hosting_ci_backup_only";
   const databaseBackupPassword = process.env.BACKUP_TEST_DATABASE_PASSWORD || "database_ci_backup_only";
   const quoteSql = (value: string) => "'" + value.replace(/'/g, "''") + "'";
