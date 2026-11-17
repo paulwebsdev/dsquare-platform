@@ -164,6 +164,12 @@ async function startServer() {
       console.log(`D Hosting application running on port ${PORT}`);
       console.log("D Hosting PostgreSQL connection successful.");
       console.log("D Hosting PostgreSQL-backed website object storage enabled.");
+      console.log("D Hosting optional configuration:", {
+        databaseApiConfigured: Boolean(process.env.D_DATABASE_API_URL),
+        databaseAppOriginConfigured: Boolean(process.env.D_DATABASE_APP_URL),
+        integrationSecretConfigured: Boolean(process.env.D_HOSTING_INTEGRATION_CLIENT_SECRET),
+        environmentSecretsEncryptionConfigured: Boolean(process.env.HOSTING_SECRETS_KEY),
+      });
     });
   } catch (error) {
     console.error(
