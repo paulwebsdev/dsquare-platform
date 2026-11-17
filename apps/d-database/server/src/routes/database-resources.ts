@@ -8,7 +8,7 @@ const router = Router({ mergeParams: true });
 const validUUID = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
-function sendError(error: unknown, res: Response) {
+function sendError(error: unknown, res: Response, operation = "resource request") {
   const code = (error as { code?: string })?.code;
 
   if (code === "23505") {
@@ -18,10 +18,15 @@ function sendError(error: unknown, res: Response) {
     });
   }
 
-  console.error(
-    "D Database resource error:",
-    error instanceof Error ? error.message : error
-  );
+  const message = error instanceof Error ? error.message : "Unknown database error";
+  console.error(`D Database resource error during ${operation} [${code || "unknown"}]:`, message);
+
+  if (code === "42501" || code === "42704") {
+    return res.status(503).json({
+      success: false,
+      message: "D Database is missing a required PostgreSQL permission or role. Please contact support.",
+    });
+  }
 
   return res.status(500).json({
     success: false,
@@ -87,11 +92,15 @@ router.post("/", async (req, res) => {
   const id = randomUUID();
   const schemaName = `db_${id.replace(/-/g, "")}`;
 
-  const client = await pool.connect();
+  let client: Awaited<ReturnType<typeof pool.connect>> | null = null;
+  let operation = "acquire database connection";
 
   try {
+    client = await pool.connect();
+    operation = "begin resource creation transaction";
     await client.query("BEGIN");
 
+    operation = "verify project before resource creation";
     const project = await client.query(
       "SELECT id FROM projects WHERE id = $1 FOR SHARE",
       [projectId]
@@ -106,8 +115,10 @@ router.post("/", async (req, res) => {
     }
 
     // Resource schemas must be owned by the role that manages their default privileges.
+    operation = "create resource schema owned by d_database_app";
     await client.query(`CREATE SCHEMA "${schemaName}" AUTHORIZATION d_database_app`);
 
+    operation = "save database resource metadata";
     const result = await client.query(
       `INSERT INTO database_resources
         (id, project_id, name, engine, schema_name)
@@ -116,6 +127,7 @@ router.post("/", async (req, res) => {
       [id, projectId, name, schemaName]
     );
 
+    operation = "commit resource creation transaction";
     await client.query("COMMIT");
 
     return res.status(201).json({
@@ -124,10 +136,10 @@ router.post("/", async (req, res) => {
       resource: result.rows[0],
     });
   } catch (error) {
-    await client.query("ROLLBACK").catch(() => undefined);
-    return sendError(error, res);
+    if (client) await client.query("ROLLBACK").catch(() => undefined);
+    return sendError(error, res, operation);
   } finally {
-    client.release();
+    client?.release();
   }
 });
 
