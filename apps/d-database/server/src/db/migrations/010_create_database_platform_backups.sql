@@ -24,6 +24,6 @@ BEGIN
     EXECUTE 'GRANT SELECT, INSERT, UPDATE ON TABLE database_platform_backups TO d_database_app';
   END IF;
 END
-$;
+$$;
 
 COMMIT;
