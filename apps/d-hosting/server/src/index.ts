@@ -102,19 +102,13 @@ app.use("/api/v1/projects", projectsRouter);
 
 app.get("/api/v1/health", async (_req, res) => {
   try {
-    const result = await pool.query(
-      "SELECT current_database() AS database, current_user AS username"
-    );
+    await pool.query("SELECT 1");
 
     res.json({
       success: true,
       product: "D Hosting",
       api: "online",
-      database: {
-        connected: true,
-        name: result.rows[0].database,
-        username: result.rows[0].username,
-      },
+      database: { connected: true },
     });
   } catch (error) {
     console.error(
@@ -169,6 +163,7 @@ async function startServer() {
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`D Hosting application running on port ${PORT}`);
       console.log("D Hosting PostgreSQL connection successful.");
+      console.log("D Hosting PostgreSQL-backed website object storage enabled.");
     });
   } catch (error) {
     console.error(
