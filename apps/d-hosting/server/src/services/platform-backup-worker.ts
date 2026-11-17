@@ -52,17 +52,20 @@ function sha256(data: Buffer): string {
 
 function dumpPlatformDatabase(): Promise<Buffer> {
   const args = ["--format=custom", "--no-owner", "--no-acl"];
-  const databaseUrl = process.env.DB_BACKUP_URL?.trim() || process.env.DB_MIGRATION_URL?.trim() || process.env.DATABASE_URL?.trim();
+  const databaseUrl = process.env.DB_BACKUP_URL?.trim();
   const env = { ...process.env };
-  if (databaseUrl) args.push("--dbname", databaseUrl);
-  else {
+  if (databaseUrl) {
+    args.push("--dbname", databaseUrl);
+  } else {
     const database = process.env.DB_NAME?.trim();
-    const user = process.env.DB_BACKUP_USER?.trim() || process.env.DB_MIGRATION_USER?.trim() || process.env.DB_USER?.trim();
-    const passwordBase64 = process.env.DB_BACKUP_PASSWORD_BASE64 || process.env.DB_MIGRATION_PASSWORD_BASE64 || process.env.DB_PASSWORD_BASE64;
-    if (!database || !user || !passwordBase64) throw new Error("Dedicated backup database connection settings are incomplete.");
+    const user = process.env.DB_BACKUP_USER?.trim();
+    const passwordBase64 = process.env.DB_BACKUP_PASSWORD_BASE64;
+    if (!database || !user || !passwordBase64) {
+      throw new Error("A dedicated read-only DB_BACKUP_URL or DB_BACKUP_USER/DB_BACKUP_PASSWORD_BASE64 connection is required for platform backups.");
+    }
     env.PGPASSWORD = Buffer.from(passwordBase64, "base64").toString("utf8");
-    args.push("--host", process.env.DB_BACKUP_HOST || process.env.DB_MIGRATION_HOST || process.env.DB_HOST || "127.0.0.1");
-    args.push("--port", process.env.DB_BACKUP_PORT || process.env.DB_MIGRATION_PORT || process.env.DB_PORT || "5432");
+    args.push("--host", process.env.DB_BACKUP_HOST || "127.0.0.1");
+    args.push("--port", process.env.DB_BACKUP_PORT || "5432");
     args.push("--username", user, "--dbname", database);
   }
   return new Promise((resolve, reject) => {
