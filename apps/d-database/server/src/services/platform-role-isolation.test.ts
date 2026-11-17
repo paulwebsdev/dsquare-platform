@@ -46,6 +46,8 @@ testRunner("both products require a distinct, non-elevated production migration 
     assert.match(index, /migrationIdentity\.rows\[0\].*rolsuper/);
     assert.match(index, /rolcreatedb/);
     assert.match(index, /rolcreaterole/);
+    assert.match(index, /can_read_server_files/);
+    assert.match(index, /can_execute_server_program/);
   }
 });
 
