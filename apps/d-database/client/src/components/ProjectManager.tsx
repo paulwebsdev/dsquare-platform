@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import ProjectResources from "./ProjectResources";
+import { PRODUCT_KIND, PRODUCT_NAME } from "../product";
 
 type Project = {
   id: string;
@@ -37,8 +38,8 @@ export default function ProjectManager({
   initialResourceId,
   onInitialResourceOpened,
 }: ProjectManagerProps) {
-  const product = import.meta.env.VITE_PRODUCT_NAME || "DSquare";
-  const projectType = import.meta.env.VITE_PRODUCT_KIND === "database" ? "database" : "website";
+  const product = PRODUCT_NAME;
+  const projectType = PRODUCT_KIND;
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
