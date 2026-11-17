@@ -8,6 +8,7 @@ export type ResourceAccessPlan = {
   roleName: string;
   password: string;
   createRole: string;
+  provisionerStatements: string[];
   grantStatements: string[];
   configureStatements: string[];
   disableRole: string;
@@ -43,7 +44,7 @@ export function createResourceAccessPlan(input: {
     throw new Error("Invalid resource schema.");
   }
 
-  quoteIdentifier(input.databaseName);
+  const database = quoteIdentifier(input.databaseName);
   const schema = quoteIdentifier(input.schemaName);
   const owner = quoteIdentifier(input.schemaOwner);
   const roleName = `dsq_app_${input.resourceId.replace(/-/g, "").toLowerCase()}`;
@@ -70,6 +71,7 @@ export function createResourceAccessPlan(input: {
     roleName,
     password,
     createRole: `CREATE ROLE ${role} LOGIN PASSWORD '${password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;`,
+    provisionerStatements: [`GRANT CONNECT ON DATABASE ${database} TO ${role};`],
     grantStatements: [
       `GRANT USAGE ON SCHEMA ${schema} TO ${role};`,
       `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ${schema} TO ${role};`,
