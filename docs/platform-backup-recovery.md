@@ -7,7 +7,7 @@ This is an isolated recovery workflow, not an in-place production restore.
 1. Obtain the completed backup's object key, byte size, and SHA-256 from the product's platform-backup metadata.
 2. Download that exact object from the private backup bucket using an approved operator credential. Never expose storage credentials in chat, shell history, tickets, or logs.
 3. Verify the downloaded file size and SHA-256 against metadata with wc -c and sha256sum.
-4. Create a fresh, empty PostgreSQL database on a local/isolated recovery instance. Use a name such as dsquare_restore_hosting_20261117 or dsquare_restore_database_20261117.
+4. Create a fresh, empty PostgreSQL database on a local/isolated recovery instance using template0 (for example, createdb --template=template0 dsquare_restore_hosting_20261117). Use a name beginning with dsquare_restore_.
 5. Use a dedicated local restore role and connect to the isolated instance only.
 
 ## Run the product restore guard
