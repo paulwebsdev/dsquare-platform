@@ -173,6 +173,23 @@ async function startServer() {
       throw new Error("D Database frontend build is missing. Build the client before starting the server.");
     }
 
+    if (process.env.NODE_ENV === "production") {
+      const [runtimeIdentity, migrationIdentity] = await Promise.all([
+        pool.query("SELECT current_user AS role_name"),
+        migrationPool.query(
+          "SELECT current_user AS role_name, rolsuper FROM pg_roles WHERE rolname = current_user",
+        ),
+      ]);
+      if (
+        runtimeIdentity.rows[0]?.role_name === migrationIdentity.rows[0]?.role_name ||
+        migrationIdentity.rows[0]?.rolsuper
+      ) {
+        throw new Error(
+          "Production migrations require a distinct, non-superuser schema-owner identity; the application role must remain separate.",
+        );
+      }
+    }
+
     await runMigrations(migrationPool);
     await ensureDatabaseAppDatabasePrivileges(migrationPool);
     if (migrationPool !== pool) {
