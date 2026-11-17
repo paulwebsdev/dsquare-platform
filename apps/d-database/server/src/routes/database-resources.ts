@@ -1,4 +1,5 @@
 import { Router, type Response } from "express";
+import type { PoolClient } from "pg";
 import { randomUUID } from "node:crypto";
 import { pool } from "../config/database.js";
 import { resourceProvisionerPool, revokeResourceAccess } from "../services/resource-access-provisioner.js";
@@ -92,7 +93,7 @@ router.post("/", async (req, res) => {
   const id = randomUUID();
   const schemaName = `db_${id.replace(/-/g, "")}`;
 
-  let client: Awaited<ReturnType<typeof pool.connect>> | null = null;
+  let client: PoolClient | null = null;
   let operation = "acquire database connection";
 
   try {
