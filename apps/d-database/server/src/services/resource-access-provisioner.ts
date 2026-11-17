@@ -138,6 +138,9 @@ export async function provisionResourceAccess(
     for (const statement of plan.configureStatements) {
       await client.query(statement);
     }
+    for (const statement of plan.provisionerStatements) {
+      await client.query(statement);
+    }
 
     await client.query("SET ROLE d_database_app");
     for (const statement of plan.grantStatements) {
