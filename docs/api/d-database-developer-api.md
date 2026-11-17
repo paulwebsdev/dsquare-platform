@@ -56,6 +56,10 @@ All data endpoints use the resource-bound Bearer key.
 
 Arbitrary SQL is not accepted. Table and column identifiers are validated against the selected resource schema, and values are parameterized. Update and delete operations require non-empty filters.
 
+## Rate limits
+
+Developer API requests are limited per API key using a PostgreSQL-backed fixed window, so the limit is consistent across service instances and restarts. The default is 300 requests per key per 60 seconds. When the limit is exceeded, the API returns HTTP 429 with a `Retry-After` header and `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset` headers. Configure `D_DATABASE_API_RATE_LIMIT_REQUESTS` and `D_DATABASE_API_RATE_LIMIT_WINDOW_MS` on the trusted D Database server to change the policy.
+
 ## Pagination
 
 Offset pagination accepts `limit` (1–100) and `offset` (non-negative, bounded). Cursor pagination accepts `limit` (1–100) and an opaque `cursor`; it requires a table with exactly one primary-key column.
