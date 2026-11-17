@@ -1,5 +1,9 @@
 BEGIN;
 
+-- Object keys are scoped paths in durable storage, not UUID-only local filenames.
+ALTER TABLE hosting_files
+  ALTER COLUMN storage_key TYPE TEXT USING storage_key::text;
+
 CREATE TABLE IF NOT EXISTS hosting_object_blobs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   storage_key TEXT NOT NULL UNIQUE,
