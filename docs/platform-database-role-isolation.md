@@ -55,6 +55,8 @@ CREATE ROLE d_database_backup LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERI
 CREATE ROLE d_database_provisioner LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOINHERIT PASSWORD 'REPLACE_SECURELY';
 
 GRANT CONNECT ON DATABASE d_database TO d_database_migrator, d_database_app, d_database_backup, d_database_provisioner;
+GRANT CONNECT ON DATABASE d_database TO d_database_provisioner WITH GRANT OPTION;
+REVOKE GRANT OPTION FOR CONNECT ON DATABASE d_database FROM d_database_app;
 GRANT CREATE ON DATABASE d_database TO d_database_app;
 GRANT USAGE ON SCHEMA public TO d_database_app, d_database_backup;
 GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO d_database_app;
@@ -77,7 +79,7 @@ GRANT pg_signal_backend TO d_database_provisioner;
 
 The DBA must ensure `d_database_migrator` owns the existing D Database control-plane tables, sequences, schema, and migration ledger. Resource schemas remain owned by `d_database_app`. Do not grant CREATEROLE to `d_database_app`.
 
-The resource provisioner must use only `DB_PROVISIONER_URL`. It checks that its connected identity is non-superuser, has CREATEROLE, can SET ROLE to `d_database_app`, and belongs to `pg_signal_backend`. Role creation/password changes and NOLOGIN operations run as the provisioner; schema grants and grant metadata run as `d_database_app`.
+The resource provisioner must use only `DB_PROVISIONER_URL`. It checks that its connected identity is non-superuser, has CREATEROLE, can SET ROLE to `d_database_app`, and belongs to `pg_signal_backend`. It also needs CONNECT grant option on this one database so it can grant CONNECT to the resource login it creates. Role creation/password changes, database CONNECT grants, and NOLOGIN operations run as the provisioner; schema grants and grant metadata run as `d_database_app`. The old application-role CONNECT grant option is explicitly revoked above.
 
 For resource login roles created by the previous application-role provisioner, a DBA must grant the provisioner ADMIN OPTION on each existing `dsq_app_<32-hex-id>` role before the provisioner can rotate or disable that role. Example for one reviewed role:
 
