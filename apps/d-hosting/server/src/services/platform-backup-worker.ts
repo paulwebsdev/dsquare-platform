@@ -105,15 +105,23 @@ function createStorage(config: BackupConfig): S3Client {
   });
 }
 
-export async function runHostingPlatformBackup(pool: Pool): Promise<{ completed: boolean; skipped: boolean }> {
+export type HostingPlatformBackupDependencies = {
+  dump?: () => Promise<Buffer>;
+  storage?: Pick<S3Client, "send" | "destroy">;
+};
+
+export async function runHostingPlatformBackup(
+  pool: Pool,
+  dependencies: HostingPlatformBackupDependencies = {},
+): Promise<{ completed: boolean; skipped: boolean }> {
   const config = getHostingBackupConfig(process.env);
   if (!config) return { completed: false, skipped: true };
   const id = randomUUID();
   const objectKey = `${config.prefix}/${id}.dump`;
   await pool.query("INSERT INTO hosting_platform_backups (id, object_key, status) VALUES ($1, $2, 'running')", [id, objectKey]);
-  const storage = createStorage(config);
+  const storage = dependencies.storage ?? createStorage(config);
   try {
-    const dump = await dumpPlatformDatabase();
+    const dump = await (dependencies.dump ?? dumpPlatformDatabase)();
     const checksum = sha256(dump);
     await storage.send(new PutObjectCommand({ Bucket: config.bucket, Key: objectKey, Body: dump, ContentType: "application/octet-stream", Metadata: { sha256: checksum } }));
     const downloaded = await storage.send(new GetObjectCommand({ Bucket: config.bucket, Key: objectKey }));
