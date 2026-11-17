@@ -76,6 +76,7 @@ export async function authenticateUser(
   const user = result.rows[0];
 
   if (!user) {
+    console.info("D Database login rejected: no account matched the supplied email.");
     return null;
   }
 
@@ -87,6 +88,7 @@ export async function authenticateUser(
   }
 
   if (!(await verifyPassword(password, user.password_hash))) {
+    console.info("D Database login rejected: supplied password did not match the stored hash.");
     return null;
   }
 
