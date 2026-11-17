@@ -6,6 +6,7 @@ const migrationUrl = new URL("./021_create_hosting_object_blobs.sql", import.met
 
 test("PostgreSQL website object migration stores scoped, size-limited binary objects", async () => {
   const sql = await readFile(migrationUrl, "utf8");
+  assert.match(sql, /ALTER COLUMN storage_key TYPE TEXT USING storage_key::text/);
   assert.match(sql, /CREATE TABLE IF NOT EXISTS hosting_object_blobs/);
   assert.match(sql, /owner_id UUID NOT NULL REFERENCES users\(id\) ON DELETE CASCADE/);
   assert.match(sql, /project_id UUID NOT NULL REFERENCES projects\(id\) ON DELETE CASCADE/);
