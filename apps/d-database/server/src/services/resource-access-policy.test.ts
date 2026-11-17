@@ -62,11 +62,13 @@ testRunner("limits every grant to the resource schema and required data operatio
     schemaOwner: "d_database_app",
   });
 
-  assert.equal(plan.grantStatements.length, 7);
+  assert.equal(plan.grantStatements.length, 5);
   assert.ok(plan.grantStatements.every((sql) =>
-    sql.includes('"db_09800acba6c642d093f09d8aa73c251d"') ||
-    sql.includes('ON DATABASE "d_database"'),
+    sql.includes('"db_09800acba6c642d093f09d8aa73c251d"'),
   ));
+  assert.ok(plan.grantStatements.every((sql) => !/GRANT CONNECT ON DATABASE|GRANT OPTION/i.test(sql)));
+  assert.equal(plan.provisionerStatements.length, 1);
+  assert.match(plan.provisionerStatements[0], /GRANT CONNECT ON DATABASE "d_database" TO "dsq_app_/);
   assert.ok(plan.grantStatements.every((sql) =>
     !/\\b(CREATE|TRUNCATE|REFERENCES|TRIGGER|GRANT OPTION)\\b|\\bTO PUBLIC\\b/i.test(sql),
   ));
@@ -85,6 +87,7 @@ testRunner("configures server-enforced connection and query limits on each resou
     databaseName: "d_database",
     schemaOwner: "d_database_app",
   });
+  assert.ok(plan.configureStatements.some((sql) => /SET search_path TO "db_09800acba6c642d093f09d8aa73c251d", pg_catalog/.test(sql)));
   assert.ok(plan.configureStatements.some((sql) => /CONNECTION LIMIT 5/.test(sql)));
   assert.ok(plan.configureStatements.some((sql) => /statement_timeout = '30000ms'/.test(sql)));
   assert.ok(plan.configureStatements.some((sql) => /lock_timeout = '5000ms'/.test(sql)));

@@ -68,7 +68,118 @@ async function main(): Promise<void> {
     );
   `);
 
-  process.env.DB_BACKUP_URL = `postgresql://${encodeURIComponent(process.env.PGUSER || "")}:${encodeURIComponent(process.env.PGPASSWORD || "")}@${process.env.PGHOST}:${process.env.PGPORT || "5432"}/${source}`;
+  const hostingAppPassword = "hosting_ci_runtime_only";
+  const databaseAppPassword = "database_ci_runtime_only";
+  const provisionerPassword = "database_ci_provisioner_only";
+  const rolePasswordSql = (value: string) => "'" + value.replace(/'/g, "''") + "'";
+  const runtimeRoles = [
+    ["d_hosting_app", hostingAppPassword, false],
+    ["d_database_app", databaseAppPassword, false],
+    ["d_database_provisioner", provisionerPassword, true],
+  ] as const;
+  for (const [role, password, canCreateRoles] of runtimeRoles) {
+    const exists = await pool.query("SELECT 1 FROM pg_roles WHERE rolname = $1", [role]);
+    const attributes = `LOGIN NOSUPERUSER NOCREATEDB ${canCreateRoles ? "CREATEROLE" : "NOCREATEROLE"} NOINHERIT PASSWORD ${rolePasswordSql(password)}`;
+    if (exists.rowCount) await pool.query(`ALTER ROLE "${role}" ${attributes}`);
+    else await pool.query(`CREATE ROLE "${role}" ${attributes}`);
+  }
+  await pool.query(`
+    GRANT CONNECT ON DATABASE "${source.replace(/"/g, '""')}" TO d_hosting_app, d_database_app, d_database_provisioner;
+    GRANT CONNECT ON DATABASE "${source.replace(/"/g, '""')}" TO d_database_provisioner WITH GRANT OPTION;
+    GRANT CREATE ON DATABASE "${source.replace(/"/g, '""')}" TO d_database_app;
+    GRANT USAGE ON SCHEMA public TO d_hosting_app, d_database_app;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO d_hosting_app, d_database_app;
+    GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO d_hosting_app, d_database_app;
+    GRANT d_database_app TO d_database_provisioner WITH INHERIT FALSE, SET TRUE;
+    GRANT pg_signal_backend TO d_database_provisioner;
+  `);
+
+  const roleState = await pool.query(
+    "SELECT rolname, rolsuper, rolcreatedb, rolcreaterole, rolinherit FROM pg_roles WHERE rolname = ANY($1::text[])",
+    [["d_hosting_app", "d_database_app", "d_database_provisioner"]],
+  );
+  const rolesByName = new Map(roleState.rows.map((row) => [row.rolname, row]));
+  for (const name of ["d_hosting_app", "d_database_app"]) {
+    const role = rolesByName.get(name);
+    assert.ok(role && !role.rolsuper && !role.rolcreatedb && !role.rolcreaterole);
+  }
+  const provisionerRole = rolesByName.get("d_database_provisioner");
+  assert.ok(provisionerRole && !provisionerRole.rolsuper && !provisionerRole.rolcreatedb && provisionerRole.rolcreaterole && !provisionerRole.rolinherit);
+
+  const hostingAppPool = new Pool({ connectionString: `postgresql://d_hosting_app:${encodeURIComponent(hostingAppPassword)}@${process.env.PGHOST}:${process.env.PGPORT || "5432"}/${source}` });
+  const databaseAppPool = new Pool({ connectionString: `postgresql://d_database_app:${encodeURIComponent(databaseAppPassword)}@${process.env.PGHOST}:${process.env.PGPORT || "5432"}/${source}` });
+  const provisionerPool = new Pool({ connectionString: `postgresql://d_database_provisioner:${encodeURIComponent(provisionerPassword)}@${process.env.PGHOST}:${process.env.PGPORT || "5432"}/${source}` });
+  const probeSchema = "db_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const probeRole = "dsq_app_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  try {
+    await assert.rejects(hostingAppPool.query("CREATE SCHEMA hosting_role_write_probe"), /permission denied/i);
+    await assert.rejects(hostingAppPool.query("CREATE ROLE hosting_role_write_probe"), /permission denied/i);
+    await assert.rejects(hostingAppPool.query("CREATE DATABASE hosting_role_write_probe"), /permission denied/i);
+    await assert.rejects(databaseAppPool.query("CREATE ROLE database_role_write_probe"), /permission denied/i);
+    await assert.rejects(databaseAppPool.query("CREATE DATABASE database_role_write_probe"), /permission denied/i);
+    await databaseAppPool.query(`CREATE SCHEMA "${probeSchema}"`);
+    await assert.rejects(databaseAppPool.query("CREATE ROLE database_role_write_probe_2"), /permission denied/i);
+    const provisionerMembership = await provisionerPool.query(
+      "SELECT pg_has_role(current_user, 'd_database_app', 'MEMBER') AS can_set_app_role, pg_has_role(current_user, 'pg_signal_backend', 'MEMBER') AS can_signal",
+    );
+    assert.deepEqual(provisionerMembership.rows[0], { can_set_app_role: true, can_signal: true });
+    await provisionerPool.query(`CREATE ROLE "${probeRole}" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD 'ci-role-test-password'`);
+    await provisionerPool.query(`GRANT CONNECT ON DATABASE "${source.replace(/"/g, '""')}" TO "${probeRole}"`);
+    await provisionerPool.query("SET ROLE d_database_app");
+    await provisionerPool.query(`GRANT USAGE ON SCHEMA "${probeSchema}" TO "${probeRole}"`);
+    await provisionerPool.query("RESET ROLE");
+    await provisionerPool.query(`ALTER ROLE "${probeRole}" NOLOGIN`);
+    await assert.rejects(provisionerPool.query("CREATE DATABASE provisioner_role_write_probe"), /permission denied/i);
+  } finally {
+    await Promise.all([hostingAppPool.end(), databaseAppPool.end(), provisionerPool.end()]);
+  }
+
+  const hostingBackupPassword = process.env.BACKUP_TEST_HOSTING_PASSWORD || "hosting_ci_backup_only";
+  const databaseBackupPassword = process.env.BACKUP_TEST_DATABASE_PASSWORD || "database_ci_backup_only";
+  const quoteSql = (value: string) => "'" + value.replace(/'/g, "''") + "'";
+  for (const [role, password] of [
+    ["d_hosting_backup_ci", hostingBackupPassword],
+    ["d_database_backup_ci", databaseBackupPassword],
+  ] as const) {
+    const exists = await pool.query("SELECT 1 FROM pg_roles WHERE rolname = $1", [role]);
+    if (exists.rowCount) {
+      await pool.query(`ALTER ROLE "${role}" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD ${quoteSql(password)}`);
+    } else {
+      await pool.query(`CREATE ROLE "${role}" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD ${quoteSql(password)}`);
+    }
+  }
+  await pool.query(`
+    GRANT CONNECT ON DATABASE "${source.replace(/"/g, '""')}" TO d_hosting_backup_ci, d_database_backup_ci;
+    GRANT USAGE ON SCHEMA public TO d_hosting_backup_ci, d_database_backup_ci;
+    GRANT SELECT ON ALL TABLES IN SCHEMA public TO d_hosting_backup_ci, d_database_backup_ci;
+    GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO d_hosting_backup_ci, d_database_backup_ci;
+  `);
+  const backupUrl = (user: string, password: string) =>
+    `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${process.env.PGHOST}:${process.env.PGPORT || "5432"}/${source}`;
+  const hostingBackupUrl = backupUrl("d_hosting_backup_ci", hostingBackupPassword);
+  const databaseBackupUrl = backupUrl("d_database_backup_ci", databaseBackupPassword);
+
+  for (const url of [hostingBackupUrl, databaseBackupUrl]) {
+    const readOnlyPool = new Pool({ connectionString: url });
+    try {
+      await assert.rejects(
+        readOnlyPool.query("INSERT INTO customers (id, customer_code, name) VALUES (999, 'DENIED', 'Denied')"),
+        /permission denied/i,
+      );
+      await assert.rejects(
+        readOnlyPool.query("CREATE TABLE backup_role_write_probe (id integer)"),
+        /permission denied/i,
+      );
+      await assert.rejects(
+        readOnlyPool.query("CREATE ROLE backup_role_write_probe"),
+        /permission denied|must be superuser|permission/i,
+      );
+    } finally {
+      await readOnlyPool.end();
+    }
+  }
+
+  process.env.DB_BACKUP_URL = hostingBackupUrl;
   process.env.D_HOSTING_BACKUP_ENDPOINT = "https://fake-s3.example.test";
   process.env.D_HOSTING_BACKUP_BUCKET = "private-backups";
   process.env.D_HOSTING_BACKUP_ACCESS_KEY_ID = "ci-access";
@@ -112,7 +223,7 @@ async function main(): Promise<void> {
   process.env.D_DATABASE_BACKUP_SECRET_ACCESS_KEY = "ci-secret";
   process.env.D_DATABASE_BACKUP_PREFIX = "ci/database";
   process.env.D_DATABASE_BACKUP_REGION = "us-east-2";
-  process.env.D_DATABASE_PLATFORM_BACKUP_URL = process.env.DB_BACKUP_URL!;
+  process.env.D_DATABASE_PLATFORM_BACKUP_URL = databaseBackupUrl;
 
   globalThis.fetch = async (input, init = {}) => {
     const key = new URL(String(input)).pathname;
@@ -162,6 +273,10 @@ main()
     globalThis.fetch = originalFetch;
     for (const key of Object.keys(process.env)) {
       if (!(key in originalEnv)) delete process.env[key];
+    }
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
     }
     await pool.end();
   });

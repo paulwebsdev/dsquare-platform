@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import {
+  assertPersistentBackupRootSeparated,
   createPersistentStorageBackup,
   measurePersistentStorageUsage,
   prunePersistentBackups,
@@ -82,5 +83,22 @@ test("prunes only expired backups belonging to the selected website", async () =
     await assert.rejects(readFile(old));
     assert.equal(await readFile(fresh, "utf8"), "fresh");
     assert.equal(await readFile(other, "utf8"), "other");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+
+test("rejects backup directories nested inside or equal to the live storage root", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "dsquare-backup-path-"));
+  const storage = path.join(root, "storage");
+  try {
+    await mkdir(path.join(storage, resourceId), { recursive: true });
+    assert.throws(() => assertPersistentBackupRootSeparated(storage, storage), /separate directory/);
+    assert.throws(() => assertPersistentBackupRootSeparated(storage, path.join(storage, ".backups")), /separate directory/);
+    assert.throws(() => assertPersistentBackupRootSeparated(storage, path.join(storage, resourceId, ".backups")), /separate directory/);
+    assert.doesNotThrow(() => assertPersistentBackupRootSeparated(storage, path.join(root, "private-backups")));
+    await assert.rejects(
+      createPersistentStorageBackup(storage, path.join(storage, ".backups"), resourceId, key),
+      /separate directory/,
+    );
   } finally { await rm(root, { recursive: true, force: true }); }
 });

@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { decodePersistentBackupKey, runPersistentBackupCycle } from "./persistent-storage-automation.js";
+import { decodePersistentBackupKey, runPersistentBackupCycle, startPersistentBackupScheduler } from "./persistent-storage-automation.js";
 
 const resourceId = "11111111-1111-4111-8111-111111111111";
 
@@ -26,5 +26,21 @@ test("scheduled backup cycle snapshots valid website directories and skips unrel
     const backups = await (await import("node:fs/promises")).readdir(backupRoot);
     assert.equal(backups.length, 1);
     assert.ok(backups[0].endsWith(".dsqbak"));
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+
+test("scheduler refuses a backup root nested in the live website storage tree", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "dsquare-backup-scheduler-path-"));
+  const storageRoot = path.join(root, "storage");
+  try {
+    await mkdir(storageRoot, { recursive: true });
+    assert.throws(() => startPersistentBackupScheduler({
+      storageRoot,
+      backupRoot: path.join(storageRoot, ".backups"),
+      key: Buffer.alloc(32, 1),
+      retentionDays: 30,
+      intervalMs: 60_000,
+    }), /separate directory/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

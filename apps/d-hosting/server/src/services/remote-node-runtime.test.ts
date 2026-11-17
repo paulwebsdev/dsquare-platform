@@ -318,3 +318,47 @@ test("cleans up a built artifact after runtime startup fails before readiness", 
   }
 });
 
+
+
+test("starts a Node website without database variables when no D Database resource is assigned", async () => {
+  const root = await fixture();
+  const paths: string[] = [];
+  const fetchImpl = fakeFetch((url, init) => {
+    paths.push(`${init.method} ${url.pathname}`);
+    if (init.method === "PUT") {
+      return Response.json({ artifactId: url.pathname.split("/").at(-1), accepted: true });
+    }
+    if (url.pathname === "/v1/builds") {
+      return Response.json({
+        artifact: { artifactId: deploymentId, sha256: "e".repeat(64), sizeBytes: 2048, fileCount: 1 },
+        output: "[build] complete",
+      }, { status: 201 });
+    }
+    if (url.pathname === "/v1/runtimes") {
+      const request = JSON.parse(String(init.body)) as {
+        runtime: { environment: Record<string, string> };
+      };
+      assert.equal(request.runtime.environment.APP_SECRET, "private-value");
+      assert.equal(request.runtime.environment.D_DATABASE_URL, undefined);
+      assert.equal(request.runtime.environment.D_DATABASE_PASSWORD, undefined);
+      assert.equal(Object.keys(request.runtime.environment).some((name) => name.startsWith("D_DATABASE_")), false);
+      return Response.json({ resourceId, deploymentId, state: "running" }, { status: 201 });
+    }
+    return Response.json({ artifactId: url.pathname.split("/").at(-1), deleted: true });
+  });
+
+  try {
+    const result = await startBuiltRemoteNodeRuntime(
+      deploymentInput(root, fetchImpl),
+      async () => null,
+    );
+    assert.equal(result.state, "running");
+    assert.equal(paths.length, 4);
+    assert.match(paths[0]!, /^PUT \/v1\/artifacts\//);
+    assert.equal(paths[1], "POST /v1/builds");
+    assert.equal(paths[2], "POST /v1/runtimes");
+    assert.match(paths[3]!, /^DELETE \/v1\/artifacts\//);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
