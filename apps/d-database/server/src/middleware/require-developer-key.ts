@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
 import type { Request, Response, NextFunction } from "express";
 import { pool } from "../config/database.js";
+import { consumeDeveloperApiRateLimit, getDeveloperApiRateLimitConfig } from "../services/developer-api-rate-limit.js";
 
 export type DeveloperScope = "read" | "write";
+
+const DEVELOPER_API_RATE_LIMIT = getDeveloperApiRateLimitConfig(process.env);
 
 export async function requireDeveloperKey(
   req: Request,
@@ -52,6 +55,16 @@ export async function requireDeveloperKey(
 
     if (key.resource_status !== "active" || !/^db_[a-f0-9]{32}$/.test(key.schema_name)) {
       res.status(409).json({ success: false, message: "The database resource is not active." });
+      return;
+    }
+
+    const rateLimit = await consumeDeveloperApiRateLimit(pool, key.id, DEVELOPER_API_RATE_LIMIT);
+    res.setHeader("RateLimit-Limit", String(rateLimit.limit));
+    res.setHeader("RateLimit-Remaining", String(rateLimit.remaining));
+    res.setHeader("RateLimit-Reset", String(rateLimit.retryAfterSeconds));
+    if (!rateLimit.allowed) {
+      res.setHeader("Retry-After", String(rateLimit.retryAfterSeconds));
+      res.status(429).json({ success: false, message: "API key rate limit exceeded. Try again later." });
       return;
     }
 
