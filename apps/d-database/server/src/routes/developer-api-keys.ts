@@ -1,6 +1,6 @@
-import { createHash, randomBytes } from "node:crypto";
 import { Router, type Request } from "express";
 import { pool } from "../config/database.js";
+import { createDeveloperApiKeyMaterial } from "../services/developer-api-key.js";
 
 const router = Router({ mergeParams: true });
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -56,9 +56,7 @@ router.post("/", async (req: Request<{ projectId: string; resourceId: string }>,
     );
     if (resource.rowCount !== 1) return res.status(404).json({ success: false, message: "Active database resource not found." });
 
-    const token = `dsq_live_${randomBytes(32).toString("base64url")}`;
-    const tokenHash = createHash("sha256").update(token).digest("hex");
-    const prefix = token.slice(0, 16);
+    const { secret: token, tokenHash, prefix } = createDeveloperApiKeyMaterial();
     const expiry = expiresInDays === undefined ? null : Number(expiresInDays);
 
     const created = await pool.query(
@@ -109,9 +107,7 @@ router.post("/:keyId/rotate", async (req: Request<{ projectId: string; resourceI
       return res.status(404).json({ success: false, message: "Active, unexpired API key not found." });
     }
 
-    const token = `dsq_live_${randomBytes(32).toString("base64url")}`;
-    const tokenHash = createHash("sha256").update(token).digest("hex");
-    const prefix = token.slice(0, 16);
+    const { secret: token, tokenHash, prefix } = createDeveloperApiKeyMaterial();
     const previous = current.rows[0] as { name: string; scopes: string[]; expires_at: Date | string | null };
 
     const created = await client.query(
