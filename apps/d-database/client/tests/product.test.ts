@@ -5,7 +5,7 @@ import {
   PRODUCT_NAME,
   PRODUCT_TAGLINE,
   RESOURCE_LABEL,
-} from "./product.js";
+} from "../src/product.js";
 
 test("D Database dashboard identity is fixed and cannot fall back to Hosting", () => {
   assert.equal(PRODUCT_NAME, "D Database");
