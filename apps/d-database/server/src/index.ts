@@ -150,8 +150,15 @@ async function ensureDatabaseAppGrants(): Promise<void> {
 
     // The service connects with its migration/owner role. Granting membership
     // allows it to create resource schemas owned by d_database_app.
+    await pool.query("ALTER ROLE d_database_app CREATEROLE");
     await pool.query("GRANT d_database_app TO CURRENT_USER");
     await pool.query("GRANT USAGE ON SCHEMA public TO d_database_app");
+    const databaseNameResult = await pool.query("SELECT current_database() AS database_name");
+    const databaseName = String(databaseNameResult.rows[0]?.database_name || "").replace(/"/g, '""');
+    if (!databaseName) throw new Error("Could not determine the current PostgreSQL database name.");
+    await pool.query(
+      `GRANT CONNECT ON DATABASE "${databaseName}" TO d_database_app WITH GRANT OPTION`,
+    );
     await pool.query(
       "GRANT SELECT, INSERT, UPDATE ON TABLE resource_access_grants, developer_api_keys TO d_database_app",
     );
