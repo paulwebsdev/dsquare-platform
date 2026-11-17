@@ -118,7 +118,7 @@ jobs:
       - name: Install PostgreSQL client tools
         run: |
           sudo apt-get update
-          sudo apt-get install --yes postgresql-client-16
+          sudo apt-get install --yes postgresql-client
 
       - name: Verify custom-format backup restores into an isolated database
         shell: bash
