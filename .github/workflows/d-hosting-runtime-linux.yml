@@ -66,6 +66,9 @@ jobs:
       - name: Type-check D Database dashboard
         run: npm run typecheck --workspace=@dsquare/d-database-client
 
+      - name: Test D Database dashboard product configuration
+        run: npm test --workspace=@dsquare/d-database-client
+
       - name: Build D Database dashboard
         run: npm run build --workspace=@dsquare/d-database-client
 
