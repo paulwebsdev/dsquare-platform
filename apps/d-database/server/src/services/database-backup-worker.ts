@@ -153,6 +153,111 @@ export async function runDatabaseBackupRetentionSweep(pool: Pool | PoolClient): 
 }
 
 
+
+const PLATFORM_BACKUP_MAX_BYTES = 1024 * 1024 * 1024;
+
+async function runDatabasePlatformBackup(pool: Pool | PoolClient): Promise<"completed" | "failed" | "skipped"> {
+  const config = getDatabaseBackupStorageConfig(process.env);
+  const databaseUrl = process.env.D_DATABASE_PLATFORM_BACKUP_URL?.trim();
+  if (!config || !databaseUrl) return "skipped";
+
+  const backupId = randomUUID();
+  const objectKey = `${config.prefix}/platform/${backupId}.dump`;
+  await pool.query(
+    "INSERT INTO database_platform_backups (id, object_key, status) VALUES ($1, $2, 'running')",
+    [backupId, objectKey],
+  );
+  const storage = new S3CompatibleBackupStorage(config);
+  try {
+    const dump = await new Promise<Buffer>((resolve, reject) => {
+      const child = spawn(process.env.PG_DUMP_PATH || "pg_dump", [
+        "--format=custom", "--no-owner", "--no-acl", "--dbname", databaseUrl,
+      ], {
+        env: { ...process.env },
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+      });
+      const chunks: Buffer[] = [];
+      let size = 0;
+      let stderr = "";
+      let settled = false;
+      child.stdout.on("data", (chunk: Buffer) => {
+        if (settled) return;
+        size += chunk.length;
+        if (size > PLATFORM_BACKUP_MAX_BYTES) {
+          settled = true;
+          child.kill("SIGTERM");
+          reject(new Error("D Database platform backup exceeds the 1 GiB safety limit."));
+          return;
+        }
+        chunks.push(Buffer.from(chunk));
+      });
+      child.stderr.on("data", (chunk: Buffer) => { stderr = (stderr + chunk.toString("utf8")).slice(-4000); });
+      child.once("error", (error) => {
+        if (!settled) {
+          settled = true;
+          reject(new Error("pg_dump could not be started for the D Database platform backup.", { cause: error }));
+        }
+      });
+      child.once("close", (code) => {
+        if (settled) return;
+        settled = true;
+        if (code === 0 && size > 0) resolve(Buffer.concat(chunks));
+        else reject(new Error(`D Database platform pg_dump failed (exit ${code}): ${stderr.trim().slice(-1000)}`));
+      });
+    });
+    const checksum = createHash("sha256").update(dump).digest("hex");
+    const uploaded = await storage.putObject(objectKey, dump);
+    const remote = await storage.getObject(objectKey);
+    const remoteChecksum = createHash("sha256").update(remote.body).digest("hex");
+    if (uploaded.sizeBytes !== dump.length || uploaded.checksumSha256 !== checksum ||
+        remote.body.length !== dump.length || remoteChecksum !== checksum) {
+      throw new Error("D Database platform backup readback verification failed.");
+    }
+    const requested = Number(process.env.D_DATABASE_BACKUP_RETENTION_DAYS || DEFAULT_RETENTION_DAYS);
+    const days = Number.isFinite(requested) ? Math.max(1, Math.min(365, Math.floor(requested))) : DEFAULT_RETENTION_DAYS;
+    await pool.query(
+      "UPDATE database_platform_backups SET status='completed', checksum_sha256=$2, size_bytes=$3, completed_at=NOW(), expires_at=NOW()+($4::integer * INTERVAL '1 day') WHERE id=$1 AND status='running'",
+      [backupId, checksum, dump.length, days],
+    );
+    return "completed";
+  } catch (error) {
+    await storage.deleteObject(objectKey).catch(() => undefined);
+    await pool.query(
+      "UPDATE database_platform_backups SET status='failed', error_code='BACKUP_FAILED' WHERE id=$1 AND status='running'",
+      [backupId],
+    );
+    console.error("D Database platform backup failed:", error instanceof Error ? error.message : "Unknown error");
+    return "failed";
+  }
+}
+
+async function runDatabasePlatformBackupRetention(pool: Pool | PoolClient): Promise<number> {
+  const config = getDatabaseBackupStorageConfig(process.env);
+  if (!config) return 0;
+  const storage = new S3CompatibleBackupStorage(config);
+  const expired = await pool.query(
+    "SELECT id, object_key FROM database_platform_backups WHERE status='completed' AND expires_at <= NOW() AND object_key IS NOT NULL ORDER BY expires_at LIMIT 100",
+  );
+  let removed = 0;
+  for (const backup of expired.rows as Array<{id:string;object_key:string}>) {
+    try {
+      if (!backup.object_key.startsWith(`${config.prefix}/platform/`)) {
+        throw new Error("Platform backup object is outside the D Database platform prefix.");
+      }
+      await storage.deleteObject(backup.object_key);
+      await pool.query(
+        "UPDATE database_platform_backups SET status='expired', error_code='RETENTION_EXPIRED', object_key=NULL WHERE id=$1 AND status='completed'",
+        [backup.id],
+      );
+      removed++;
+    } catch (error) {
+      console.error("D Database platform backup retention cleanup failed:", error instanceof Error ? error.message : "Unknown error");
+    }
+  }
+  return removed;
+}
+
 const BACKUP_SCHEDULER_LOCK_NAME = "dsquare-d-database-backup-scheduler";
 
 export type DatabaseBackupScheduledSweepResult = {
@@ -184,8 +289,15 @@ export async function runDatabaseBackupScheduledSweep(
     }
 
     const backup = await runDatabaseBackupSweep(lockClient);
+    const platformBackup = await runDatabasePlatformBackup(lockClient);
     const expired = await runDatabaseBackupRetentionSweep(lockClient);
-    return { ...backup, expired };
+    const platformExpired = await runDatabasePlatformBackupRetention(lockClient);
+    return {
+      ...backup,
+      completed: backup.completed + (platformBackup === "completed" ? 1 : 0),
+      failed: backup.failed + (platformBackup === "failed" ? 1 : 0),
+      expired: expired + platformExpired,
+    };
   } finally {
     try {
       if (lockAcquired) {
