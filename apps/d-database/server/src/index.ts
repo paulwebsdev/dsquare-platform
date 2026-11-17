@@ -167,6 +167,7 @@ async function startServer() {
           JOIN pg_roles AS owner ON owner.oid = relation.relowner
           WHERE namespace.nspname = 'public' AND relation.relname = 'user_sessions') AS sessions_table_owner,
         CASE
+          WHEN current_user = 'd_database_app' THEN TRUE
           WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'd_database_app')
           THEN pg_has_role(current_user, 'd_database_app', 'MEMBER')
           ELSE FALSE
