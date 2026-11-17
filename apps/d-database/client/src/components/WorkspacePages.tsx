@@ -70,7 +70,7 @@ export function ResourceDirectory({ onOpenProjects, onOpenResource }: { onOpenPr
           <article className="pm-project-card panel" key={resource.id}>
             <div className="pm-card-top"><div className="pm-project-avatar">{resource.name.charAt(0).toUpperCase()}</div><span className={`pm-status ${resource.status}`}>{resource.status}</span></div>
             <h3>{resource.name}</h3>
-            <p className="pm-card-description">{project.name} · {resource.engine || "PostgreSQL database"}</p>
+            <p className="pm-card-description">{project.name} · {resource.engine?.toLowerCase() === "postgresql" ? "PostgreSQL database" : resource.engine || "Database resource"}</p>
             <div className="pm-card-footer"><span>Updated {resource.updated_at ? new Date(resource.updated_at).toLocaleDateString() : "—"}</span><button onClick={() => onOpenResource(project.id, resource.id)}>Open resource →</button></div>
           </article>
         ))}</div> : <div className="pm-empty panel"><div className="pm-empty-icon">◈</div><h2>{search ? "No matching resources" : "No resources yet"}</h2><p>{search ? "Try another search term." : "Create a database inside one of your projects to see it here."}</p><button className="primary-button" onClick={onOpenProjects}>Go to projects</button></div>}
