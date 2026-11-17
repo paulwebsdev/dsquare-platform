@@ -42,3 +42,36 @@ test("accepts a complete private HTTPS backup configuration", () => {
   assert.equal(config?.bucket, "private-bucket");
   assert.equal(config?.prefix, "dsquare/hosting");
 });
+
+
+test("rejects backup endpoints containing credentials or URL parameters", () => {
+  for (const endpoint of [
+    "https://user:pass@storage.example.com",
+    "https://storage.example.com?token=secret",
+    "https://storage.example.com#fragment",
+  ]) {
+    assert.throws(() => getHostingBackupConfig({
+      D_HOSTING_BACKUP_ENDPOINT: endpoint,
+      D_HOSTING_BACKUP_BUCKET: "private-bucket",
+      D_HOSTING_BACKUP_ACCESS_KEY_ID: "access",
+      D_HOSTING_BACKUP_SECRET_ACCESS_KEY: "secret",
+    } as NodeJS.ProcessEnv), /must not contain credentials/);
+  }
+});
+
+test("rejects invalid bucket names and production loopback endpoints", () => {
+  assert.throws(() => getHostingBackupConfig({
+    D_HOSTING_BACKUP_ENDPOINT: "https://storage.example.com",
+    D_HOSTING_BACKUP_BUCKET: "Invalid_Bucket",
+    D_HOSTING_BACKUP_ACCESS_KEY_ID: "access",
+    D_HOSTING_BACKUP_SECRET_ACCESS_KEY: "secret",
+  } as NodeJS.ProcessEnv), /bucket is invalid/);
+
+  assert.throws(() => getHostingBackupConfig({
+    NODE_ENV: "production",
+    D_HOSTING_BACKUP_ENDPOINT: "https://127.0.0.1:9000",
+    D_HOSTING_BACKUP_BUCKET: "private-bucket",
+    D_HOSTING_BACKUP_ACCESS_KEY_ID: "access",
+    D_HOSTING_BACKUP_SECRET_ACCESS_KEY: "secret",
+  } as NodeJS.ProcessEnv), /must not contain credentials/);
+});
