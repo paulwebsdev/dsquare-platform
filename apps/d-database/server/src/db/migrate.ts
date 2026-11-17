@@ -24,10 +24,10 @@ export function deferMissingDatabaseAppGrants(
 ): { sql: string; deferredCount: number } {
   if (databaseAppRoleExists) return { sql, deferredCount: 0 };
 
-  const grantPattern = /(?:^|\\n)(?:\\s*--[^\\n]*\\n)*\\s*GRANT\\b[^;]*\\bTO\\s+d_database_app\\s*;/gim;
+  const grantPattern = /(?:^|\n)(?:\s*--[^\n]*\n)*\s*GRANT\b[^;]*\bTO\s+d_database_app\s*;/gim;
   const matches = sql.match(grantPattern);
   return {
-    sql: sql.replace(grantPattern, "\\n"),
+    sql: sql.replace(grantPattern, "\n"),
     deferredCount: matches?.length ?? 0,
   };
 }
