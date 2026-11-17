@@ -18,4 +18,12 @@ CREATE INDEX IF NOT EXISTS database_platform_backups_retention_idx
   ON database_platform_backups (expires_at)
   WHERE status = 'completed' AND expires_at IS NOT NULL;
 
+DO $
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'd_database_app') THEN
+    EXECUTE 'GRANT SELECT, INSERT, UPDATE ON TABLE database_platform_backups TO d_database_app';
+  END IF;
+END
+$;
+
 COMMIT;
