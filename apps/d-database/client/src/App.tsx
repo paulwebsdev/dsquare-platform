@@ -20,7 +20,7 @@ type ProjectSummary = {
 const navigation = [
   { label: "Overview", icon: "◫" },
   { label: "Projects", icon: "▦" },
-  { label: "Resources", icon: "◈" },
+  { label: RESOURCE_LABEL, icon: "◈" },
   { label: "API Keys", icon: "⌘" },
   { label: "Usage & Billing", icon: "▤" },
   { label: "Activity", icon: "◷" },
@@ -241,7 +241,7 @@ export default function App() {
         <div className="content">
           {activePage === "Projects" ? (
             <ProjectManager onProjectsChange={refreshProjectSummary} initialProjectId={initialProjectId} initialResourceId={initialResourceId} onInitialResourceOpened={clearInitialResource} />
-          ) : activePage === "Resources" ? (
+          ) : activePage === RESOURCE_LABEL ? (
             <ResourceDirectory onOpenProjects={() => setActivePage("Projects")} onOpenResource={openWorkspaceResource} />
           ) : activePage === "API Keys" ? (
             <DeveloperApiKeys />
@@ -275,7 +275,7 @@ export default function App() {
             <article className="stat-card">
               <div className="stat-heading"><span>{resource}</span><span className="stat-icon blue">◈</span></div>
               <div className="stat-value">{resourceCount === null ? "—" : resourceCount}</div>
-              <div className="stat-foot">Resources across your projects</div>
+              <div className="stat-foot">Databases across your projects</div>
             </article>
             <article className="stat-card">
               <div className="stat-heading"><span>Storage used</span><span className="stat-icon orange">▤</span></div>
@@ -346,7 +346,7 @@ export default function App() {
                 <div className="activity-empty">
                   <span className="activity-clock">◷</span>
                   <strong>No project activity recorded</strong>
-                  <p>Project and resource creation will appear here.</p>
+                  <p>Project and database creation will appear here.</p>
                 </div>
               )}
             </article>
@@ -357,7 +357,7 @@ export default function App() {
               <div className="panel-heading"><div><h2>Quick access</h2><p>Common workspace actions</p></div></div>
               <div className="quick-actions">
                 <button onClick={() => setActivePage("Projects")}><span>＋</span><div><strong>New project</strong><small>Start something new</small></div><b>→</b></button>
-                <button onClick={() => setActivePage("Resources")}><span>◈</span><div><strong>Explore {resource.toLowerCase()}</strong><small>View available resources</small></div><b>→</b></button>
+                <button onClick={() => setActivePage(RESOURCE_LABEL)}><span>◈</span><div><strong>Explore {resource.toLowerCase()}</strong><small>View available databases</small></div><b>→</b></button>
                 <button onClick={() => setActivePage("Settings")}><span>⚙</span><div><strong>Workspace settings</strong><small>Configure your workspace</small></div><b>→</b></button>
               </div>
             </article>
