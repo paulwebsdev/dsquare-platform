@@ -85,6 +85,7 @@ test("releases the advisory lock when backup configuration validation fails", as
 
 import {
   runDatabaseBackupRetentionSweep,
+  runDatabasePlatformBackup,
   runDatabasePlatformBackupRetention,
 } from "./database-backup-worker.js";
 
@@ -214,4 +215,87 @@ test("platform retention keeps completed metadata when storage deletion fails", 
 
   assert.equal(removed, 0);
   assert.equal(updates.length, 0);
+});
+
+
+async function withPlatformBackupEnv<T>(run: () => Promise<T>): Promise<T> {
+  const keys = [
+    "D_DATABASE_BACKUP_ENDPOINT",
+    "D_DATABASE_BACKUP_BUCKET",
+    "D_DATABASE_BACKUP_ACCESS_KEY_ID",
+    "D_DATABASE_BACKUP_SECRET_ACCESS_KEY",
+    "D_DATABASE_BACKUP_PREFIX",
+    "D_DATABASE_BACKUP_REGION",
+    "D_DATABASE_PLATFORM_BACKUP_URL",
+    "NODE_ENV",
+  ] as const;
+  const previous = keys.map((key) => process.env[key]);
+  process.env.D_DATABASE_BACKUP_ENDPOINT = "https://storage.example.test";
+  process.env.D_DATABASE_BACKUP_BUCKET = "private-backups";
+  process.env.D_DATABASE_BACKUP_ACCESS_KEY_ID = "test-access";
+  process.env.D_DATABASE_BACKUP_SECRET_ACCESS_KEY = "test-secret";
+  process.env.D_DATABASE_BACKUP_PREFIX = "dsquare/database";
+  process.env.D_DATABASE_BACKUP_REGION = "us-east-2";
+  process.env.D_DATABASE_PLATFORM_BACKUP_URL = "postgresql://backup-role:secret@127.0.0.1:5432/dsquare_ci";
+  delete process.env.NODE_ENV;
+  try { return await run(); }
+  finally {
+    keys.forEach((key, index) => previous[index] === undefined ? delete process.env[key] : process.env[key] = previous[index]!);
+  }
+}
+
+test("database platform worker records interrupted pg_dump as failed without uploading", async () => {
+  const statements: string[] = [];
+  let uploads = 0;
+  const pool = { query: async (sql: string) => { statements.push(sql); return { rows: [], rowCount: 1 }; } } as unknown as Pool;
+  const storage = {
+    putObject: async () => { uploads++; return { checksumSha256: "x", sizeBytes: 1 }; },
+    getObject: async () => ({ body: Buffer.from("x"), checksumSha256: "x" }),
+    deleteObject: async () => undefined,
+  };
+  const result = await withPlatformBackupEnv(() => runDatabasePlatformBackup(pool, {
+    dump: async () => { throw new Error("simulated interrupted pg_dump"); },
+    storage,
+  }));
+  assert.equal(result, "failed");
+  assert.equal(uploads, 0);
+  assert.ok(statements.some((sql) => sql.includes("status='failed'")));
+});
+
+test("database platform worker marks interrupted uploads failed and attempts cleanup", async () => {
+  const statements: string[] = [];
+  const deleted: string[] = [];
+  const pool = { query: async (sql: string) => { statements.push(sql); return { rows: [], rowCount: 1 }; } } as unknown as Pool;
+  const storage = {
+    putObject: async () => { throw new Error("simulated interrupted upload"); },
+    getObject: async () => { throw new Error("readback must not run after upload failure"); },
+    deleteObject: async (key: string) => { deleted.push(key); },
+  };
+  const result = await withPlatformBackupEnv(() => runDatabasePlatformBackup(pool, {
+    dump: async () => Buffer.from("valid custom archive bytes"),
+    storage,
+  }));
+  assert.equal(result, "failed");
+  assert.equal(deleted.length, 1);
+  assert.match(deleted[0], /^dsquare\/database\/platform\/.+\.dump$/);
+  assert.ok(statements.some((sql) => sql.includes("status='failed'")));
+});
+
+test("database platform worker rejects readback corruption and never marks it completed", async () => {
+  const statements: string[] = [];
+  const deleted: string[] = [];
+  const pool = { query: async (sql: string) => { statements.push(sql); return { rows: [], rowCount: 1 }; } } as unknown as Pool;
+  const storage = {
+    putObject: async (_key: string, body: Buffer) => ({ checksumSha256: "wrong", sizeBytes: body.length }),
+    getObject: async () => ({ body: Buffer.from("corrupt"), checksumSha256: "wrong" }),
+    deleteObject: async (key: string) => { deleted.push(key); },
+  };
+  const result = await withPlatformBackupEnv(() => runDatabasePlatformBackup(pool, {
+    dump: async () => Buffer.from("valid custom archive bytes"),
+    storage,
+  }));
+  assert.equal(result, "failed");
+  assert.equal(deleted.length, 1);
+  assert.ok(statements.some((sql) => sql.includes("status='failed'")));
+  assert.equal(statements.some((sql) => sql.includes("status='completed'")), false);
 });
