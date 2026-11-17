@@ -149,11 +149,18 @@ async function ensureDatabaseAppGrants(): Promise<void> {
   }
 
   try {
+    await pool.query("ALTER ROLE d_database_app CREATEROLE");
+    const databaseNameResult = await pool.query("SELECT current_database() AS database_name");
+    const databaseName = String(databaseNameResult.rows[0]?.database_name || "").replace(/"/g, '""');
+    if (!databaseName) throw new Error("Could not determine the current PostgreSQL database name.");
+    await pool.query(
+      `GRANT CONNECT ON DATABASE "${databaseName}" TO d_database_app WITH GRANT OPTION`,
+    );
     await pool.query("GRANT USAGE ON SCHEMA public TO d_database_app");
     await pool.query(
       "GRANT SELECT, INSERT, UPDATE ON TABLE resource_access_grants, developer_api_keys TO d_database_app",
     );
-    console.log("D Database application-role table grants are present.");
+    console.log("D Database application-role permissions are present.");
   } catch (error) {
     console.warn(
       "D Database could not reconcile d_database_app table grants; check migration-role privileges:",
