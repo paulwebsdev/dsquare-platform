@@ -57,7 +57,7 @@ export function ResourceDirectory({ onOpenProjects, onOpenResource }: { onOpenPr
   return (
     <section className="pm-page">
       <div className="pm-heading">
-        <div><div className="welcome-date">WORKSPACE MANAGEMENT</div><h1>Resources</h1><p>All websites and databases across your active projects.</p></div>
+        <div><div className="welcome-date">WORKSPACE MANAGEMENT</div><h1>Databases</h1><p>All PostgreSQL databases across your active projects.</p></div>
         <button className="primary-button" onClick={onOpenProjects}>Manage projects</button>
       </div>
       {error && <div className="pm-error" role="alert">{error}</div>}
@@ -70,10 +70,10 @@ export function ResourceDirectory({ onOpenProjects, onOpenResource }: { onOpenPr
           <article className="pm-project-card panel" key={resource.id}>
             <div className="pm-card-top"><div className="pm-project-avatar">{resource.name.charAt(0).toUpperCase()}</div><span className={`pm-status ${resource.status}`}>{resource.status}</span></div>
             <h3>{resource.name}</h3>
-            <p className="pm-card-description">{project.name} · {resource.site_type === "node" ? "Node.js website" : resource.engine || resource.site_type || "Resource"}</p>
+            <p className="pm-card-description">{project.name} · {resource.engine || "PostgreSQL database"}</p>
             <div className="pm-card-footer"><span>Updated {resource.updated_at ? new Date(resource.updated_at).toLocaleDateString() : "—"}</span><button onClick={() => onOpenResource(project.id, resource.id)}>Open resource →</button></div>
           </article>
-        ))}</div> : <div className="pm-empty panel"><div className="pm-empty-icon">◈</div><h2>{search ? "No matching resources" : "No resources yet"}</h2><p>{search ? "Try another search term." : "Create a website or database inside one of your projects to see it here."}</p><button className="primary-button" onClick={onOpenProjects}>Go to projects</button></div>}
+        ))}</div> : <div className="pm-empty panel"><div className="pm-empty-icon">◈</div><h2>{search ? "No matching resources" : "No resources yet"}</h2><p>{search ? "Try another search term." : "Create a database inside one of your projects to see it here."}</p><button className="primary-button" onClick={onOpenProjects}>Go to projects</button></div>}
     </section>
   );
 }
@@ -250,7 +250,7 @@ export function UsageBilling({ product, onOpenProjects }: { product: string; onO
       {error && <div className="pm-error" role="alert">{error}</div>}
       <div className="stats-grid">
         <article className="stat-card"><div className="stat-heading"><span>Projects</span></div><div className="stat-value">{projectCount === null ? "—" : projectCount}</div><div className="stat-foot">Projects currently returned by your workspace</div></article>
-        <article className="stat-card"><div className="stat-heading"><span>Resources</span></div><div className="stat-value">{resourceCount === null ? "—" : resourceCount}</div><div className="stat-foot">Websites and databases in active projects</div></article>
+        <article className="stat-card"><div className="stat-heading"><span>Databases</span></div><div className="stat-value">{resourceCount === null ? "—" : resourceCount}</div><div className="stat-foot">Database resources in active projects</div></article>
       </div>
       <article className="pm-detail panel">
         <div className="pm-form-heading"><div><h2>Billing is not enabled yet</h2><p>Online payments, invoices, subscription changes, and metered storage or compute billing are not connected in this workspace. No charge or plan amount is being estimated here.</p></div></div>
@@ -266,7 +266,7 @@ export function UsageBilling({ product, onOpenProjects }: { product: string; onO
 export function HelpSupport({ product, onNavigate }: { product: string; onNavigate: (page: string) => void }) {
   const links = [
     { title: "Projects", detail: "Create, rename, archive, and restore workspace projects." },
-    { title: "Resources", detail: "Review the websites and databases inside your projects." },
+    { title: "Resources", detail: "Review the databases inside your projects." },
     { title: "Activity", detail: "Check saved project and resource creation or update timestamps." },
     { title: "Settings", detail: "Change the appearance or sign out of this workspace." }
   ];
