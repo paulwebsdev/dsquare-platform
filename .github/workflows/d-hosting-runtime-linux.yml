@@ -90,6 +90,93 @@ jobs:
       - name: Test runtime agent
         run: npm test --workspace=@dsquare/d-hosting-agent-server
 
+
+  platform-backup-restore-integration:
+    name: Isolated PostgreSQL platform backup restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: dsquare_ci
+          POSTGRES_PASSWORD: dsquare_ci_test_password
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dsquare_ci -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: dsquare_ci
+      PGPASSWORD: dsquare_ci_test_password
+    steps:
+      - name: Install PostgreSQL client tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client-16
+
+      - name: Verify custom-format backup restores into an isolated database
+        shell: bash
+        run: |
+          set -euo pipefail
+          createdb dsquare_backup_source
+          createdb dsquare_backup_restore
+          createdb dsquare_backup_guard
+          psql -v ON_ERROR_STOP=1 -d dsquare_backup_source <<'SQL'
+          CREATE TABLE customers (
+            id integer PRIMARY KEY,
+            customer_code text NOT NULL UNIQUE,
+            name text NOT NULL
+          );
+          CREATE TABLE orders (
+            id integer PRIMARY KEY,
+            customer_id integer NOT NULL REFERENCES customers(id),
+            amount numeric(12,2) NOT NULL CHECK (amount >= 0)
+          );
+          INSERT INTO customers VALUES
+            (1, 'CUST-001', 'Ada'),
+            (2, 'CUST-002', 'Grace');
+          INSERT INTO orders VALUES
+            (101, 1, 125.50),
+            (102, 2, 80.00);
+          SQL
+          pg_dump --format=custom --no-owner --no-acl --dbname=dsquare_backup_source --file=/tmp/dsquare-platform.dump
+          test -s /tmp/dsquare-platform.dump
+          pg_restore --clean --if-exists --single-transaction --exit-on-error --no-owner --no-acl \
+            --dbname=dsquare_backup_restore /tmp/dsquare-platform.dump
+          psql -v ON_ERROR_STOP=1 -d dsquare_backup_restore <<'SQL'
+          DO $
+          BEGIN
+            IF (SELECT count(*) FROM customers) <> 2 THEN
+              RAISE EXCEPTION 'Customer rows did not survive backup restore';
+            END IF;
+            IF (SELECT count(*) FROM orders) <> 2 THEN
+              RAISE EXCEPTION 'Order rows did not survive backup restore';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM orders o JOIN customers c ON c.id = o.customer_id
+              WHERE o.id = 101 AND c.customer_code = 'CUST-001'
+            ) THEN
+              RAISE EXCEPTION 'Restored foreign-key relationship is incorrect';
+            END IF;
+          END $;
+          SQL
+          psql -v ON_ERROR_STOP=1 -d dsquare_backup_guard -c "CREATE TABLE restore_guard (id integer PRIMARY KEY); INSERT INTO restore_guard VALUES (77);"
+          cp /tmp/dsquare-platform.dump /tmp/dsquare-platform-corrupt.dump
+          truncate -s 64 /tmp/dsquare-platform-corrupt.dump
+          if pg_restore --clean --if-exists --single-transaction --exit-on-error --no-owner --no-acl \
+            --dbname=dsquare_backup_guard /tmp/dsquare-platform-corrupt.dump; then
+            echo "Corrupted archive unexpectedly restored successfully."
+            exit 1
+          fi
+          psql -v ON_ERROR_STOP=1 -d dsquare_backup_guard -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM restore_guard WHERE id = 77) THEN RAISE EXCEPTION 'Failed restore changed existing target data'; END IF; END \$\$;"
+          echo "Isolated backup restore, row integrity, relationships, and failed-restore safety verified."
+
   podman-linux-smoke:
     name: Rootless Podman Linux smoke test
     runs-on: ubuntu-latest
