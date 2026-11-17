@@ -138,7 +138,7 @@ app.use((req, res, next) => {
 const PORT = Number(process.env.PORT || 5001);
 
 async function ensureDatabaseAppGrants(): Promise<void> {
-  const role = await migrationPool.query(
+  const role = await pool.query(
     "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'd_database_app') AS role_exists",
   );
   if (!role.rows[0]?.role_exists) {
@@ -149,8 +149,8 @@ async function ensureDatabaseAppGrants(): Promise<void> {
   }
 
   try {
-    await migrationPool.query("GRANT USAGE ON SCHEMA public TO d_database_app");
-    await migrationPool.query(
+    await pool.query("GRANT USAGE ON SCHEMA public TO d_database_app");
+    await pool.query(
       "GRANT SELECT, INSERT, UPDATE ON TABLE resource_access_grants, developer_api_keys TO d_database_app",
     );
     console.log("D Database application-role table grants are present.");
