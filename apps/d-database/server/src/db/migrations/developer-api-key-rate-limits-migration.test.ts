@@ -7,7 +7,7 @@ import { test } from "node:test";
 test("per-key API rate-limit migration isolates counters and grants only required access", async () => {
   const migrationPath = resolve(
     dirname(fileURLToPath(import.meta.url)),
-    "../migrations/009_developer_api_key_rate_limits.sql",
+    "009_developer_api_key_rate_limits.sql",
   );
   const sql = await readFile(migrationPath, "utf8");
   assert.match(sql, /key_id UUID PRIMARY KEY REFERENCES developer_api_keys\(id\) ON DELETE CASCADE/i);
