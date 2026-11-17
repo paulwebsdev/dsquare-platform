@@ -91,9 +91,7 @@ app.use("/api/v1/data/:projectId/:resourceId", requireDeveloperKey, developerDat
 
 app.get("/api/v1/health", async (_req, res) => {
   try {
-    const result = await pool.query(
-      "SELECT current_database() AS database, current_user AS username"
-    );
+    await pool.query("SELECT 1");
 
     res.json({
       success: true,
@@ -101,8 +99,6 @@ app.get("/api/v1/health", async (_req, res) => {
       api: "online",
       database: {
         connected: true,
-        name: result.rows[0].database,
-        user: result.rows[0].username,
       },
     });
   } catch (error) {
