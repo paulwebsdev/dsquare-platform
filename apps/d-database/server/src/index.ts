@@ -237,6 +237,15 @@ async function startServer() {
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`D Database application running on port ${PORT}`);
       console.log("D Database PostgreSQL connection successful.");
+    console.log("D Database optional configuration:", {
+      resourceProvisionerConfigured: Boolean(process.env.DB_PROVISIONER_URL),
+      runtimeHostConfigured: Boolean(process.env.D_DATABASE_RUNTIME_HOST),
+      hostingIntegrationSecretConfigured: Boolean(process.env.D_HOSTING_INTEGRATION_CLIENT_SECRET),
+      hostingCallbackConfigured: Boolean(process.env.D_HOSTING_CALLBACK_URL),
+      accountEmailDeliveryConfigured: Boolean(
+        process.env.RESEND_API_KEY && process.env.DSQUARE_ACCOUNT_EMAIL_FROM,
+      ),
+    });
     });
   } catch (error) {
     console.error(
