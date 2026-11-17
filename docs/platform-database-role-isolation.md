@@ -59,13 +59,14 @@ GRANT CONNECT ON DATABASE d_database TO d_database_provisioner WITH GRANT OPTION
 REVOKE GRANT OPTION FOR CONNECT ON DATABASE d_database FROM d_database_app;
 GRANT CREATE ON DATABASE d_database TO d_database_app;
 GRANT USAGE ON SCHEMA public TO d_database_app, d_database_backup;
-GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO d_database_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO d_database_app;
+REVOKE ALL ON TABLE dsquare_schema_migrations FROM d_database_app;
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO d_database_app;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO d_database_backup;
 GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO d_database_backup;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE d_database_migrator IN SCHEMA public
-  GRANT SELECT, INSERT, UPDATE ON TABLES TO d_database_app;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO d_database_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE d_database_migrator IN SCHEMA public
   GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO d_database_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE d_database_migrator IN SCHEMA public
@@ -77,7 +78,7 @@ GRANT d_database_app TO d_database_provisioner WITH INHERIT FALSE, SET TRUE;
 GRANT pg_signal_backend TO d_database_provisioner;
 ```
 
-The DBA must ensure `d_database_migrator` owns the existing D Database control-plane tables, sequences, schema, and migration ledger. Resource schemas remain owned by `d_database_app`. Do not grant CREATEROLE to `d_database_app`.
+The DBA must ensure `d_database_migrator` owns the D Database database (so it can grant the runtime role's CREATE privilege) and the existing control-plane tables, sequences, schema, and migration ledger. Resource schemas remain owned by `d_database_app`. Do not grant CREATEROLE to `d_database_app`.
 
 The resource provisioner must use only `DB_PROVISIONER_URL`. It checks that its connected identity is non-superuser, has CREATEROLE, can SET ROLE to `d_database_app`, and belongs to `pg_signal_backend`. It also needs CONNECT grant option on this one database so it can grant CONNECT to the resource login it creates. Role creation/password changes, database CONNECT grants, and NOLOGIN operations run as the provisioner; schema grants and grant metadata run as `d_database_app`. The old application-role CONNECT grant option is explicitly revoked above.
 
@@ -94,6 +95,17 @@ Do not grant membership in customer resource roles to the application role. The 
 Use a different private-bucket access key for each product. Scope each key to only its product's platform-backup object prefix. The backup worker requires object-level PUT, GET (readback verification), and DELETE (failed-upload cleanup and retention). It does not need public access or bucket-wide listing. Keep website uploads, resource backup objects, and platform backup objects in separate prefixes or buckets.
 
 The PostgreSQL backup identity must have CONNECT, schema USAGE, and SELECT on all platform tables and sequences. It must not have write, schema-creation, database-creation, or role-administration privileges. D Database's platform backup URL is separate from its application and resource-provisioner connections.
+
+## Existing deployment privilege cleanup (manual DBA approval)
+
+Older D Database startup code may have granted CREATEROLE and CONNECT grant option to `d_database_app`. The new application code no longer grants those privileges, and production startup rejects an elevated runtime role. Before deploying this security change to an existing environment, have the DBA review current grants and dependencies, confirm the dedicated provisioner is configured, and apply an approved rollback plan. The following is a reviewed template, not an automatic migration:
+
+```sql
+ALTER ROLE d_database_app NOSUPERUSER NOCREATEDB NOCREATEROLE;
+REVOKE GRANT OPTION FOR CONNECT ON DATABASE d_database FROM d_database_app;
+```
+
+Also inspect memberships in privileged roles (including `pg_signal_backend`) and remove any that are not explicitly required. Do not run these statements against production until the DBA confirms the provisioner and migration identities are ready and the change has an approved rollback plan.
 
 ## Verification checklist
 
