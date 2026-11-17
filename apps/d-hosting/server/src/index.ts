@@ -158,15 +158,17 @@ async function startServer() {
       const [runtimeIdentity, migrationIdentity] = await Promise.all([
         pool.query("SELECT current_user AS role_name"),
         migrationPool.query(
-          "SELECT current_user AS role_name, rolsuper FROM pg_roles WHERE rolname = current_user",
+          "SELECT current_user AS role_name, rolsuper, rolcreatedb, rolcreaterole FROM pg_roles WHERE rolname = current_user",
         ),
       ]);
       if (
         runtimeIdentity.rows[0]?.role_name === migrationIdentity.rows[0]?.role_name ||
-        migrationIdentity.rows[0]?.rolsuper
+        migrationIdentity.rows[0]?.rolsuper ||
+        migrationIdentity.rows[0]?.rolcreatedb ||
+        migrationIdentity.rows[0]?.rolcreaterole
       ) {
         throw new Error(
-          "Production migrations require a distinct, non-superuser schema-owner identity; the application role must remain separate.",
+          "Production migrations require a distinct, non-elevated schema-owner identity; the application role must remain separate.",
         );
       }
     }
@@ -176,6 +178,21 @@ async function startServer() {
       await migrationPool.end();
       console.log("D Hosting schema migrations completed with the dedicated migration connection.");
     }
+    const runtimeRole = await pool.query(
+      "SELECT current_user AS role_name, rolsuper, rolcreatedb, rolcreaterole FROM pg_roles WHERE rolname = current_user",
+    );
+    const runtimeIdentity = runtimeRole.rows[0];
+    if (
+      process.env.NODE_ENV === "production" &&
+      (!runtimeIdentity || runtimeIdentity.rolsuper || runtimeIdentity.rolcreatedb || runtimeIdentity.rolcreaterole)
+    ) {
+      throw new Error("D Hosting runtime identity must not have SUPERUSER, CREATEDB, or CREATEROLE.");
+    }
+    await pool.query("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO d_hosting_app");
+    await pool.query("REVOKE ALL ON TABLE dsquare_schema_migrations FROM d_hosting_app");
+    await pool.query("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO d_hosting_app");
+    await pool.query("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO d_hosting_app");
+    await pool.query("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO d_hosting_app");
     await pool.query("SELECT 1");
     startHostingBackupScheduler(pool);
 
