@@ -97,7 +97,7 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_USER: dsquare_ci
           POSTGRES_PASSWORD: dsquare_ci_test_password
