@@ -8,7 +8,7 @@ type ApiKey = {
 };
 type ApiResponse = { success?: boolean; message?: string; projects?: Project[]; resources?: Resource[]; keys?: ApiKey[]; key?: ApiKey; secret?: string };
 
-export default function DeveloperApiKeys() {
+export default function DeveloperApiKeys({ onBackToDashboard, onOpenProjects }: { onBackToDashboard: () => void; onOpenProjects: () => void }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [resources, setResources] = useState<Resource[]>([]);
   const [projectId, setProjectId] = useState("");
@@ -111,64 +111,104 @@ export default function DeveloperApiKeys() {
     catch { setError("Clipboard access failed. Select and copy the secret manually."); }
   }
 
+  const activeKeys = keys.filter((key) => !key.revoked_at && (!key.expires_at || new Date(key.expires_at).getTime() > Date.now()));
+  const revokedKeys = keys.filter((key) => Boolean(key.revoked_at));
+  const expiredKeys = keys.filter((key) => !key.revoked_at && Boolean(key.expires_at) && new Date(key.expires_at!).getTime() <= Date.now());
+  const apiOrigin = window.location.origin;
+
   return (
-    <section className="pm-page">
-      <div className="pm-heading"><div><div className="welcome-date">DEVELOPER TOOLS</div><h1>API Keys</h1><p>Create secure access keys for your website or backend to connect to a D Database. Keep every secret key private.</p></div></div>
+    <section className="pm-page api-page">
+      <div className="api-page-header">
+        <div className="api-page-heading">
+          <div className="welcome-date">DEVELOPER TOOLS / SECURITY</div>
+          <h1>API Keys</h1>
+          <p>Manage secure credentials for applications that need to access your D Database resources.</p>
+          <div className="api-header-badges"><span className="api-badge api-badge-live">● API management available</span><span className="api-badge">Scoped per database</span></div>
+        </div>
+        <div className="api-header-actions">
+          <button className="ui-button ui-button-secondary" type="button" onClick={onBackToDashboard}>← Back to dashboard</button>
+          <button className="ui-button ui-button-primary" type="button" onClick={onOpenProjects}>Open projects</button>
+        </div>
+      </div>
+
       {error && <div className="pm-error" role="alert">{error}</div>}
-      {notice && <div className="pm-detail panel" role="status">{notice}</div>}
-      {loading ? <div className="pm-empty panel"><div className="pm-spinner" /><strong>Loading projects...</strong></div> : (
+      {notice && <div className="api-notice" role="status"><span>✓</span>{notice}</div>}
+
+      <div className="api-stats-grid">
+        <article className="api-stat-card"><span className="api-stat-icon">⌘</span><div><small>Total keys</small><strong>{keys.length}</strong><span>Created for this database</span></div></article>
+        <article className="api-stat-card"><span className="api-stat-icon api-stat-green">✓</span><div><small>Active keys</small><strong>{activeKeys.length}</strong><span>Currently valid credentials</span></div></article>
+        <article className="api-stat-card"><span className="api-stat-icon api-stat-orange">◷</span><div><small>Expired or revoked</small><strong>{expiredKeys.length + revokedKeys.length}</strong><span>No longer able to authenticate</span></div></article>
+      </div>
+
+      <article className="api-security-banner">
+        <span className="api-security-icon">!</span>
+        <div><strong>Keep secret keys on your server</strong><p>Never place a secret key in browser JavaScript, a public repository, screenshots, or a mobile app bundle. If a key is exposed, revoke it and create a replacement.</p></div>
+      </article>
+
+      {loading ? <div className="pm-empty panel"><div className="pm-spinner" /><strong>Loading your API settings...</strong></div> : (
         <>
-          <article className="pm-detail panel">
-            <div className="pm-form-heading"><div><h2>1. Choose your database</h2><p>Every key belongs to this one database only. It cannot open another project or database.</p></div></div>
-            <label htmlFor="developer-project">Project</label>
-            <select id="developer-project" value={projectId} onChange={(event) => setProjectId(event.target.value)}>
-              {projects.length ? projects.map((item) => <option value={item.id} key={item.id}>{item.name}</option>) : <option value="">No projects available</option>}
-            </select>
-            <label htmlFor="developer-resource">Active database resource</label>
-            <select id="developer-resource" value={resourceId} onChange={(event) => setResourceId(event.target.value)} disabled={!resources.length}>
-              {resources.length ? resources.map((item) => <option value={item.id} key={item.id}>{item.name}</option>) : <option value="">No active resources in this project</option>}
-            </select>
-          </article>
-          {resourceId ? <>
-            <article className="pm-detail panel">
-              <div className="pm-form-heading"><div><h2>2. Connect your website or application</h2><p>Use these settings in your website's private backend. Never add a secret key to website pages, browser JavaScript, or public code.</p></div></div>
-              <p className="pm-card-description">Your backend needs these four settings. The values beginning with D_DATABASE_ are setting names; replace the example values with your own details:</p>
-              <pre className="pm-code-block"><code>{`D_DATABASE_URL=https://your-d-database-api-origin\nD_DATABASE_PROJECT_ID=${projectId}\nD_DATABASE_RESOURCE_ID=${resourceId}\nD_DATABASE_API_KEY=dsq_live_your_secret`}</code></pre>
-              <p className="pm-card-description">Example: how your backend connects to D Database</p>
-              <pre className="pm-code-block"><code>{`import { createDDatabaseClient } from "@dsquare/d-database";\n\nconst db = createDDatabaseClient({\n  baseUrl: process.env.D_DATABASE_URL!,\n  apiKey: process.env.D_DATABASE_API_KEY!,\n  projectId: process.env.D_DATABASE_PROJECT_ID!,\n  resourceId: process.env.D_DATABASE_RESOURCE_ID!,\n});\n\nconst tables = await db.listTables();\nconst rows = await db.select("your_table", { limit: 25, offset: 0 });`}</code></pre>
-              <p className="pm-card-description">Important: connect from your private server only. Do not connect directly from a visitor's browser.</p>
-            </article>
-            <article className="pm-detail panel">
-              <div className="pm-form-heading"><div><h2>3. Create a secret API key</h2><p>This key gives your backend permission to use this database. Keep it private. Never share it or place it in browser code.</p></div></div>
-              <form className="wb-form" onSubmit={createKey}>
-                <label htmlFor="developer-key-name">Give this key a name</label>
-                <input id="developer-key-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={80} placeholder="e.g. Production website" required />
-                <div className="pm-detail-meta">
-                  <label><input type="checkbox" checked={read} onChange={(event) => setRead(event.target.checked)} /> Read database records</label>
-                  <label><input type="checkbox" checked={write} onChange={(event) => setWrite(event.target.checked)} /> Add and change records</label>
-                </div>
-                <label htmlFor="developer-key-expiry">When should this key expire?</label>
-                <select id="developer-key-expiry" value={expiresInDays} onChange={(event) => setExpiresInDays(event.target.value)}>
-                  <option value="30">30 days</option><option value="90">90 days</option><option value="180">180 days</option><option value="365">365 days</option><option value="">Never (not recommended)</option>
+          <article className="panel api-panel">
+            <div className="api-section-heading"><div><span className="api-step">01</span><div><h2>Choose a database</h2><p>API keys are restricted to one project and one database resource.</p></div></div></div>
+            <div className="api-select-grid">
+              <label>Project
+                <select id="developer-project" value={projectId} onChange={(event) => setProjectId(event.target.value)}>
+                  {projects.length ? projects.map((item) => <option value={item.id} key={item.id}>{item.name}</option>) : <option value="">No projects available</option>}
                 </select>
-                <div className="pm-detail-actions"><button className="primary-button" type="submit" disabled={saving}>{saving ? "Creating..." : "Create secret key"}</button></div>
+              </label>
+              <label>Active database
+                <select id="developer-resource" value={resourceId} onChange={(event) => setResourceId(event.target.value)} disabled={!resources.length}>
+                  {resources.length ? resources.map((item) => <option value={item.id} key={item.id}>{item.name}</option>) : <option value="">No active databases in this project</option>}
+                </select>
+              </label>
+            </div>
+            {!projects.length && <div className="api-empty-inline"><strong>No projects yet</strong><span>Create a project and a database before generating an API key.</span><button className="ui-button ui-button-primary" type="button" onClick={onOpenProjects}>Create a project</button></div>}
+            {projects.length > 0 && !resources.length && <div className="api-empty-inline"><strong>No active database in this project</strong><span>Create or activate a database resource to continue.</span><button className="ui-button ui-button-secondary" type="button" onClick={onOpenProjects}>Manage databases</button></div>}
+          </article>
+
+          {resourceId ? <>
+            <article className="panel api-panel">
+              <div className="api-section-heading"><div><span className="api-step">02</span><div><h2>Connect your application</h2><p>Use these values in your private backend environment.</p></div></div><button className="ui-button ui-button-secondary ui-button-small" type="button" onClick={() => void navigator.clipboard.writeText(apiOrigin).then(() => setNotice("API address copied."), () => setError("Could not copy the API address."))}>Copy API address</button></div>
+              <div className="api-endpoint-row"><div><small>API base address</small><code>{apiOrigin}/api/v1</code></div><span className="api-endpoint-status">HTTPS / same origin</span></div>
+              <div className="api-code-heading"><strong>Environment variables</strong><span>Keep this file private. Do not commit real secrets.</span></div>
+              <pre className="api-code-block"><code>{`D_DATABASE_URL=${apiOrigin}\nD_DATABASE_PROJECT_ID=${projectId}\nD_DATABASE_RESOURCE_ID=${resourceId}\nD_DATABASE_API_KEY=dsq_live_replace_with_your_secret`}</code></pre>
+              <div className="api-code-heading"><strong>Node.js example</strong><span>Use the official D Database SDK in your server.</span></div>
+              <pre className="api-code-block"><code>{`import { createDDatabaseClient } from "@dsquare/d-database";\n\nconst db = createDDatabaseClient({\n  baseUrl: process.env.D_DATABASE_URL,\n  apiKey: process.env.D_DATABASE_API_KEY,\n  projectId: process.env.D_DATABASE_PROJECT_ID,\n  resourceId: process.env.D_DATABASE_RESOURCE_ID,\n});\n\nconst tables = await db.listTables();\nconst rows = await db.select("your_table", { limit: 25, offset: 0 });`}</code></pre>
+              <p className="api-help-note">The project ID and database ID are identifiers, not secrets. The API key is a secret and must only be sent from a trusted server.</p>
+            </article>
+
+            <article className="panel api-panel">
+              <div className="api-section-heading"><div><span className="api-step">03</span><div><h2>Create a secret key</h2><p>Give each application its own key and only the permissions it needs.</p></div></div></div>
+              <form className="api-create-form" onSubmit={createKey}>
+                <label className="api-field api-field-wide">Key name<input id="developer-key-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={80} placeholder="e.g. Production website" required /></label>
+                <div className="api-permission-box"><strong>Permissions</strong><p>Choose what this key can do.</p><div className="api-permissions">
+                  <label className="api-permission-option"><input type="checkbox" checked={read} onChange={(event) => setRead(event.target.checked)} /><span><strong>Read records</strong><small>View database tables and records.</small></span></label>
+                  <label className="api-permission-option"><input type="checkbox" checked={write} onChange={(event) => setWrite(event.target.checked)} /><span><strong>Write records</strong><small>Create, update, and delete records.</small></span></label>
+                </div></div>
+                <label className="api-field">Key expiry<select id="developer-key-expiry" value={expiresInDays} onChange={(event) => setExpiresInDays(event.target.value)}><option value="30">30 days</option><option value="90">90 days</option><option value="180">180 days</option><option value="365">365 days</option><option value="">Never (not recommended)</option></select></label>
+                <div className="api-form-actions"><span>Use separate keys for development and production.</span><button className="ui-button ui-button-primary" type="submit" disabled={saving || !projectId || !resourceId || (!read && !write)}>{saving ? "Creating key..." : "＋ Create API key"}</button></div>
               </form>
             </article>
-            {secret && <article className="pm-detail panel">
-              <div className="pm-form-heading"><div><h2>Your new secret key</h2><p>Copy and save this key now. For security, DSquare will not show the full key again.</p></div></div>
-              <textarea readOnly value={secret} rows={3} aria-label="New API secret" />
-              <div className="pm-detail-actions"><button className="primary-button" type="button" onClick={() => void copySecret()}>Copy secret key</button><button className="secondary-button" type="button" onClick={() => setSecret("")}>I've saved my key</button></div>
+
+            {secret && <article className="api-secret-panel">
+              <div className="api-secret-heading"><span>✓</span><div><h2>Your new secret key</h2><p>Copy it now. The full secret is only shown once.</p></div></div>
+              <textarea readOnly value={secret} rows={2} aria-label="New API secret" />
+              <div className="api-form-actions"><span>Store it in your server's secret manager or environment.</span><div><button className="ui-button ui-button-secondary" type="button" onClick={() => void copySecret()}>Copy secret</button><button className="ui-button ui-button-primary" type="button" onClick={() => setSecret("")}>I've saved it</button></div></div>
             </article>}
-            <article className="pm-detail panel">
-              <div className="pm-form-heading"><div><h2>Your secret keys</h2><p>You can see each key's name, permissions and status here. Full secret values are hidden after creation.</p></div></div>
-              {keys.length ? keys.map((key) => <div className="system-row" key={key.id}>
-                <div><strong>{key.name}</strong><div className="pm-card-description">{key.key_prefix}… · {(key.scopes || []).join(", ")} · Created {new Date(key.created_at).toLocaleDateString()}</div><div className="pm-card-description">Last used: {key.last_used_at ? new Date(key.last_used_at).toLocaleString() : "Never"} · Expires: {key.expires_at ? new Date(key.expires_at).toLocaleDateString() : "Never"}</div>{key.revoked_at && <div className="pm-card-description">Revoked {new Date(key.revoked_at).toLocaleString()}</div>}</div>
-                {!key.revoked_at && <button className="pm-archive-button" type="button" onClick={() => void revokeKey(key)}>Revoke</button>}
-              </div>) : <div className="pm-empty"><h3>No secret keys yet</h3><p>Create a secret key above to let your private website backend connect to this database.</p></div>}
+
+            <article className="panel api-panel">
+              <div className="api-section-heading"><div><span className="api-step">04</span><div><h2>Key inventory</h2><p>Review key permissions, activity, expiry, and status for this database.</p></div></div><span className="api-inventory-count">{keys.length} total</span></div>
+              {keys.length ? <div className="api-key-list">{keys.map((key) => {
+                const isExpired = Boolean(key.expires_at) && new Date(key.expires_at!).getTime() <= Date.now();
+                const status = key.revoked_at ? "Revoked" : isExpired ? "Expired" : "Active";
+                return <div className="api-key-row" key={key.id}>
+                  <div className="api-key-main"><span className="api-key-icon">⌘</span><div><strong>{key.name}</strong><code>{key.key_prefix}••••••••</code><div className="api-key-meta"><span>{(key.scopes || []).join(" + ") || "No permissions"}</span><span>Created {new Date(key.created_at).toLocaleDateString()}</span><span>Last used {key.last_used_at ? new Date(key.last_used_at).toLocaleDateString() : "Never"}</span><span>Expires {key.expires_at ? new Date(key.expires_at).toLocaleDateString() : "Never"}</span></div></div></div>
+                  <div className="api-key-actions"><span className={`api-key-status ${status.toLowerCase()}`}>{status}</span>{!key.revoked_at && !isExpired && <button className="ui-button ui-button-danger ui-button-small" type="button" onClick={() => void revokeKey(key)}>Revoke key</button>}</div>
+                </div>;
+              })}</div> : <div className="api-empty-state"><span>⌘</span><strong>No API keys for this database yet</strong><p>Create a key above to connect your backend securely. You can revoke it at any time.</p></div>}
             </article>
-          </> : <div className="pm-empty panel"><h2>Select an active database resource</h2><p>Create a database resource in Projects before generating an API key.</p></div>}
+          </> : <div className="api-empty-state panel"><span>◈</span><strong>Select an active database to continue</strong><p>Choose a project with an active PostgreSQL database resource. You can manage resources from Projects.</p><button className="ui-button ui-button-secondary" type="button" onClick={onOpenProjects}>Open projects</button></div>}
         </>
       )}
     </section>
   );
-}
+}}
