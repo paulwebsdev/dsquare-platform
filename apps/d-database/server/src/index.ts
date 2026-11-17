@@ -268,6 +268,21 @@ async function startServer() {
       SELECT
         current_user AS database_role,
         current_database() AS database_name,
+        (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) AS runtime_is_superuser,
+        (SELECT rolcreatedb FROM pg_roles WHERE rolname = current_user) AS runtime_can_create_databases,
+        (SELECT rolcreaterole FROM pg_roles WHERE rolname = current_user) AS runtime_can_create_roles,
+        pg_has_role(current_user, 'pg_signal_backend', 'MEMBER') AS runtime_can_signal_backend,
+        pg_has_role(current_user, 'pg_read_server_files', 'MEMBER') AS runtime_can_read_server_files,
+        pg_has_role(current_user, 'pg_write_server_files', 'MEMBER') AS runtime_can_write_server_files,
+        pg_has_role(current_user, 'pg_execute_server_program', 'MEMBER') AS runtime_can_execute_server_program,
+        EXISTS (
+          SELECT 1 FROM pg_database AS database
+          CROSS JOIN LATERAL aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) AS privilege
+          WHERE database.datname = current_database()
+            AND privilege.grantee = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+            AND privilege.privilege_type = 'CONNECT'
+            AND privilege.is_grantable
+        ) AS runtime_can_grant_connect,
         has_database_privilege(current_user, current_database(), 'CREATE') AS can_create_schemas,
         EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'd_database_app') AS app_role_exists,
         (SELECT owner.rolname FROM pg_class AS relation
@@ -307,6 +322,20 @@ async function startServer() {
     `);
     const permissions = permissionResult.rows[0];
     console.info("D Database PostgreSQL permission preflight:", permissions);
+    if (
+      process.env.NODE_ENV === "production" &&
+      (permissions.database_role !== "d_database_app" ||
+        permissions.runtime_is_superuser ||
+        permissions.runtime_can_create_databases ||
+        permissions.runtime_can_create_roles ||
+        permissions.runtime_can_signal_backend ||
+        permissions.runtime_can_read_server_files ||
+        permissions.runtime_can_write_server_files ||
+        permissions.runtime_can_execute_server_program ||
+        permissions.runtime_can_grant_connect)
+    ) {
+      throw new Error("D Database runtime role has elevated PostgreSQL attributes, privileged memberships, or database grant options.");
+    }
     if (
       !permissions.can_create_schemas ||
       !permissions.app_role_exists ||
