@@ -156,7 +156,15 @@ export async function runDatabaseBackupRetentionSweep(pool: Pool | PoolClient): 
 
 const PLATFORM_BACKUP_MAX_BYTES = 1024 * 1024 * 1024;
 
-async function runDatabasePlatformBackup(pool: Pool | PoolClient): Promise<"completed" | "failed" | "skipped"> {
+export type DatabasePlatformBackupDependencies = {
+  dump?: () => Promise<Buffer>;
+  storage?: Pick<S3CompatibleBackupStorage, "putObject" | "getObject" | "deleteObject">;
+};
+
+export async function runDatabasePlatformBackup(
+  pool: Pool | PoolClient,
+  dependencies: DatabasePlatformBackupDependencies = {},
+): Promise<"completed" | "failed" | "skipped"> {
   const config = getDatabaseBackupStorageConfig(process.env);
   const databaseUrl = process.env.D_DATABASE_PLATFORM_BACKUP_URL?.trim();
   if (!config || !databaseUrl) return "skipped";
@@ -167,9 +175,9 @@ async function runDatabasePlatformBackup(pool: Pool | PoolClient): Promise<"comp
     "INSERT INTO database_platform_backups (id, object_key, status) VALUES ($1, $2, 'running')",
     [backupId, objectKey],
   );
-  const storage = new S3CompatibleBackupStorage(config);
+  const storage = dependencies.storage ?? new S3CompatibleBackupStorage(config);
   try {
-    const dump = await new Promise<Buffer>((resolve, reject) => {
+    const dump = await (dependencies.dump ?? (() => new Promise<Buffer>((resolve, reject) => {
       const child = spawn(process.env.PG_DUMP_PATH || "pg_dump", [
         "--format=custom", "--no-owner", "--no-acl", "--dbname", databaseUrl,
       ], {
@@ -205,7 +213,7 @@ async function runDatabasePlatformBackup(pool: Pool | PoolClient): Promise<"comp
         if (code === 0 && size > 0) resolve(Buffer.concat(chunks));
         else reject(new Error(`D Database platform pg_dump failed (exit ${code}): ${stderr.trim().slice(-1000)}`));
       });
-    });
+    })))();
     const checksum = createHash("sha256").update(dump).digest("hex");
     const uploaded = await storage.putObject(objectKey, dump);
     const remote = await storage.getObject(objectKey);
