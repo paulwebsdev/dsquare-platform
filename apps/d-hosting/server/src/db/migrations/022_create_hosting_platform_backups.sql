@@ -21,7 +21,7 @@ CREATE INDEX IF NOT EXISTS hosting_platform_backups_retention_idx
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'd_hosting_app') THEN
-    EXECUTE 'GRANT SELECT ON TABLE hosting_platform_backups TO d_hosting_app';
+    EXECUTE 'GRANT SELECT, INSERT, UPDATE ON TABLE hosting_platform_backups TO d_hosting_app';
   END IF;
 END
 $$;
