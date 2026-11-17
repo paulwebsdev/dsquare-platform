@@ -182,11 +182,17 @@ async function startServer() {
       const [runtimeIdentity, migrationIdentity] = await Promise.all([
         pool.query("SELECT current_user AS role_name"),
         migrationPool.query(
-          "SELECT current_user AS role_name, rolsuper, rolcreatedb, rolcreaterole FROM pg_roles WHERE rolname = current_user",
+          "SELECT current_user AS role_name, rolsuper, rolcreatedb, rolcreaterole,
+            EXISTS (
+              SELECT 1 FROM pg_database
+              WHERE datname = current_database()
+                AND datdba = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+            ) AS owns_database
+          FROM pg_roles WHERE rolname = current_user",
         ),
       ]);
       if (
-        runtimeIdentity.rows[0]?.role_name === migrationIdentity.rows[0]?.role_name ||
+        runtimeIdentity.rows[0]?.role_name !== "d_database_app" ||\n        migrationIdentity.rows[0]?.role_name !== "d_database_migrator" ||\n        !migrationIdentity.rows[0]?.owns_database ||\n        runtimeIdentity.rows[0]?.role_name === migrationIdentity.rows[0]?.role_name ||
         migrationIdentity.rows[0]?.rolsuper ||
         migrationIdentity.rows[0]?.rolcreatedb ||
         migrationIdentity.rows[0]?.rolcreaterole
