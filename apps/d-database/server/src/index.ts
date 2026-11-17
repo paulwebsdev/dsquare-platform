@@ -192,7 +192,9 @@ async function startServer() {
         `),
       ]);
       if (
-        runtimeIdentity.rows[0]?.role_name !== "d_database_app" ||\n        migrationIdentity.rows[0]?.role_name !== "d_database_migrator" ||\n        !migrationIdentity.rows[0]?.owns_database ||\n        runtimeIdentity.rows[0]?.role_name === migrationIdentity.rows[0]?.role_name ||
+        runtimeIdentity.rows[0]?.role_name !== "d_database_app" ||
+        migrationIdentity.rows[0]?.role_name !== "d_database_migrator" ||
+        !migrationIdentity.rows[0]?.owns_database ||\n        runtimeIdentity.rows[0]?.role_name === migrationIdentity.rows[0]?.role_name ||
         migrationIdentity.rows[0]?.rolsuper ||
         migrationIdentity.rows[0]?.rolcreatedb ||
         migrationIdentity.rows[0]?.rolcreaterole
