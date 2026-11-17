@@ -175,6 +175,13 @@ export async function revokeResourceAccess(resourceId: string): Promise<void> {
   const client = await resourceProvisionerPool.connect();
   try {
     await client.query("BEGIN");
+    const [applicationDatabase, provisionerDatabase] = await Promise.all([
+      pool.query("SELECT current_database() AS database_name"),
+      client.query("SELECT current_database() AS database_name"),
+    ]);
+    if (applicationDatabase.rows[0]?.database_name !== provisionerDatabase.rows[0]?.database_name) {
+      throw new Error("Provisioner connection points to a different database.");
+    }
     const provisionerIdentity = await client.query(`
       SELECT current_user AS role_name, role.rolsuper, role.rolcreaterole,
         pg_has_role(current_user, 'd_database_app', 'MEMBER') AS can_set_app_role,
