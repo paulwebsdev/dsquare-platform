@@ -69,7 +69,7 @@ export async function provisionResourceAccess(
     await client.query("BEGIN");
 
     const provisionerIdentity = await client.query(`
-      SELECT current_user AS role_name, role.rolsuper, role.rolcreatedb, role.rolcreaterole,
+      SELECT current_user AS role_name, role.rolsuper, role.rolcreatedb, role.rolcreaterole, role.rolinherit,
         pg_has_role(current_user, 'd_database_app', 'MEMBER') AS can_set_app_role,
         pg_has_role(current_user, 'pg_signal_backend', 'MEMBER') AS can_terminate_resource_sessions
       FROM pg_roles AS role
@@ -82,6 +82,7 @@ export async function provisionResourceAccess(
       identity.rolsuper ||
       identity.rolcreatedb ||
       !identity.rolcreaterole ||
+      identity.rolinherit ||
       !identity.can_set_app_role ||
       !identity.can_terminate_resource_sessions
     ) {
