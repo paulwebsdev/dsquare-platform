@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import ResourceWorkbench from "./ResourceWorkbench";
+import { PRODUCT_KIND, RESOURCE_LABEL } from "../product";
 
 type Project = {
   id: string;
@@ -48,9 +49,8 @@ export default function ProjectResources({
   initialResourceId,
   onInitialResourceOpened,
 }: ResourceManagerProps) {
-  const product = import.meta.env.VITE_PRODUCT_NAME || "DSquare";
-  const isDatabase = import.meta.env.VITE_PRODUCT_KIND === "database";
-  const resourceLabel = isDatabase ? "Databases" : "Websites";
+  const isDatabase = PRODUCT_KIND === "database";
+  const resourceLabel = RESOURCE_LABEL;
 
   const [resources, setResources] = useState<Resource[]>([]);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
