@@ -71,8 +71,8 @@ export default function ResourceWorkbench({
   resource,
   onBack,
 }: WorkbenchProps) {
-  const product = import.meta.env.VITE_PRODUCT_NAME || "DSquare";
-  const isDatabase = import.meta.env.VITE_PRODUCT_KIND === "database";
+  const product = PRODUCT_NAME;
+  const isDatabase = PRODUCT_KIND === "database";
 
   const baseUrl =
     `/api/v1/projects/${projectId}/resources/${resource.id}`;
