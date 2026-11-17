@@ -144,7 +144,7 @@ async function ensureDatabaseAppGrants(): Promise<void> {
     );
 
     if (!role.rows[0]?.role_exists) {
-      await pool.query("CREATE ROLE d_database_app NOLOGIN INHERIT");
+      await pool.query("CREATE ROLE d_database_app NOLOGIN INHERIT CREATEROLE");
       console.info("D Database created the missing non-login application role.");
     }
 
