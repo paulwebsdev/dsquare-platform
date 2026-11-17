@@ -177,6 +177,10 @@ async function startServer() {
 
     await runMigrations(migrationPool);
     await ensureDatabaseAppGrants(migrationPool);
+    if (migrationPool !== pool) {
+      await migrationPool.end();
+      console.log("D Database schema migrations completed with the dedicated migration connection.");
+    }
     const permissionResult = await pool.query(`
       SELECT
         current_user AS database_role,
