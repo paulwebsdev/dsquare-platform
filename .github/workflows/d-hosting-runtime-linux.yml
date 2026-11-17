@@ -92,9 +92,9 @@ jobs:
 
 
   platform-backup-restore-integration:
-    name: Isolated PostgreSQL platform backup restore
+    name: Real platform backup worker restore
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:18
@@ -115,66 +115,52 @@ jobs:
       PGUSER: dsquare_ci
       PGPASSWORD: dsquare_ci_test_password
     steps:
-      - name: Install PostgreSQL client tools
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Synchronize workspace lockfile in the CI checkout
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      - name: Install workspace dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Install PostgreSQL client tools and validate recovery scripts
         run: |
           sudo apt-get update
           sudo apt-get install --yes postgresql-client
           bash -n apps/d-hosting/server/scripts/restore-platform-backup.sh
           bash -n apps/d-database/server/scripts/restore-platform-backup.sh
 
-      - name: Verify custom-format backup restores into an isolated database
+      - name: Run both actual platform backup workers and restore their archives
         shell: bash
         run: |
           set -euo pipefail
           createdb dsquare_backup_source
           createdb dsquare_restore_hosting_ci
           createdb dsquare_restore_database_ci
+          npx tsx scripts/platform-backup-worker-integration.ts
+
+      - name: Verify corrupt archive cannot partially modify an isolated target
+        shell: bash
+        run: |
+          set -euo pipefail
           createdb dsquare_backup_guard
-          psql -v ON_ERROR_STOP=1 -d dsquare_backup_source <<'SQL'
-          CREATE TABLE customers (
-            id integer PRIMARY KEY,
-            customer_code text NOT NULL UNIQUE,
-            name text NOT NULL
-          );
-          CREATE TABLE orders (
-            id integer PRIMARY KEY,
-            customer_id integer NOT NULL REFERENCES customers(id),
-            amount numeric(12,2) NOT NULL CHECK (amount >= 0)
-          );
-          INSERT INTO customers VALUES
-            (1, 'CUST-001', 'Ada'),
-            (2, 'CUST-002', 'Grace');
-          INSERT INTO orders VALUES
-            (101, 1, 125.50),
-            (102, 2, 80.00);
-          SQL
           pg_dump --format=custom --no-owner --no-acl --dbname=dsquare_backup_source --file=/tmp/dsquare-platform.dump
-          test -s /tmp/dsquare-platform.dump
-          bash apps/d-hosting/server/scripts/restore-platform-backup.sh /tmp/dsquare-platform.dump dsquare_restore_hosting_ci
-          bash apps/d-database/server/scripts/restore-platform-backup.sh /tmp/dsquare-platform.dump dsquare_restore_database_ci
-          test "$(psql -At -d dsquare_restore_hosting_ci -c 'SELECT count(*) FROM customers')" = "2"
-          test "$(psql -At -d dsquare_restore_hosting_ci -c 'SELECT count(*) FROM orders')" = "2"
-          test "$(psql -At -d dsquare_restore_hosting_ci -c "SELECT count(*) FROM orders o JOIN customers c ON c.id = o.customer_id WHERE o.id = 101 AND c.customer_code = 'CUST-001'")" = "1"
-          test "$(psql -At -d dsquare_restore_database_ci -c 'SELECT count(*) FROM customers')" = "2"
-          test "$(psql -At -d dsquare_restore_database_ci -c 'SELECT count(*) FROM orders')" = "2"
-          if PGHOST=example.invalid bash apps/d-hosting/server/scripts/restore-platform-backup.sh /tmp/dsquare-platform.dump dsquare_restore_remote_ci; then
-            echo "Restore script unexpectedly accepted a remote PostgreSQL host."
-            exit 1
-          fi
-          if bash apps/d-database/server/scripts/restore-platform-backup.sh /tmp/dsquare-platform.dump production; then
-            echo "Restore script unexpectedly accepted a non-isolated database name."
-            exit 1
-          fi
           psql -v ON_ERROR_STOP=1 -d dsquare_backup_guard -c "CREATE TABLE restore_guard (id integer PRIMARY KEY); INSERT INTO restore_guard VALUES (77);"
           cp /tmp/dsquare-platform.dump /tmp/dsquare-platform-corrupt.dump
           truncate -s 64 /tmp/dsquare-platform-corrupt.dump
-          if pg_restore --clean --if-exists --single-transaction --exit-on-error --no-owner --no-acl \
-            --dbname=dsquare_backup_guard /tmp/dsquare-platform-corrupt.dump; then
+          if pg_restore --single-transaction --exit-on-error --no-owner --no-acl --dbname=dsquare_backup_guard /tmp/dsquare-platform-corrupt.dump; then
             echo "Corrupted archive unexpectedly restored successfully."
             exit 1
           fi
           psql -v ON_ERROR_STOP=1 -d dsquare_backup_guard -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM restore_guard WHERE id = 77) THEN RAISE EXCEPTION 'Failed restore changed existing target data'; END IF; END \$\$;"
-          echo "Isolated backup restore, row integrity, relationships, and failed-restore safety verified."
+          echo "Corrupt archive was rejected and the isolated target remained unchanged."
 
   podman-linux-smoke:
     name: Rootless Podman Linux smoke test
