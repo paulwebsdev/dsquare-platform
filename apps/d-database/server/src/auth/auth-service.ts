@@ -1,5 +1,5 @@
 ﻿import { pool } from "../config/database.js";
-import { hashPassword, verifyPassword } from "./password.js";
+import { hashPassword, isSupportedPasswordHash, verifyPassword } from "./password.js";
 import { createSessionToken, hashSessionToken } from "./session.js";
 
 const SESSION_DURATION_DAYS = 7;
@@ -75,7 +75,18 @@ export async function authenticateUser(
 
   const user = result.rows[0];
 
-  if (!user || !(await verifyPassword(password, user.password_hash))) {
+  if (!user) {
+    return null;
+  }
+
+  if (!isSupportedPasswordHash(user.password_hash)) {
+    // Do not log the email or stored hash. This distinguishes legacy/corrupt
+    // account data from an ordinary incorrect-password attempt in server logs.
+    console.error("D Database login rejected: stored password hash format is unsupported.");
+    return null;
+  }
+
+  if (!(await verifyPassword(password, user.password_hash))) {
     return null;
   }
 
