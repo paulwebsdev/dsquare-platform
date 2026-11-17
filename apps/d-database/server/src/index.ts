@@ -162,7 +162,7 @@ async function ensureDatabaseAppGrants(): Promise<void> {
       `GRANT CONNECT ON DATABASE "${databaseName}" TO d_database_app WITH GRANT OPTION`,
     );
     await pool.query(
-      "GRANT SELECT, INSERT, UPDATE ON TABLE resource_access_grants, developer_api_keys TO d_database_app",
+      "GRANT SELECT, INSERT, UPDATE ON TABLE resource_access_grants, developer_api_keys, developer_api_key_rate_limits TO d_database_app",
     );
     console.log("D Database application-role membership and table grants are present.");
   } catch (error) {
