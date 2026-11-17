@@ -147,6 +147,28 @@ app.use((req, res, next) => {
 
 const PORT = Number(process.env.PORT || 5002);
 
+async function ensureHostingRuntimePrivileges(grantPool: typeof pool): Promise<void> {
+  const role = await grantPool.query(
+    "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'd_hosting_app') AS role_exists",
+  );
+  if (!role.rows[0]?.role_exists) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("D Hosting production requires the d_hosting_app runtime role.");
+    }
+    console.warn("D Hosting runtime role d_hosting_app is missing; a DBA must create it before production use.");
+    return;
+  }
+
+  // Migrations and grants are executed by the dedicated schema-owner identity.
+  // The runtime connection is never used to grant itself additional privileges.
+  await grantPool.query("GRANT USAGE ON SCHEMA public TO d_hosting_app");
+  await grantPool.query("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO d_hosting_app");
+  await grantPool.query("REVOKE ALL ON TABLE dsquare_schema_migrations FROM d_hosting_app");
+  await grantPool.query("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO d_hosting_app");
+  await grantPool.query("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO d_hosting_app");
+  await grantPool.query("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO d_hosting_app");
+}
+
 async function startServer() {
   try {
     if (process.env.NODE_ENV === "production" && !existsSync(clientIndexPath)) {
@@ -154,10 +176,56 @@ async function startServer() {
     }
 
     assertWebsiteObjectStorageConfigured();
+    if (process.env.NODE_ENV === "production") {
+      const [runtimeIdentity, migrationIdentity] = await Promise.all([
+        pool.query("SELECT current_user AS role_name"),
+        migrationPool.query(`
+          SELECT current_user AS role_name, rolsuper, rolcreatedb, rolcreaterole,
+            pg_has_role(current_user, 'pg_signal_backend', 'MEMBER') AS can_signal_backend,
+            pg_has_role(current_user, 'pg_read_server_files', 'MEMBER') AS can_read_server_files,
+            pg_has_role(current_user, 'pg_write_server_files', 'MEMBER') AS can_write_server_files,
+            pg_has_role(current_user, 'pg_execute_server_program', 'MEMBER') AS can_execute_server_program
+          FROM pg_roles WHERE rolname = current_user
+        `),
+      ]);
+      if (
+        runtimeIdentity.rows[0]?.role_name !== "d_hosting_app" ||
+        migrationIdentity.rows[0]?.role_name !== "d_hosting_migrator" ||
+        runtimeIdentity.rows[0]?.role_name === migrationIdentity.rows[0]?.role_name ||
+        migrationIdentity.rows[0]?.rolsuper ||
+        migrationIdentity.rows[0]?.rolcreatedb ||
+        migrationIdentity.rows[0]?.rolcreaterole ||
+        migrationIdentity.rows[0]?.can_signal_backend ||
+        migrationIdentity.rows[0]?.can_read_server_files ||
+        migrationIdentity.rows[0]?.can_write_server_files ||
+        migrationIdentity.rows[0]?.can_execute_server_program
+      ) {
+        throw new Error(
+          "Production migrations require a distinct, non-elevated schema-owner identity; the application role must remain separate.",
+        );
+      }
+    }
+
     await runMigrations(migrationPool);
+    await ensureHostingRuntimePrivileges(migrationPool);
     if (migrationPool !== pool) {
       await migrationPool.end();
       console.log("D Hosting schema migrations completed with the dedicated migration connection.");
+    }
+    const runtimeRole = await pool.query(`
+      SELECT current_user AS role_name, rolsuper, rolcreatedb, rolcreaterole,
+        pg_has_role(current_user, 'pg_signal_backend', 'MEMBER') AS can_signal_backend,
+        pg_has_role(current_user, 'pg_read_server_files', 'MEMBER') AS can_read_server_files,
+        pg_has_role(current_user, 'pg_write_server_files', 'MEMBER') AS can_write_server_files,
+        pg_has_role(current_user, 'pg_execute_server_program', 'MEMBER') AS can_execute_server_program
+      FROM pg_roles WHERE rolname = current_user
+    `);
+    const runtimeIdentity = runtimeRole.rows[0];
+    if (
+      process.env.NODE_ENV === "production" &&
+      (!runtimeIdentity || runtimeIdentity.role_name !== "d_hosting_app" || runtimeIdentity.rolsuper || runtimeIdentity.rolcreatedb || runtimeIdentity.rolcreaterole || runtimeIdentity.can_signal_backend || runtimeIdentity.can_read_server_files || runtimeIdentity.can_write_server_files || runtimeIdentity.can_execute_server_program)
+    ) {
+      throw new Error("D Hosting runtime identity must not have SUPERUSER, CREATEDB, or CREATEROLE.");
     }
     await pool.query("SELECT 1");
     startHostingBackupScheduler(pool);

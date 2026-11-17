@@ -76,6 +76,12 @@ export const migrationPool =
       })
     : pool;
 
+if (process.env.NODE_ENV === "production" && migrationPool === pool) {
+  throw new Error(
+    "D Hosting production requires a dedicated DB_MIGRATION_URL or DB_MIGRATION_USER/DB_MIGRATION_PASSWORD_BASE64 connection. The runtime role must not run schema migrations.",
+  );
+}
+
 pool.on("error", (error) => {
   console.error("Unexpected PostgreSQL pool error:", error.message);
 });

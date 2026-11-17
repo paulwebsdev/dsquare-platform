@@ -89,3 +89,22 @@ testRunner("applies all resource-role connection and query settings before activ
   assert.match(provisionerSource, /getResourceAccessLimits\(process\.env\)/);
   assert.match(provisionerSource, /connectionLimit: limits\.connectionLimit/);
 });
+
+
+testRunner("role administration stays on the dedicated provisioner identity", () => {
+  assert.match(provisionerSource, /role\.rolcreaterole/);
+  assert.match(provisionerSource, /pg_signal_backend/);
+  assert.match(provisionerSource, /can_set_app_role/);
+  assert.match(provisionerSource, /role\.rolsuper/);
+  const roleCreation = provisionerSource.indexOf("await client.query(plan.createRole)");
+  const ownerGrantContext = provisionerSource.lastIndexOf('await client.query("SET ROLE d_database_app")');
+  assert.ok(roleCreation >= 0 && ownerGrantContext > roleCreation);
+  assert.doesNotMatch(provisionerSource, /SET ROLE d_database_app[\s\S]{0,500}CREATE ROLE/);
+});
+
+testRunner("resource revocation uses the provisioner identity for NOLOGIN and session termination", () => {
+  const disable = provisionerSource.indexOf('await client.query(`ALTER ROLE "${roleName}" NOLOGIN`)');
+  const terminate = provisionerSource.indexOf("pg_terminate_backend(pid)");
+  const metadataUpdate = provisionerSource.indexOf("status = 'revoked', revoked_at = NOW()");
+  assert.ok(disable >= 0 && terminate > disable && metadataUpdate > terminate);
+});
