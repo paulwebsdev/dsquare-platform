@@ -71,7 +71,6 @@ export function createResourceAccessPlan(input: {
     password,
     createRole: `CREATE ROLE ${role} LOGIN PASSWORD '${password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;`,
     grantStatements: [
-      `ALTER ROLE ${role} SET search_path TO ${schema}, pg_catalog;`,
       `GRANT CONNECT ON DATABASE ${database} TO ${role};`,
       `GRANT USAGE ON SCHEMA ${schema} TO ${role};`,
       `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ${schema} TO ${role};`,
@@ -80,6 +79,7 @@ export function createResourceAccessPlan(input: {
       `ALTER DEFAULT PRIVILEGES FOR ROLE ${owner} IN SCHEMA ${schema} GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO ${role};`,
     ],
     configureStatements: [
+      `ALTER ROLE ${role} SET search_path TO ${schema}, pg_catalog;`,
       `ALTER ROLE ${role} CONNECTION LIMIT ${limits.connectionLimit};`,
       `ALTER ROLE ${role} SET statement_timeout = '${limits.statementTimeoutMs}ms';`,
       `ALTER ROLE ${role} SET lock_timeout = '${limits.lockTimeoutMs}ms';`,
