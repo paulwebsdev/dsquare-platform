@@ -67,6 +67,8 @@ testRunner("limits every grant to the resource schema and required data operatio
     sql.includes('"db_09800acba6c642d093f09d8aa73c251d"'),
   ));
   assert.ok(plan.grantStatements.every((sql) => !/GRANT CONNECT ON DATABASE|GRANT OPTION/i.test(sql)));
+  assert.equal(plan.provisionerStatements.length, 1);
+  assert.match(plan.provisionerStatements[0], /GRANT CONNECT ON DATABASE "d_database" TO "dsq_app_/);
   assert.ok(plan.grantStatements.every((sql) =>
     !/\\b(CREATE|TRUNCATE|REFERENCES|TRIGGER|GRANT OPTION)\\b|\\bTO PUBLIC\\b/i.test(sql),
   ));
