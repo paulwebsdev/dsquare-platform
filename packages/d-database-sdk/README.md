@@ -40,6 +40,18 @@ const created = await db.insert("customers", {
 });
 await db.update("customers", { name: "Ada Byron" }, { email: "ada@example.com" });
 await db.delete("customers", { email: "ada@example.com" });
+
+// Efficient keyset pagination for large tables.
+const firstPage = await db.selectCursor("customers", { limit: 25 });
+if (firstPage.nextCursor) {
+  const nextPage = await db.selectCursor("customers", { limit: 25, cursor: firstPage.nextCursor });
+}
+
+// These operations commit together or all roll back.
+const result = await db.transaction([
+  { type: "insert", table: "customers", values: { name: "Grace", email: "grace@example.com" } },
+  { type: "update", table: "customers", values: { name: "Grace Hopper" }, where: { email: "grace@example.com" } },
+]);
 ```
 
 ## Browser applications
@@ -50,8 +62,10 @@ Do not call this server SDK directly from browser code: its secret API key must 
 
 - `listTables()`
 - `select(table, { limit, offset })`
+- `selectCursor(table, { limit, cursor })` — keyset pagination (requires a single-column primary key).
+- `transaction(operations)` — atomic group of 1–20 insert/update/delete operations.
 - `insert(table, values)`
 - `update(table, values, where)`
 - `delete(table, where)`
 
-Reads are paginated (1–100 rows per request). Table and column names are validated and values are parameterized. Update and delete operations require explicit equality filters; empty filters are rejected to prevent accidental whole-table mutations. Transactions, realtime subscriptions, and browser-direct access are not part of this initial SDK release.
+Reads are paginated (1–100 rows per request). Table and column names are validated and values are parameterized. Update and delete operations require explicit equality filters; empty filters are rejected to prevent accidental whole-table mutations. Transactions use one PostgreSQL transaction and roll back the complete batch if any operation fails. Cursor pagination avoids large OFFSET scans and returns an opaque continuation cursor. Both methods use the same resource-scoped API key and server-side HTTPS endpoint. Realtime subscriptions and browser-direct access are not included.
