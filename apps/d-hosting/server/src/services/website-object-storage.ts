@@ -140,8 +140,18 @@ const localStorage: WebsiteObjectStorage = {
   },
 };
 
+const productionStorage: WebsiteObjectStorage = {
+  put: (identity, body, contentType) => postgresStorage.put(identity, body, contentType),
+  get: (storageKey, scope) => storageKey.startsWith("owners/")
+    ? postgresStorage.get(storageKey, scope)
+    : localStorage.get(storageKey, scope),
+  delete: (storageKey, scope) => storageKey.startsWith("owners/")
+    ? postgresStorage.delete(storageKey, scope)
+    : localStorage.delete(storageKey, scope),
+};
+
 export const websiteObjectStorage: WebsiteObjectStorage =
-  process.env.NODE_ENV === "production" ? postgresStorage : localStorage;
+  process.env.NODE_ENV === "production" ? productionStorage : localStorage;
 
 /** Production storage is durable PostgreSQL storage; the API's DB startup check validates connectivity. */
 export function assertWebsiteObjectStorageConfigured(): void {
