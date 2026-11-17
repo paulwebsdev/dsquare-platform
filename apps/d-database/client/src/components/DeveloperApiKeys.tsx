@@ -211,4 +211,4 @@ export default function DeveloperApiKeys({ onBackToDashboard, onOpenProjects }: 
       )}
     </section>
   );
-}}
+}
