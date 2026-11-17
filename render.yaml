@@ -17,6 +17,16 @@ services:
         sync: false
       - key: D_DATABASE_APP_ORIGIN
         sync: false
+      - key: DB_PROVISIONER_URL
+        sync: false
+      - key: D_DATABASE_RUNTIME_HOST
+        sync: false
+      - key: D_DATABASE_RUNTIME_PORT
+        value: "5432"
+      - key: RESEND_API_KEY
+        sync: false
+      - key: DSQUARE_ACCOUNT_EMAIL_FROM
+        sync: false
       - key: D_HOSTING_INTEGRATION_CLIENT_SECRET
         sync: false
       - key: D_HOSTING_CALLBACK_URL
