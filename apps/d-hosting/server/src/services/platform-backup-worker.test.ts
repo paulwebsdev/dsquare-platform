@@ -65,7 +65,7 @@ test("rejects invalid bucket names and production loopback endpoints", () => {
     D_HOSTING_BACKUP_BUCKET: "Invalid_Bucket",
     D_HOSTING_BACKUP_ACCESS_KEY_ID: "access",
     D_HOSTING_BACKUP_SECRET_ACCESS_KEY: "secret",
-  } as NodeJS.ProcessEnv), /bucket is invalid/);
+  } as NodeJS.ProcessEnv), /D_HOSTING_BACKUP_BUCKET is invalid/);
 
   assert.throws(() => getHostingBackupConfig({
     NODE_ENV: "production",
