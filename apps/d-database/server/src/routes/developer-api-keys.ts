@@ -82,6 +82,68 @@ router.post("/", async (req: Request<{ projectId: string; resourceId: string }>,
   }
 });
 
+// Rotate a resource-bound key atomically. The old key is revoked only after the replacement is stored.
+router.post("/:keyId/rotate", async (req: Request<{ projectId: string; resourceId: string; keyId: string }>, res) => {
+  const { projectId = "", resourceId = "", keyId = "" } = req.params;
+  if (!validIds(projectId, resourceId) || !UUID_PATTERN.test(keyId)) {
+    return res.status(400).json({ success: false, message: "Invalid project, resource, or key ID." });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const current = await client.query(
+      `SELECT k.name, k.scopes, k.expires_at
+       FROM developer_api_keys k
+       JOIN projects p ON p.id = k.project_id AND p.owner_id = k.user_id AND p.status = 'active'
+       JOIN database_resources r ON r.id = k.resource_id AND r.project_id = k.project_id AND r.status = 'active'
+       WHERE k.id = $1 AND k.project_id = $2 AND k.resource_id = $3
+         AND k.user_id = $4 AND k.revoked_at IS NULL
+         AND (k.expires_at IS NULL OR k.expires_at > NOW())
+       FOR UPDATE OF k`,
+      [keyId, projectId, resourceId, res.locals.userId],
+    );
+
+    if (current.rowCount !== 1) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ success: false, message: "Active, unexpired API key not found." });
+    }
+
+    const token = `dsq_live_${randomBytes(32).toString("base64url")}`;
+    const tokenHash = createHash("sha256").update(token).digest("hex");
+    const prefix = token.slice(0, 16);
+    const previous = current.rows[0] as { name: string; scopes: string[]; expires_at: Date | string | null };
+
+    const created = await client.query(
+      `INSERT INTO developer_api_keys
+         (user_id, project_id, resource_id, name, key_prefix, token_hash, scopes, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id, name, key_prefix, scopes, created_at, expires_at`,
+      [res.locals.userId, projectId, resourceId, previous.name, prefix, tokenHash, previous.scopes, previous.expires_at],
+    );
+
+    await client.query(
+      "UPDATE developer_api_keys SET revoked_at = NOW() WHERE id = $1 AND revoked_at IS NULL",
+      [keyId],
+    );
+    await client.query("COMMIT");
+
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(201).json({
+      success: true,
+      message: "API key rotated. The previous key has been revoked; update your application with the new secret.",
+      key: created.rows[0],
+      secret: token,
+    });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    console.error("Developer key rotation failed:", error instanceof Error ? error.message : error);
+    return res.status(500).json({ success: false, message: "Could not rotate the API key." });
+  } finally {
+    client.release();
+  }
+});
+
 // Revoke a key without deleting its audit metadata.
 router.delete("/:keyId", async (req: Request<{ projectId: string; resourceId: string; keyId: string }>, res) => {
   const { projectId = "", resourceId = "", keyId = "" } = req.params;
