@@ -18,6 +18,20 @@ function removeTransactionWrappers(sql: string): string {
     .replace(/\s*COMMIT\s*;\s*$/i, "");
 }
 
+export function deferMissingDatabaseAppGrants(
+  sql: string,
+  databaseAppRoleExists: boolean,
+): { sql: string; deferredCount: number } {
+  if (databaseAppRoleExists) return { sql, deferredCount: 0 };
+
+  const grantPattern = /(?:^|\\n)(?:\\s*--[^\\n]*\\n)*\\s*GRANT\\b[^;]*\\bTO\\s+d_database_app\\s*;/gim;
+  const matches = sql.match(grantPattern);
+  return {
+    sql: sql.replace(grantPattern, "\\n"),
+    deferredCount: matches?.length ?? 0,
+  };
+}
+
 export async function runMigrations(pool: Pool): Promise<void> {
   const client = await pool.connect();
 
@@ -71,9 +85,18 @@ export async function runMigrations(pool: Pool): Promise<void> {
       }
 
       const sql = removeTransactionWrappers(migration.rawSql);
+      const roleResult = await client.query(
+        "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'd_database_app') AS role_exists",
+      );
+      const deferred = deferMissingDatabaseAppGrants(sql, Boolean(roleResult.rows[0]?.role_exists));
+      if (deferred.deferredCount > 0) {
+        console.warn(
+          `D Database deferred ${deferred.deferredCount} application-role grant(s) in ${migration.file}; create d_database_app with the database administrator to enable resource provisioning.`,
+        );
+      }
       await client.query("BEGIN");
       try {
-        await client.query(sql);
+        await client.query(deferred.sql);
         await client.query(
           "INSERT INTO dsquare_schema_migrations (name, checksum) VALUES ($1, $2)",
           [migration.file, migration.checksum],
