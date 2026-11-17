@@ -35,7 +35,7 @@ function createFakeStorageDatabase(): {
         });
         return { rows: [], rowCount: 1 };
       }
-      if (text.includes("SELECT body, size_bytes FROM hosting_object_blobs")) {
+      if (text.includes("SELECT body, size_bytes") && text.includes("FROM hosting_object_blobs")) {
         const [key, ownerId, projectId, resourceId] = values.map(String);
         const stored = objects.get(key);
         if (!stored || stored.ownerId !== ownerId || stored.projectId !== projectId || stored.resourceId !== resourceId) {
