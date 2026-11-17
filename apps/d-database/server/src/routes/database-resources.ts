@@ -93,54 +93,57 @@ router.post("/", async (req, res) => {
   const id = randomUUID();
   const schemaName = `db_${id.replace(/-/g, "")}`;
 
-  let client: PoolClient | null = null;
   let operation = "acquire database connection";
 
   try {
-    client = await pool.connect();
-    operation = "begin resource creation transaction";
-    await client.query("BEGIN");
+    const client = await pool.connect();
+    try {
+      operation = "begin resource creation transaction";
+      await client.query("BEGIN");
 
-    operation = "verify project before resource creation";
-    const project = await client.query(
-      "SELECT id FROM projects WHERE id = $1 FOR SHARE",
-      [projectId]
-    );
+      operation = "verify project before resource creation";
+      const project = await client.query(
+        "SELECT id FROM projects WHERE id = $1 FOR SHARE",
+        [projectId]
+      );
 
-    if (project.rowCount === 0) {
-      await client.query("ROLLBACK");
-      return res.status(404).json({
-        success: false,
-        message: "Project not found.",
+      if (project.rowCount === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({
+          success: false,
+          message: "Project not found.",
+        });
+      }
+
+      // Resource schemas must be owned by the role that manages their default privileges.
+      operation = "create resource schema owned by d_database_app";
+      await client.query(`CREATE SCHEMA "${schemaName}" AUTHORIZATION d_database_app`);
+
+      operation = "save database resource metadata";
+      const result = await client.query(
+        `INSERT INTO database_resources
+          (id, project_id, name, engine, schema_name)
+         VALUES ($1, $2, $3, 'postgresql', $4)
+         RETURNING id, project_id, name, engine, schema_name, status, created_at, updated_at`,
+        [id, projectId, name, schemaName]
+      );
+
+      operation = "commit resource creation transaction";
+      await client.query("COMMIT");
+
+      return res.status(201).json({
+        success: true,
+        message: "PostgreSQL resource created successfully.",
+        resource: result.rows[0],
       });
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      return sendError(error, res, operation);
+    } finally {
+      client.release();
     }
-
-    // Resource schemas must be owned by the role that manages their default privileges.
-    operation = "create resource schema owned by d_database_app";
-    await client.query(`CREATE SCHEMA "${schemaName}" AUTHORIZATION d_database_app`);
-
-    operation = "save database resource metadata";
-    const result = await client.query(
-      `INSERT INTO database_resources
-        (id, project_id, name, engine, schema_name)
-       VALUES ($1, $2, $3, 'postgresql', $4)
-       RETURNING id, project_id, name, engine, schema_name, status, created_at, updated_at`,
-      [id, projectId, name, schemaName]
-    );
-
-    operation = "commit resource creation transaction";
-    await client.query("COMMIT");
-
-    return res.status(201).json({
-      success: true,
-      message: "PostgreSQL resource created successfully.",
-      resource: result.rows[0],
-    });
   } catch (error) {
-    if (client) await client.query("ROLLBACK").catch(() => undefined);
     return sendError(error, res, operation);
-  } finally {
-    client?.release();
   }
 });
 
