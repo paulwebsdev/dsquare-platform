@@ -19,6 +19,7 @@ import hostingPreviewRouter from "./routes/hosting-preview.js";
 import hostingDomainsRouter from "./routes/hosting-domains.js";
 import hostingDomainSiteRouter from "./routes/hosting-domain-site.js";
 import { assertWebsiteObjectStorageConfigured } from "./services/website-object-storage.js";
+import { startHostingBackupScheduler } from "./services/platform-backup-worker.js";
 
 const app = express();
 app.set("trust proxy", 1);
@@ -159,6 +160,7 @@ async function startServer() {
       console.log("D Hosting schema migrations completed with the dedicated migration connection.");
     }
     await pool.query("SELECT 1");
+    startHostingBackupScheduler(pool);
 
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`D Hosting application running on port ${PORT}`);

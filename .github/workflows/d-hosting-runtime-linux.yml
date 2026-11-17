@@ -90,6 +90,78 @@ jobs:
       - name: Test runtime agent
         run: npm test --workspace=@dsquare/d-hosting-agent-server
 
+
+  platform-backup-restore-integration:
+    name: Real platform backup worker restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: dsquare_ci
+          POSTGRES_PASSWORD: dsquare_ci_test_password
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dsquare_ci -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: dsquare_ci
+      PGPASSWORD: dsquare_ci_test_password
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Synchronize workspace lockfile in the CI checkout
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      - name: Install workspace dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Install PostgreSQL client tools and validate recovery scripts
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+          bash -n apps/d-hosting/server/scripts/restore-platform-backup.sh
+          bash -n apps/d-database/server/scripts/restore-platform-backup.sh
+
+      - name: Run both actual platform backup workers and restore their archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          createdb dsquare_backup_source
+          createdb --template=template0 dsquare_restore_hosting_ci
+          createdb --template=template0 dsquare_restore_database_ci
+          npx tsx scripts/platform-backup-worker-integration.ts
+
+      - name: Verify corrupt archive cannot partially modify an isolated target
+        shell: bash
+        run: |
+          set -euo pipefail
+          createdb dsquare_backup_guard
+          pg_dump --format=custom --no-owner --no-acl --dbname=dsquare_backup_source --file=/tmp/dsquare-platform.dump
+          psql -v ON_ERROR_STOP=1 -d dsquare_backup_guard -c "CREATE TABLE restore_guard (id integer PRIMARY KEY); INSERT INTO restore_guard VALUES (77);"
+          cp /tmp/dsquare-platform.dump /tmp/dsquare-platform-corrupt.dump
+          truncate -s 64 /tmp/dsquare-platform-corrupt.dump
+          if pg_restore --single-transaction --exit-on-error --no-owner --no-acl --dbname=dsquare_backup_guard /tmp/dsquare-platform-corrupt.dump; then
+            echo "Corrupted archive unexpectedly restored successfully."
+            exit 1
+          fi
+          psql -v ON_ERROR_STOP=1 -d dsquare_backup_guard -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM restore_guard WHERE id = 77) THEN RAISE EXCEPTION 'Failed restore changed existing target data'; END IF; END \$\$;"
+          echo "Corrupt archive was rejected and the isolated target remained unchanged."
+
   podman-linux-smoke:
     name: Rootless Podman Linux smoke test
     runs-on: ubuntu-latest

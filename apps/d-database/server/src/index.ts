@@ -5,7 +5,7 @@ import cors from "cors";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { pool } from "./config/database.js";
+import { migrationPool, pool } from "./config/database.js";
 import { runMigrations } from "./db/migrate.js";
 import projectsRouter from "./routes/projects.js";
 import databaseResourcesRouter from "./routes/database-resources.js";
@@ -137,8 +137,8 @@ app.use((req, res, next) => {
 
 const PORT = Number(process.env.PORT || 5001);
 
-async function ensureDatabaseAppGrants(): Promise<void> {
-  const role = await pool.query(
+async function ensureDatabaseAppGrants(grantPool: typeof pool): Promise<void> {
+  const role = await grantPool.query(
     "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'd_database_app') AS role_exists",
   );
   if (!role.rows[0]?.role_exists) {
@@ -149,15 +149,15 @@ async function ensureDatabaseAppGrants(): Promise<void> {
   }
 
   try {
-    await pool.query("ALTER ROLE d_database_app CREATEROLE");
-    const databaseNameResult = await pool.query("SELECT current_database() AS database_name");
+    await grantPool.query("ALTER ROLE d_database_app CREATEROLE");
+    const databaseNameResult = await grantPool.query("SELECT current_database() AS database_name");
     const databaseName = String(databaseNameResult.rows[0]?.database_name || "").replace(/"/g, '""');
     if (!databaseName) throw new Error("Could not determine the current PostgreSQL database name.");
-    await pool.query(
+    await grantPool.query(
       `GRANT CONNECT ON DATABASE "${databaseName}" TO d_database_app WITH GRANT OPTION`,
     );
-    await pool.query("GRANT USAGE ON SCHEMA public TO d_database_app");
-    await pool.query(
+    await grantPool.query("GRANT USAGE ON SCHEMA public TO d_database_app");
+    await grantPool.query(
       "GRANT SELECT, INSERT, UPDATE ON TABLE resource_access_grants, developer_api_keys TO d_database_app",
     );
     console.log("D Database application-role permissions are present.");
@@ -175,8 +175,12 @@ async function startServer() {
       throw new Error("D Database frontend build is missing. Build the client before starting the server.");
     }
 
-    await runMigrations(pool);
-    await ensureDatabaseAppGrants();
+    await runMigrations(migrationPool);
+    await ensureDatabaseAppGrants(migrationPool);
+    if (migrationPool !== pool) {
+      await migrationPool.end();
+      console.log("D Database schema migrations completed with the dedicated migration connection.");
+    }
     const permissionResult = await pool.query(`
       SELECT
         current_user AS database_role,
