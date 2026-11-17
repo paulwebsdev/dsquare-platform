@@ -204,8 +204,9 @@ async function assertResourceProvisionerReady(): Promise<void> {
   ]);
   const identity = provisioner.rows[0];
   if (
-    applicationDatabase.rows[0]?.database_name !== identity?.database_name ||
-    identity?.role_name !== "d_database_provisioner" ||
+    !identity ||
+    applicationDatabase.rows[0]?.database_name !== identity.database_name ||
+    identity.role_name !== "d_database_provisioner" ||
     identity.rolsuper ||
     identity.rolcreatedb ||
     !identity.rolcreaterole ||
