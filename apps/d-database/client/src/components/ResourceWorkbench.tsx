@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import VisualQueryBuilder from "./VisualQueryBuilder";
 import TableStructureManager from "./TableStructureManager";
 import DatabaseBackups from "./DatabaseBackups";
+import { PRODUCT_KIND, PRODUCT_NAME } from "../product";
 
 type WorkResource = {
   id: string;
