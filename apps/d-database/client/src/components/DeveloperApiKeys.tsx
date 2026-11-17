@@ -96,6 +96,17 @@ export default function DeveloperApiKeys({ onBackToDashboard, onOpenProjects }: 
     finally { setSaving(false); }
   }
 
+  async function rotateKey(key: ApiKey) {
+    if (!window.confirm(`Rotate “${key.name}”? The current secret will stop working immediately after rotation.`)) return;
+    setError(""); setNotice(""); setSecret("");
+    try {
+      const data = await request(`/api/v1/projects/${encodeURIComponent(projectId)}/resources/${encodeURIComponent(resourceId)}/api-keys/${encodeURIComponent(key.id)}/rotate`, { method: "POST" });
+      setSecret(data.secret || "");
+      setNotice("API key rotated. Copy the replacement secret and update your application now.");
+      await loadKeys();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not rotate API key."); }
+  }
+
   async function revokeKey(key: ApiKey) {
     if (!window.confirm(`Revoke “${key.name}”? Applications using this key will stop authenticating.`)) return;
     setError(""); setNotice("");
@@ -142,7 +153,7 @@ export default function DeveloperApiKeys({ onBackToDashboard, onOpenProjects }: 
 
       <article className="api-security-banner">
         <span className="api-security-icon">!</span>
-        <div><strong>Keep secret keys on your server</strong><p>Never place a secret key in browser JavaScript, a public repository, screenshots, or a mobile app bundle. If a key is exposed, revoke it and create a replacement.</p></div>
+        <div><strong>Keep secret keys on your server</strong><p>Never place a secret key in browser JavaScript, a public repository, screenshots, or a mobile app bundle. If a key is exposed, rotate it and replace the secret in your server environment.</p></div>
       </article>
 
       {loading ? <div className="pm-empty panel"><div className="pm-spinner" /><strong>Loading your API settings...</strong></div> : (
@@ -202,7 +213,7 @@ export default function DeveloperApiKeys({ onBackToDashboard, onOpenProjects }: 
                 const status = key.revoked_at ? "Revoked" : isExpired ? "Expired" : "Active";
                 return <div className="api-key-row" key={key.id}>
                   <div className="api-key-main"><span className="api-key-icon">⌘</span><div><strong>{key.name}</strong><code>{key.key_prefix}••••••••</code><div className="api-key-meta"><span>{(key.scopes || []).join(" + ") || "No permissions"}</span><span>Created {new Date(key.created_at).toLocaleDateString()}</span><span>Last used {key.last_used_at ? new Date(key.last_used_at).toLocaleDateString() : "Never"}</span><span>Expires {key.expires_at ? new Date(key.expires_at).toLocaleDateString() : "Never"}</span></div></div></div>
-                  <div className="api-key-actions"><span className={`api-key-status ${status.toLowerCase()}`}>{status}</span>{!key.revoked_at && !isExpired && <button className="ui-button ui-button-danger ui-button-small" type="button" onClick={() => void revokeKey(key)}>Revoke key</button>}</div>
+                  <div className="api-key-actions"><span className={`api-key-status ${status.toLowerCase()}`}>{status}</span>{!key.revoked_at && !isExpired && <><button className="ui-button ui-button-secondary ui-button-small" type="button" onClick={() => void rotateKey(key)}>Rotate key</button><button className="ui-button ui-button-danger ui-button-small" type="button" onClick={() => void revokeKey(key)}>Revoke key</button></>}</div>
                 </div>;
               })}</div> : <div className="api-empty-state"><span>⌘</span><strong>No API keys for this database yet</strong><p>Create a key above to connect your backend securely. You can revoke it at any time.</p></div>}
             </article>
