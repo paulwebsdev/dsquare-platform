@@ -543,7 +543,7 @@ export default function ProjectResources({
                   <h3>{resource.name}</h3>
                   <p className="pm-card-description">
                     {isDatabase
-                      ? `PostgreSQL · ${resource.engine || "Database"}`
+                      ? (resource.engine?.toLowerCase() === "postgresql" ? "PostgreSQL database" : `${resource.engine || "Database"} resource`)
                       : resource.description || "Static website · Not deployed"}
                   </p>
 
