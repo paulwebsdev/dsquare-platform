@@ -232,7 +232,7 @@ async function runDatabasePlatformBackup(pool: Pool | PoolClient): Promise<"comp
   }
 }
 
-async function runDatabasePlatformBackupRetention(pool: Pool | PoolClient): Promise<number> {
+export async function runDatabasePlatformBackupRetention(pool: Pool | PoolClient): Promise<number> {
   const config = getDatabaseBackupStorageConfig(process.env);
   if (!config) return 0;
   const storage = new S3CompatibleBackupStorage(config);
