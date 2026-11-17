@@ -134,10 +134,10 @@ export async function runHostingPlatformBackup(pool: Pool): Promise<{ completed:
   }
 }
 
-export async function runHostingBackupRetention(pool: Pool): Promise<number> {
+export async function runHostingBackupRetention(pool: Pool, storageOverride?: S3Client): Promise<number> {
   const config = getHostingBackupConfig(process.env);
   if (!config) return 0;
-  const storage = createStorage(config);
+  const storage = storageOverride ?? createStorage(config);
   let removed = 0;
   try {
     const result = await pool.query("SELECT id, object_key FROM hosting_platform_backups WHERE status='completed' AND expires_at <= NOW() AND object_key IS NOT NULL ORDER BY expires_at LIMIT 100");
