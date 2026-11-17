@@ -137,6 +137,31 @@ app.use((req, res, next) => {
 
 const PORT = Number(process.env.PORT || 5001);
 
+async function ensureDatabaseAppGrants(): Promise<void> {
+  const role = await migrationPool.query(
+    "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'd_database_app') AS role_exists",
+  );
+  if (!role.rows[0]?.role_exists) {
+    console.warn(
+      "D Database role d_database_app is missing. Resource creation and runtime provisioning require a DBA to create this role.",
+    );
+    return;
+  }
+
+  try {
+    await migrationPool.query("GRANT USAGE ON SCHEMA public TO d_database_app");
+    await migrationPool.query(
+      "GRANT SELECT, INSERT, UPDATE ON TABLE resource_access_grants, developer_api_keys TO d_database_app",
+    );
+    console.log("D Database application-role table grants are present.");
+  } catch (error) {
+    console.warn(
+      "D Database could not reconcile d_database_app table grants; check migration-role privileges:",
+      error instanceof Error ? error.message : "Unknown database error",
+    );
+  }
+}
+
 async function startServer() {
   try {
     if (process.env.NODE_ENV === "production" && !existsSync(clientIndexPath)) {
@@ -144,6 +169,7 @@ async function startServer() {
     }
 
     await runMigrations(pool);
+    await ensureDatabaseAppGrants();
     const permissionResult = await pool.query(`
       SELECT
         current_user AS database_role,
