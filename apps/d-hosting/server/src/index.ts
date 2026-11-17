@@ -104,7 +104,6 @@ app.use("/api/v1/projects", projectsRouter);
 app.get("/api/v1/health", async (_req, res) => {
   try {
     await pool.query("SELECT 1");
-    startHostingBackupScheduler(pool);
 
     res.json({
       success: true,
@@ -161,6 +160,7 @@ async function startServer() {
       console.log("D Hosting schema migrations completed with the dedicated migration connection.");
     }
     await pool.query("SELECT 1");
+    startHostingBackupScheduler(pool);
 
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`D Hosting application running on port ${PORT}`);
