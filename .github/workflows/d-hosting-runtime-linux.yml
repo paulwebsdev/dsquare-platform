@@ -119,13 +119,16 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes postgresql-client
+          bash -n apps/d-hosting/server/scripts/restore-platform-backup.sh
+          bash -n apps/d-database/server/scripts/restore-platform-backup.sh
 
       - name: Verify custom-format backup restores into an isolated database
         shell: bash
         run: |
           set -euo pipefail
           createdb dsquare_backup_source
-          createdb dsquare_backup_restore
+          createdb dsquare_restore_hosting_ci
+          createdb dsquare_restore_database_ci
           createdb dsquare_backup_guard
           psql -v ON_ERROR_STOP=1 -d dsquare_backup_source <<'SQL'
           CREATE TABLE customers (
@@ -147,11 +150,21 @@ jobs:
           SQL
           pg_dump --format=custom --no-owner --no-acl --dbname=dsquare_backup_source --file=/tmp/dsquare-platform.dump
           test -s /tmp/dsquare-platform.dump
-          pg_restore --clean --if-exists --single-transaction --exit-on-error --no-owner --no-acl \
-            --dbname=dsquare_backup_restore /tmp/dsquare-platform.dump
-          test "$(psql -At -d dsquare_backup_restore -c 'SELECT count(*) FROM customers')" = "2"
-          test "$(psql -At -d dsquare_backup_restore -c 'SELECT count(*) FROM orders')" = "2"
-          test "$(psql -At -d dsquare_backup_restore -c "SELECT count(*) FROM orders o JOIN customers c ON c.id = o.customer_id WHERE o.id = 101 AND c.customer_code = 'CUST-001'")" = "1"
+          bash apps/d-hosting/server/scripts/restore-platform-backup.sh /tmp/dsquare-platform.dump dsquare_restore_hosting_ci
+          bash apps/d-database/server/scripts/restore-platform-backup.sh /tmp/dsquare-platform.dump dsquare_restore_database_ci
+          test "$(psql -At -d dsquare_restore_hosting_ci -c 'SELECT count(*) FROM customers')" = "2"
+          test "$(psql -At -d dsquare_restore_hosting_ci -c 'SELECT count(*) FROM orders')" = "2"
+          test "$(psql -At -d dsquare_restore_hosting_ci -c "SELECT count(*) FROM orders o JOIN customers c ON c.id = o.customer_id WHERE o.id = 101 AND c.customer_code = 'CUST-001'")" = "1"
+          test "$(psql -At -d dsquare_restore_database_ci -c 'SELECT count(*) FROM customers')" = "2"
+          test "$(psql -At -d dsquare_restore_database_ci -c 'SELECT count(*) FROM orders')" = "2"
+          if PGHOST=example.invalid bash apps/d-hosting/server/scripts/restore-platform-backup.sh /tmp/dsquare-platform.dump dsquare_restore_remote_ci; then
+            echo "Restore script unexpectedly accepted a remote PostgreSQL host."
+            exit 1
+          fi
+          if bash apps/d-database/server/scripts/restore-platform-backup.sh /tmp/dsquare-platform.dump production; then
+            echo "Restore script unexpectedly accepted a non-isolated database name."
+            exit 1
+          fi
           psql -v ON_ERROR_STOP=1 -d dsquare_backup_guard -c "CREATE TABLE restore_guard (id integer PRIMARY KEY); INSERT INTO restore_guard VALUES (77);"
           cp /tmp/dsquare-platform.dump /tmp/dsquare-platform-corrupt.dump
           truncate -s 64 /tmp/dsquare-platform-corrupt.dump
