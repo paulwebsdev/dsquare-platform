@@ -179,9 +179,14 @@ async function startServer() {
     if (process.env.NODE_ENV === "production") {
       const [runtimeIdentity, migrationIdentity] = await Promise.all([
         pool.query("SELECT current_user AS role_name"),
-        migrationPool.query(
-          "SELECT current_user AS role_name, rolsuper, rolcreatedb, rolcreaterole FROM pg_roles WHERE rolname = current_user",
-        ),
+        migrationPool.query(`
+          SELECT current_user AS role_name, rolsuper, rolcreatedb, rolcreaterole,
+            pg_has_role(current_user, 'pg_signal_backend', 'MEMBER') AS can_signal_backend,
+            pg_has_role(current_user, 'pg_read_server_files', 'MEMBER') AS can_read_server_files,
+            pg_has_role(current_user, 'pg_write_server_files', 'MEMBER') AS can_write_server_files,
+            pg_has_role(current_user, 'pg_execute_server_program', 'MEMBER') AS can_execute_server_program
+          FROM pg_roles WHERE rolname = current_user
+        `),
       ]);
       if (
         runtimeIdentity.rows[0]?.role_name !== "d_hosting_app" ||
@@ -189,7 +194,11 @@ async function startServer() {
         runtimeIdentity.rows[0]?.role_name === migrationIdentity.rows[0]?.role_name ||
         migrationIdentity.rows[0]?.rolsuper ||
         migrationIdentity.rows[0]?.rolcreatedb ||
-        migrationIdentity.rows[0]?.rolcreaterole
+        migrationIdentity.rows[0]?.rolcreaterole ||
+        migrationIdentity.rows[0]?.can_signal_backend ||
+        migrationIdentity.rows[0]?.can_read_server_files ||
+        migrationIdentity.rows[0]?.can_write_server_files ||
+        migrationIdentity.rows[0]?.can_execute_server_program
       ) {
         throw new Error(
           "Production migrations require a distinct, non-elevated schema-owner identity; the application role must remain separate.",
