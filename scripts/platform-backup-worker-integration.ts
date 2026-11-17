@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -21,15 +22,16 @@ const s3Objects = new Map<string, Buffer>();
 const originalFetch = globalThis.fetch;
 const originalEnv = { ...process.env };
 
-function restoreArchive(archive: Buffer, target: string): void {
+function restoreArchive(archive: Buffer, target: string, script: string): void {
   const dir = mkdtempSync(join(tmpdir(), "dsquare-platform-backup-"));
   const file = join(dir, "platform.dump");
   try {
     writeFileSync(file, archive);
-    const result = spawnSync("pg_restore", [
-      "--single-transaction", "--exit-on-error", "--no-owner", "--no-acl",
-      `--dbname=${target}`, file,
-    ], { env: process.env, encoding: "utf8" });
+    const restoreEnv = { ...process.env };
+    delete restoreEnv.DATABASE_URL;
+    delete restoreEnv.DB_BACKUP_URL;
+    delete restoreEnv.D_DATABASE_PLATFORM_BACKUP_URL;
+    const result = spawnSync("bash", [script, file, target], { env: restoreEnv, encoding: "utf8" });
     if (result.status !== 0) throw new Error(`pg_restore failed for ${target}: ${result.stderr}`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -101,7 +103,8 @@ async function main(): Promise<void> {
   assert.equal(hostingRow.rowCount, 1);
   const hostingArchive = s3Objects.get(hostingRow.rows[0].object_key) ?? Buffer.alloc(0);
   assert.equal(hostingArchive.length, Number(hostingRow.rows[0].size_bytes));
-  restoreArchive(hostingArchive, hostingTarget);
+  assert.equal(createHash("sha256").update(hostingArchive).digest("hex"), hostingRow.rows[0].checksum_sha256.trim());
+  restoreArchive(hostingArchive, hostingTarget, "apps/d-hosting/server/scripts/restore-platform-backup.sh");
 
   process.env.D_DATABASE_BACKUP_ENDPOINT = "https://fake-s3.example.test";
   process.env.D_DATABASE_BACKUP_BUCKET = "private-backups";
@@ -135,7 +138,8 @@ async function main(): Promise<void> {
   const databaseObjectPath = `/${process.env.D_DATABASE_BACKUP_BUCKET}/${databaseRow.rows[0].object_key}`;
   const databaseArchive = s3Objects.get(databaseObjectPath) ?? Buffer.alloc(0);
   assert.equal(databaseArchive.length, Number(databaseRow.rows[0].size_bytes));
-  restoreArchive(databaseArchive, databaseTarget);
+  assert.equal(createHash("sha256").update(databaseArchive).digest("hex"), databaseRow.rows[0].checksum_sha256.trim());
+  restoreArchive(databaseArchive, databaseTarget, "apps/d-database/server/scripts/restore-platform-backup.sh");
 
   for (const target of [hostingTarget, databaseTarget]) {
     const verifyPool = new Pool({ host: process.env.PGHOST, port: Number(process.env.PGPORT || 5432), user: process.env.PGUSER, password: process.env.PGPASSWORD, database: target });
