@@ -149,23 +149,9 @@ jobs:
           test -s /tmp/dsquare-platform.dump
           pg_restore --clean --if-exists --single-transaction --exit-on-error --no-owner --no-acl \
             --dbname=dsquare_backup_restore /tmp/dsquare-platform.dump
-          psql -v ON_ERROR_STOP=1 -d dsquare_backup_restore <<'SQL'
-          DO $
-          BEGIN
-            IF (SELECT count(*) FROM customers) <> 2 THEN
-              RAISE EXCEPTION 'Customer rows did not survive backup restore';
-            END IF;
-            IF (SELECT count(*) FROM orders) <> 2 THEN
-              RAISE EXCEPTION 'Order rows did not survive backup restore';
-            END IF;
-            IF NOT EXISTS (
-              SELECT 1 FROM orders o JOIN customers c ON c.id = o.customer_id
-              WHERE o.id = 101 AND c.customer_code = 'CUST-001'
-            ) THEN
-              RAISE EXCEPTION 'Restored foreign-key relationship is incorrect';
-            END IF;
-          END $;
-          SQL
+          test "$(psql -At -d dsquare_backup_restore -c 'SELECT count(*) FROM customers')" = "2"
+          test "$(psql -At -d dsquare_backup_restore -c 'SELECT count(*) FROM orders')" = "2"
+          test "$(psql -At -d dsquare_backup_restore -c "SELECT count(*) FROM orders o JOIN customers c ON c.id = o.customer_id WHERE o.id = 101 AND c.customer_code = 'CUST-001'")" = "1"
           psql -v ON_ERROR_STOP=1 -d dsquare_backup_guard -c "CREATE TABLE restore_guard (id integer PRIMARY KEY); INSERT INTO restore_guard VALUES (77);"
           cp /tmp/dsquare-platform.dump /tmp/dsquare-platform-corrupt.dump
           truncate -s 64 /tmp/dsquare-platform-corrupt.dump
