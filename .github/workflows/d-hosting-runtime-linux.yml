@@ -142,8 +142,8 @@ jobs:
         run: |
           set -euo pipefail
           createdb dsquare_backup_source
-          createdb dsquare_restore_hosting_ci
-          createdb dsquare_restore_database_ci
+          createdb --template=template0 dsquare_restore_hosting_ci
+          createdb --template=template0 dsquare_restore_database_ci
           npx tsx scripts/platform-backup-worker-integration.ts
 
       - name: Verify corrupt archive cannot partially modify an isolated target
