@@ -40,6 +40,21 @@ async function privateDirectory(directory: string): Promise<string> {
   await chmod(directory, 0o700);
   return directory;
 }
+/** Backups must live outside the website data tree and outside its parent root. */
+export function assertPersistentBackupRootSeparated(storageRoot: string, backupRoot: string): void {
+  const storage = path.resolve(storageRoot);
+  const backups = path.resolve(backupRoot);
+  const backupRelativeToStorage = path.relative(storage, backups);
+  const storageRelativeToBackup = path.relative(backups, storage);
+  const backupInsideStorage = backupRelativeToStorage === "" ||
+    (!backupRelativeToStorage.startsWith("..") && !path.isAbsolute(backupRelativeToStorage));
+  const storageInsideBackup = storageRelativeToBackup === "" ||
+    (!storageRelativeToBackup.startsWith("..") && !path.isAbsolute(storageRelativeToBackup));
+  if (backupInsideStorage || storageInsideBackup) {
+    throw new Error("Persistent backups must be stored in a separate directory outside the website storage root.");
+  }
+}
+
 function encryptionKey(value: Uint8Array): Buffer {
   const key = Buffer.from(value);
   if (key.byteLength !== 32) throw new Error("Persistent backup encryption key must contain exactly 32 bytes.");
@@ -82,6 +97,7 @@ export async function createPersistentStorageBackup(
 ): Promise<PersistentBackup> {
   if (!UUID.test(resourceId)) throw new Error("Persistent storage resource ID is invalid.");
   const key = encryptionKey(keyBytes);
+  assertPersistentBackupRootSeparated(storageRoot, backupRoot);
   const sourceRoot = await privateDirectory(storageRoot);
   const source = path.join(sourceRoot, resourceId);
   const sourceStat = await lstat(source);
