@@ -22,6 +22,7 @@ CREATE ROLE d_hosting_migrator LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHER
 CREATE ROLE d_hosting_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD 'REPLACE_SECURELY';
 CREATE ROLE d_hosting_backup LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD 'REPLACE_SECURELY';
 
+ALTER SCHEMA public OWNER TO d_hosting_migrator;
 GRANT CONNECT ON DATABASE d_hosting TO d_hosting_migrator, d_hosting_app, d_hosting_backup;
 GRANT USAGE ON SCHEMA public TO d_hosting_app, d_hosting_backup;
 
@@ -40,7 +41,7 @@ ALTER DEFAULT PRIVILEGES FOR ROLE d_hosting_migrator IN SCHEMA public
   GRANT SELECT ON SEQUENCES TO d_hosting_backup;
 ```
 
-The DBA must ensure the migration identity owns the existing D Hosting platform schema objects (tables, sequences, and the migration ledger) before it is used. Do not make the application role the schema owner to avoid a migration setup step.
+The DBA must ensure the migration identity owns the existing D Hosting platform schema objects (tables, sequences, and the migration ledger) before it is used. The ALTER SCHEMA statement above is only one part of that ownership transition; review and transfer existing object ownership explicitly. Do not make the application role the schema owner to avoid a migration setup step.
 
 Configure the trusted D Hosting API with `DB_USER=d_hosting_app`, `DB_MIGRATION_USER=d_hosting_migrator` and its password, and `DB_BACKUP_USER=d_hosting_backup` and its password (or the corresponding dedicated connection URLs). The migration and backup credentials must never be exposed to the frontend or D Hosting Runtime Agent.
 
@@ -54,6 +55,8 @@ CREATE ROLE d_database_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT P
 CREATE ROLE d_database_backup LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD 'REPLACE_SECURELY';
 CREATE ROLE d_database_provisioner LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOINHERIT PASSWORD 'REPLACE_SECURELY';
 
+ALTER DATABASE d_database OWNER TO d_database_migrator;
+ALTER SCHEMA public OWNER TO d_database_migrator;
 GRANT CONNECT ON DATABASE d_database TO d_database_migrator, d_database_app, d_database_backup, d_database_provisioner;
 GRANT CONNECT ON DATABASE d_database TO d_database_provisioner WITH GRANT OPTION;
 REVOKE GRANT OPTION FOR CONNECT ON DATABASE d_database FROM d_database_app;
@@ -78,7 +81,7 @@ GRANT d_database_app TO d_database_provisioner WITH INHERIT FALSE, SET TRUE;
 GRANT pg_signal_backend TO d_database_provisioner;
 ```
 
-The DBA must ensure `d_database_migrator` owns the D Database database (so it can grant the runtime role's CREATE privilege) and the existing control-plane tables, sequences, schema, and migration ledger. Resource schemas remain owned by `d_database_app`. Do not grant CREATEROLE to `d_database_app`.
+The DBA must ensure `d_database_migrator` owns the D Database database (so it can grant the runtime role's CREATE privilege), the public schema, and the existing control-plane tables, sequences, and migration ledger. Resource schemas remain owned by `d_database_app`. Do not grant CREATEROLE to `d_database_app`.
 
 The resource provisioner must use only `DB_PROVISIONER_URL`. It checks that its connected identity is non-superuser, has CREATEROLE, can SET ROLE to `d_database_app`, and belongs to `pg_signal_backend`. It also needs CONNECT grant option on this one database so it can grant CONNECT to the resource login it creates. Role creation/password changes, database CONNECT grants, and NOLOGIN operations run as the provisioner; schema grants and grant metadata run as `d_database_app`. The old application-role CONNECT grant option is explicitly revoked above.
 
