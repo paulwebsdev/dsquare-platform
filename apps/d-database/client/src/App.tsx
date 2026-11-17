@@ -5,6 +5,7 @@ import AuthScreen, { type AuthUser } from "./components/AuthScreen";
 import HostingApproval from "./components/HostingApproval";
 import DeveloperApiKeys from "./components/DeveloperApiKeys";
 import { HelpSupport, ResourceDirectory, UsageBilling, WorkspaceActivity, WorkspaceSettings } from "./components/WorkspacePages";
+import { PRODUCT_NAME, RESOURCE_LABEL, PRODUCT_TAGLINE } from "./product";
 
 type Theme = "light" | "dark" | "system";
 
@@ -27,9 +28,9 @@ const navigation = [
 ];
 
 export default function App() {
-  const product = import.meta.env.VITE_PRODUCT_NAME || "DSquare";
-  const resource = import.meta.env.VITE_RESOURCE_LABEL || "Resources";
-  const tagline = import.meta.env.VITE_PRODUCT_TAGLINE || "Manage your infrastructure.";
+  const product = PRODUCT_NAME;
+  const resource = RESOURCE_LABEL;
+  const tagline = PRODUCT_TAGLINE;
 
   const [theme, setTheme] = useState<Theme>(() => {
     const saved = localStorage.getItem("dsquare-theme");
