@@ -19,6 +19,7 @@ import hostingPreviewRouter from "./routes/hosting-preview.js";
 import hostingDomainsRouter from "./routes/hosting-domains.js";
 import hostingDomainSiteRouter from "./routes/hosting-domain-site.js";
 import { assertWebsiteObjectStorageConfigured } from "./services/website-object-storage.js";
+import { startHostingBackupScheduler } from "./services/platform-backup-worker.js";
 
 const app = express();
 app.set("trust proxy", 1);
@@ -103,6 +104,7 @@ app.use("/api/v1/projects", projectsRouter);
 app.get("/api/v1/health", async (_req, res) => {
   try {
     await pool.query("SELECT 1");
+    startHostingBackupScheduler(pool);
 
     res.json({
       success: true,
