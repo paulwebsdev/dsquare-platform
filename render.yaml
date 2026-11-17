@@ -3,7 +3,7 @@ services:
     name: dsquare-d-database
     runtime: node
     plan: free
-    buildCommand: npm ci --include=dev && npm run build --workspace=@dsquare/d-database-client && npm run typecheck --workspace=@dsquare/d-database-server
+    buildCommand: npm install --package-lock-only --ignore-scripts --no-audit --no-fund && npm ci --include=dev && npm run build --workspace=@dsquare/d-database-client && npm run typecheck --workspace=@dsquare/d-database-server
     startCommand: npm run start --workspace=@dsquare/d-database-server
     healthCheckPath: /api/v1/health
     envVars:
@@ -36,7 +36,7 @@ services:
     name: dsquare-d-hosting
     runtime: node
     plan: free
-    buildCommand: npm ci --include=dev && npm run build --workspace=@dsquare/d-hosting-client && npm run typecheck --workspace=@dsquare/d-hosting-server
+    buildCommand: npm install --package-lock-only --ignore-scripts --no-audit --no-fund && npm ci --include=dev && npm run build --workspace=@dsquare/d-hosting-client && npm run typecheck --workspace=@dsquare/d-hosting-server
     startCommand: npm run start --workspace=@dsquare/d-hosting-server
     healthCheckPath: /api/v1/health
     envVars:
