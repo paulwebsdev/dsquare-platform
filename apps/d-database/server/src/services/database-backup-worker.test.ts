@@ -45,9 +45,10 @@ test("releases the distributed lock and client after an acquired no-storage swee
     const result = await runDatabaseBackupScheduledSweep(fake.pool);
 
     assert.deepEqual(result, { completed: 0, failed: 0, skipped: true, expired: 0 });
-    assert.equal(fake.calls.length, 2);
+    assert.equal(fake.calls.length, 3);
     assert.match(fake.calls[0], /pg_try_advisory_lock/);
-    assert.match(fake.calls[1], /pg_advisory_unlock/);
+    assert.match(fake.calls[1], /BACKUP_INTERRUPTED/);
+    assert.match(fake.calls[2], /pg_advisory_unlock/);
     assert.equal(fake.wasReleased(), true);
   } finally {
     keys.forEach((key, index) => {
@@ -71,8 +72,9 @@ test("releases the advisory lock when backup configuration validation fails", as
   try {
     const fake = createPool(true);
     await assert.rejects(runDatabaseBackupScheduledSweep(fake.pool), /Incomplete D Database backup storage configuration/);
-    assert.equal(fake.calls.length, 2);
-    assert.match(fake.calls[1], /pg_advisory_unlock/);
+    assert.equal(fake.calls.length, 3);
+    assert.match(fake.calls[1], /BACKUP_INTERRUPTED/);
+    assert.match(fake.calls[2], /pg_advisory_unlock/);
     assert.equal(fake.wasReleased(), true);
   } finally {
     keys.forEach((key, index) => {
