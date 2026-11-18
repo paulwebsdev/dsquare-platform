@@ -50,8 +50,10 @@ Do not call this server SDK directly from browser code: its secret API key must 
 
 - `listTables()`
 - `select(table, { limit, offset })`
+- `selectCursor(table, { limit, cursor })` — efficient keyset pagination for tables with a single-column primary key.
+- `transaction(operations)` — atomic group of 1–20 insert/update/delete operations.
 - `insert(table, values)`
 - `update(table, values, where)`
 - `delete(table, where)`
 
-Reads are paginated (1–100 rows per request). Table and column names are validated and values are parameterized. Update and delete operations require explicit equality filters; empty filters are rejected to prevent accidental whole-table mutations. Transactions, realtime subscriptions, and browser-direct access are not part of this initial SDK release.
+Reads are paginated (1–100 rows per request). Table and column names are validated and values are parameterized. Update and delete operations require explicit equality filters; empty filters are rejected to prevent accidental whole-table mutations. Transactions use one PostgreSQL transaction and roll back the complete batch if any operation fails. Cursor pagination avoids large OFFSET scans and returns an opaque continuation cursor. Realtime subscriptions and browser-direct access are not included.
