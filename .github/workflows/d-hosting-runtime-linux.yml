@@ -67,6 +67,12 @@ jobs:
       - name: Test D Database API
         run: npm test --workspace=@dsquare/d-database-server
 
+      - name: Type-check D Database SDK
+        run: npm run typecheck --workspace=@dsquare/d-database
+
+      - name: Test D Database SDK
+        run: npm test --workspace=@dsquare/d-database
+
       - name: Type-check D Database dashboard
         run: npm run typecheck --workspace=@dsquare/d-database-client
 

@@ -19,6 +19,7 @@ import databaseBackupsRouter from "./routes/database-backups.js";
 import developerApiKeysRouter from "./routes/developer-api-keys.js";
 import developerDataRouter from "./routes/developer-data.js";
 import { requireDeveloperKey } from "./middleware/require-developer-key.js";
+import developerCursorPaginationRouter from "./routes/developer-cursor-pagination.js";
 import { resourceProvisionerPool } from "./services/resource-access-provisioner.js";
 
 const app = express();
@@ -89,6 +90,7 @@ app.use("/api/v1/projects/:projectId/resources", requireAuth, requireProjectOwne
 app.use("/api/v1/projects/:projectId/resources", requireAuth, requireProjectOwnership, databaseBackupsRouter);
 app.use("/api/v1/projects/:projectId/resources/:resourceId/api-keys", requireAuth, requireProjectOwnership, developerApiKeysRouter);
 app.use("/api/v1/data/:projectId/:resourceId", requireDeveloperKey, developerDataRouter);
+app.use("/api/v1/data/:projectId/:resourceId", requireDeveloperKey, developerCursorPaginationRouter);
 
 app.get("/api/v1/health", async (_req, res) => {
   try {

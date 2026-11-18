@@ -267,6 +267,7 @@ export async function runDatabasePlatformBackupRetention(pool: Pool | PoolClient
 }
 
 const BACKUP_SCHEDULER_LOCK_NAME = "dsquare-d-database-backup-scheduler";
+const DEFAULT_STALE_BACKUP_HOURS = 24;
 
 export type DatabaseBackupScheduledSweepResult = {
   completed: number;
@@ -295,6 +296,18 @@ export async function runDatabaseBackupScheduledSweep(
     if (!lockAcquired) {
       return { completed: 0, failed: 0, skipped: true, expired: 0 };
     }
+
+    const requestedStaleHours = Number(process.env.D_DATABASE_BACKUP_STALE_HOURS || DEFAULT_STALE_BACKUP_HOURS);
+    const staleHours = Number.isFinite(requestedStaleHours)
+      ? Math.max(6, Math.min(168, Math.floor(requestedStaleHours)))
+      : DEFAULT_STALE_BACKUP_HOURS;
+    await lockClient.query(
+      `UPDATE database_backups
+       SET status = 'failed', error_code = 'BACKUP_INTERRUPTED'
+       WHERE status = 'running'
+         AND started_at < NOW() - ($1::integer * INTERVAL '1 hour')`,
+      [staleHours],
+    );
 
     const backup = await runDatabaseBackupSweep(lockClient);
     const platformBackup = await runDatabasePlatformBackup(lockClient);
