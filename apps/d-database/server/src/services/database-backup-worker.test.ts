@@ -299,3 +299,45 @@ test("database platform worker rejects readback corruption and never marks it co
   assert.ok(statements.some((sql) => sql.includes("status='failed'")));
   assert.equal(statements.some((sql) => sql.includes("status='completed'")), false);
 });
+
+
+test("marks stale running backup records interrupted under the scheduler lock", async () => {
+  const keys = [
+    "D_DATABASE_BACKUP_ENDPOINT", "D_DATABASE_BACKUP_BUCKET",
+    "D_DATABASE_BACKUP_ACCESS_KEY_ID", "D_DATABASE_BACKUP_SECRET_ACCESS_KEY",
+    "D_DATABASE_BACKUP_PREFIX", "D_DATABASE_BACKUP_REGION",
+    "D_DATABASE_BACKUP_STALE_HOURS", "D_DATABASE_PLATFORM_BACKUP_URL",
+  ] as const;
+  const previous = keys.map((key) => process.env[key]);
+  Object.assign(process.env, {
+    D_DATABASE_BACKUP_ENDPOINT: "https://storage.example.test",
+    D_DATABASE_BACKUP_BUCKET: "private-backups",
+    D_DATABASE_BACKUP_ACCESS_KEY_ID: "test-access",
+    D_DATABASE_BACKUP_SECRET_ACCESS_KEY: "test-secret",
+    D_DATABASE_BACKUP_PREFIX: "dsquare/database",
+    D_DATABASE_BACKUP_REGION: "us-east-2",
+    D_DATABASE_BACKUP_STALE_HOURS: "999",
+  });
+  delete process.env.D_DATABASE_PLATFORM_BACKUP_URL;
+  const statements: Array<{sql:string;values:unknown[]}> = [];
+  const client = {
+    query: async (sql:string, values:unknown[] = []) => {
+      statements.push({sql,values});
+      if (sql.includes("pg_try_advisory_lock")) return {rows:[{acquired:true}],rowCount:1};
+      return {rows:[],rowCount:0};
+    },
+    release: () => undefined,
+  };
+  const pool = {connect:async()=>client} as unknown as Pool;
+  try {
+    const result=await runDatabaseBackupScheduledSweep(pool);
+    assert.equal(result.skipped,true);
+    const recovery=statements.find((entry)=>entry.sql.includes("BACKUP_INTERRUPTED"));
+    assert.ok(recovery);
+    assert.deepEqual(recovery.values,[168]);
+    assert.ok(statements.some((entry)=>entry.sql.includes("pg_try_advisory_lock")));
+    assert.ok(statements.some((entry)=>entry.sql.includes("pg_advisory_unlock")));
+  } finally {
+    keys.forEach((key,index)=>previous[index]===undefined?delete process.env[key]:process.env[key]=previous[index]!);
+  }
+});

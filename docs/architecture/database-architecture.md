@@ -251,3 +251,8 @@ A PostgreSQL session advisory lock serializes migration runners. Each migration 
 ## 19. D Database keyset cursor pagination
 
 Large-table reads can use `GET /api/v1/data/:projectId/:resourceId/tables/:tableName/rows/cursor` with a bounded page limit (1–100) and an opaque continuation cursor. The endpoint requires exactly one primary-key column, validates table and cursor input, uses parameterized keyset queries, and fetches one extra row to determine whether another page exists. It does not run a full-table count query. The cursor is not an authorization token; the developer API key continues to enforce the resource and read scope. The server-side SDK exposes `selectCursor()` for this endpoint. Composite or missing primary keys are not supported by this first version.
+
+
+## 20. Interrupted scheduled backup recovery
+
+Each scheduled backup sweep reconciles resource backup records that remain in `running` state beyond `D_DATABASE_BACKUP_STALE_HOURS` (default 24 hours, bounded to 6–168). Such records are marked `failed` with `BACKUP_INTERRUPTED`. Reconciliation runs only after the scheduler has acquired the same PostgreSQL session advisory lock that protects the complete backup and retention cycle, preventing concurrent replicas from reconciling the same work. This is recovery of stale status records, not a substitute for verifying backup archives or performing a restore test.
