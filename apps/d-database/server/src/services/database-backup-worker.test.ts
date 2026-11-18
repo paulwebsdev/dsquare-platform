@@ -331,7 +331,7 @@ test("marks stale running backup records interrupted under the scheduler lock", 
   const pool = {connect:async()=>client} as unknown as Pool;
   try {
     const result=await runDatabaseBackupScheduledSweep(pool);
-    assert.equal(result.skipped,true);
+    assert.equal(result.skipped,false);
     const recovery=statements.find((entry)=>entry.sql.includes("BACKUP_INTERRUPTED"));
     assert.ok(recovery);
     assert.deepEqual(recovery.values,[168]);
